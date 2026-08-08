@@ -1,5 +1,7 @@
 # Cost-Estimation Core (cost_core)
 
+[![tests](https://github.com/MichaelFowler1/Cost_AI_v1/actions/workflows/tests.yml/badge.svg)](https://github.com/MichaelFowler1/Cost_AI_v1/actions/workflows/tests.yml)
+
 This repository contains the foundational Python library and command-line interface (CLI) for our cost-estimation and risk analysis workflows.
 
 The core is designed to help analysts fit log-log learning curves to historical production data, project future unit costs, and run Monte Carlo simulations to understand cost risk and confidence intervals (e.g., P50, P80).
@@ -73,3 +75,33 @@ ce-core simulate --n-iter 10000 --unit-cost-dist '{"type": "lognormal", "mean": 
 * `/cost_core`: The core mathematical Python modules (data_io, learning_curve, monte_carlo).
 * `/cli`: The command-line interface wrappers that expose the core to the terminal.
 * `pyproject.toml`: The modern build system configuration defining dependencies and CLI entrypoints.
+* `/tests`: Property tests for the maths — see below.
+
+## Tests
+
+```bash
+pip install -r requirements.txt pytest
+pytest tests/ -q
+```
+
+35 tests, run on Python 3.11 and 3.12 on every push. They check the maths
+against known answers rather than checking that the code runs:
+
+- **Doubling quantity multiplies unit cost by the slope.** That is the
+  definition of a Wright curve, so it is asserted to machine precision across
+  five different slopes.
+- **A round trip through the fit.** Data is generated from a curve of known
+  slope, fitted, and the fit has to return that slope — and then reprice the
+  original data. A broken log-log regression or exponent conversion cannot
+  survive that.
+- **The simulation is deterministic.** The same seed gives byte-identical
+  samples, because a P80 that moves between runs is not a number you can put
+  in front of anyone.
+- **Statistics against closed forms.** A triangular distribution's mean is
+  `(left + mode + right) / 3`; a fixed quantity times a normal unit cost has a
+  known mean total. Both are checked against the analytic answer, not a
+  recorded one.
+- **Bad input is refused, not absorbed.** Non-positive costs, a single data
+  point, unknown distributions, missing parameters, negative quantities and
+  missing schema columns all raise rather than silently producing a
+  plausible-looking number.
