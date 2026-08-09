@@ -1,6 +1,6 @@
-# Cost-Estimation Core (cost_core)
+# cost-risk-toolkit
 
-[![tests](https://github.com/MichaelFowler1/Cost_AI_v1/actions/workflows/tests.yml/badge.svg)](https://github.com/MichaelFowler1/Cost_AI_v1/actions/workflows/tests.yml)
+[![tests](https://github.com/MichaelFowler1/cost-risk-toolkit/actions/workflows/tests.yml/badge.svg)](https://github.com/MichaelFowler1/cost-risk-toolkit/actions/workflows/tests.yml)
 
 A Python library and CLI for defense cost estimating: synthetic CSDR/SRDR data
 generation, an ingest pipeline that cleans it, learning curves and parametric
