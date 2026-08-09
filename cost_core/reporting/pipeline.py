@@ -345,6 +345,15 @@ def run_full_analysis(
     tables["cer_prediction"] = cer_prediction
 
     lo, hi = cer.predictor_ranges["weight_klb"]
+    # Built outside the f-string: a multi-line expression inside one is PEP 701
+    # syntax and does not parse on Python 3.11, which this project supports.
+    range_note = (
+        "**outside** that range -- the CER has no evidence there and the "
+        "interval reflects only the uncertainty of the fitted form, not the "
+        "risk that the form itself stops holding"
+        if extrapolating
+        else "inside that range"
+    )
     log.section(
         "4. Cost estimating relationship",
         f"Fitted across {portfolio_size} synthetic programs, log-log form, "
@@ -355,10 +364,7 @@ def run_full_analysis(
         f"- Standard error ${cer.standard_error / 1e6:,.2f}M, CV {cer.cv:.1%}\n"
         f"- Fitting range for `weight_klb`: {lo:,.1f} to {hi:,.1f}. "
         f"The subject program is {subject_weight:,.1f}, which is "
-        f"{'**outside** that range -- the CER has no evidence there and the '
-           'interval reflects only the uncertainty of the fitted form, not '
-           'the risk that the form stops holding'
-         if extrapolating else 'inside that range'}.\n"
+        f"{range_note}.\n"
         f"- Predicted first-unit cost "
         f"${cer_prediction['fit'].iloc[0] / 1e6:,.2f}M, 80% **prediction** "
         f"interval ${cer_prediction['lower'].iloc[0] / 1e6:,.2f}M to "

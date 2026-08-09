@@ -1,8 +1,11 @@
 name: tests
 
 on:
+  # Every branch, not just main. The matrix is the only place 3.11 is actually
+  # exercised, so restricting it to main meant a 3.11-only problem could not
+  # surface until after merge -- which is exactly how a Python 3.12 f-string
+  # construct reached this repo.
   push:
-    branches: [main, master]
   pull_request:
   workflow_dispatch:
 
