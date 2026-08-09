@@ -19,4 +19,8 @@ dependencies = [
 ce-core = "cli.ce_core_cli:main"
 
 [tool.setuptools.packages.find]
-include = ["cost_core", "cli"]
+# "cost_core" alone does not match "cost_core.synth" and friends -- these
+# patterns are matched against the full dotted name, so the subpackages need
+# the wildcard or an installed copy would be missing everything below the top
+# level.
+include = ["cost_core", "cost_core.*", "cli"]

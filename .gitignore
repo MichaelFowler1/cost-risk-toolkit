@@ -14,3 +14,6 @@ __pycache__/
 
 # OS junk
 .DS_Store
+# Build artifacts (pip install . / python -m build)
+build/
+dist/

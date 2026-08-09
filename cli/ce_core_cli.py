@@ -91,29 +91,96 @@ def run_simulate(args: argparse.Namespace) -> None:
     except Exception as e:
         abort(f"Simulation engine error: {e}")
 
+def run_full(args: argparse.Namespace) -> None:
+    """Generate, ingest, fit, simulate and report, in one command."""
+    try:
+        # Imported here rather than at module scope so that `fit-curve` and
+        # `simulate` do not pay for matplotlib and the reporting stack.
+        from cost_core.reporting import run_full_analysis
+
+        log.info("Running the full path into %s (seed %d)", args.out, args.seed)
+        result = run_full_analysis(
+            args.out,
+            seed=args.seed,
+            iterations=args.iters,
+            theory=args.theory,
+            method=args.method,
+            correlation=args.correlation,
+            base_year=args.base_year,
+            portfolio_size=args.programs,
+            clean=args.clean,
+        )
+
+        print("\n--- Cost estimate ---")
+        print(result.headline())
+        print("\nArtifacts:")
+        for name, path in result.artifacts.items():
+            print(f"  {name:18s} {path}")
+        print(f"\nAssumptions log: {result.artifacts['assumptions_log']}\n")
+
+    except Exception as e:
+        abort(f"Full run failed: {e}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="CE Core CLI: Regression & Risk Engine")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     # Subcommand: fit
+    # Long-form aliases (--quantity-col, --quantities, --n-iter,
+    # --unit-cost-dist, --quantity-dist) are accepted alongside the short
+    # names. The README documented the long forms while the parser only
+    # accepted the short ones, so every example in it failed; adding aliases
+    # fixes the documented interface without breaking the existing one.
     p_fit = sub.add_parser("fit-curve", help="Analyze historical cost trends")
     p_fit.add_argument("--csv", required=True)
     p_fit.add_argument("--out", required=True)
-    p_fit.add_argument("--qty-col", default="unit_quantity")
-    p_fit.add_argument("--cost-col", default="unit_cost")
+    p_fit.add_argument("--qty-col", "--quantity-col", dest="qty_col",
+                       default="unit_quantity")
+    p_fit.add_argument("--cost-col", dest="cost_col", default="unit_cost")
 
     # Subcommand: forecast
     p_fcst = sub.add_parser("forecast", help="Predict costs for target lots")
     p_fcst.add_argument("--model", required=True)
     p_fcst.add_argument("--out", required=True)
-    p_fcst.add_argument("--qtys", required=True, help="Lots e.g. '50,100,500'")
+    p_fcst.add_argument("--qtys", "--quantities", dest="qtys", required=True,
+                        help="Lots e.g. '50,100,500'")
 
     # Subcommand: simulate
     p_sim = sub.add_parser("simulate", help="Run probabilistic risk models")
     p_sim.add_argument("--out", required=True)
-    p_sim.add_argument("--iters", type=int, default=10000)
-    p_sim.add_argument("--cost-dist", required=True)
-    p_sim.add_argument("--qty-dist", required=True)
+    p_sim.add_argument("--iters", "--n-iter", dest="iters", type=int,
+                       default=10000)
+    p_sim.add_argument("--cost-dist", "--unit-cost-dist", dest="cost_dist",
+                       required=True)
+    p_sim.add_argument("--qty-dist", "--quantity-dist", dest="qty_dist",
+                       required=True)
+
+    # Subcommand: full-run
+    p_run = sub.add_parser(
+        "full-run",
+        help="End to end: synthesise CSDR/SRDR, ingest, fit, simulate, report",
+    )
+    p_run.add_argument("--out", required=True,
+                       help="Output directory for charts, tables and the log")
+    p_run.add_argument("--seed", type=int, default=7,
+                       help="Master seed; the same seed reproduces the run")
+    p_run.add_argument("--iters", "--n-iter", dest="iters", type=int,
+                       default=50000, help="Monte Carlo iterations")
+    p_run.add_argument("--theory", default="crawford",
+                       choices=["crawford", "wright"],
+                       help="Learning curve theory")
+    p_run.add_argument("--method", default="mupe",
+                       choices=["ols", "mupe", "zmpe"],
+                       help="Fitting method for the curve and the CER")
+    p_run.add_argument("--correlation", type=float, default=0.30,
+                       help="Uniform correlation across WBS elements")
+    p_run.add_argument("--base-year", type=int, default=None,
+                       help="Fiscal year to state dollars in")
+    p_run.add_argument("--programs", type=int, default=14,
+                       help="Programs generated for the CER fit")
+    p_run.add_argument("--clean", action="store_true",
+                       help="Generate data with no reporting pathologies")
 
     args = parser.parse_args()
 
@@ -121,9 +188,10 @@ def main() -> None:
     dispatch = {
         "fit-curve": run_fit,
         "forecast": run_forecast,
-        "simulate": run_simulate
+        "simulate": run_simulate,
+        "full-run": run_full,
     }
-    
+
     dispatch[args.cmd](args)
 
 if __name__ == "__main__":

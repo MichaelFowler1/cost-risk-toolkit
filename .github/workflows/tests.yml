@@ -20,9 +20,9 @@ jobs:
         python-version: ["3.11", "3.12"]
 
     env:
-      # monte_carlo imports pyplot at module scope; a headless runner has no
-      # display, so pin the non-interactive backend rather than relying on
-      # matplotlib guessing right.
+      # monte_carlo and cost_core.reporting.charts import pyplot at module
+      # scope; a headless runner has no display, so pin the non-interactive
+      # backend rather than relying on matplotlib guessing right.
       MPLBACKEND: Agg
 
     steps:
@@ -44,5 +44,26 @@ jobs:
         # from the source tree would hide.
         run: pip install -e .
 
+      - name: Check a real install exposes every subpackage
+        # An editable install resolves against the source tree, so it cannot
+        # catch a packages.find pattern that misses cost_core.synth and the
+        # other subpackages -- everything would import anyway. A non-editable
+        # install, imported from outside the repo, can.
+        run: |
+          pip install --force-reinstall --no-deps .
+          cd /tmp
+          python -c "import cost_core.synth, cost_core.ingest, cost_core.cer, cost_core.reporting, cli.ce_core_cli; print('subpackages import from site-packages')"
+          cd "$GITHUB_WORKSPACE"
+          pip install -e .
+
       - name: Run tests
         run: pytest tests/ -q
+
+      - name: Smoke-test the end-to-end CLI
+        # The full path writes real PNGs and a log; a broken chart or a
+        # mismatch between two modules would not show up in a unit test.
+        run: |
+          ce-core full-run --out /tmp/ce_run --seed 1 --iters 3000 --programs 8
+          test -s /tmp/ce_run/ASSUMPTIONS.md
+          test -s /tmp/ce_run/charts/s_curve.png
+          test -s /tmp/ce_run/charts/tornado.png
