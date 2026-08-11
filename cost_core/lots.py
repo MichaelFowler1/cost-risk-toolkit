@@ -731,7 +731,7 @@ class LotFitReport:
             f"{self.fit.slope:.2%} (80% interval {lo:.1%} to {hi:.1%}), "
             f"first-unit cost {self.fit.t1:,.0f}, standard error "
             f"{self.fit.standard_error:,.0f}, CV {self.fit.cv:.1%} on "
-            f"{self.fit.df} degrees of freedom.",
+            f"{self.fit.df} degree{'s' if self.fit.df != 1 else ''} of freedom.",
             f"The curve misses {self.series.labels[worst]} by "
             f"{self.fit.result.percent_errors[worst] * 100:+.1f}%, the largest "
             f"departure in the series.",

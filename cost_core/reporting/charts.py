@@ -304,6 +304,7 @@ def plot_learning_curve(
     forecast_lots: np.ndarray | None = None,
     level: float = 0.80,
     title: str = "Production cost improvement curve",
+    show_uncertainty: bool = True,
 ) -> Path:
     """Observed lot averages, the fitted curve, and forecast intervals.
 
@@ -330,9 +331,32 @@ def plot_learning_curve(
         span_hi = float(observed[:, 1].max())
         if forecast_lots is not None and len(forecast_lots):
             span_hi = max(span_hi, float(np.max(np.asarray(forecast_lots))))
+        span_lo = max(int(observed[:, 0].min()), 1)
         smooth = np.unique(
             np.round(np.geomspace(1, max(span_hi, 2), 220)).astype(int)
         )
+
+        # The band of curves the data cannot rule out. On a short series this
+        # is the whole point: a four-lot programme will show a band wide
+        # enough to contain an 80% curve and a 90% curve at once, which is a
+        # more honest answer than a single confident slope, and is invisible
+        # if only the point estimate is drawn.
+        slope_lo = slope_hi = None
+        if show_uncertainty and curve_fit.result.df > 0:
+            try:
+                band = curve_fit.forecast_lots(
+                    np.column_stack([smooth, smooth]),
+                    level=level, kind="confidence",
+                )
+                ax.fill_between(
+                    smooth, band["lot_average_lower"], band["lot_average_upper"],
+                    color=PRIMARY, alpha=0.13, zorder=1,
+                    label=f"{level:.0%} band on the fitted curve",
+                )
+                slope_lo, slope_hi = curve_fit.slope_interval
+            except Exception:  # pragma: no cover - band is a nicety, not the fit
+                logger.debug("Could not draw the uncertainty band.", exc_info=True)
+
         ax.plot(
             smooth, curve_fit.model.lot_average(smooth, smooth),
             color=PRIMARY, linewidth=2.4, zorder=3,
@@ -342,6 +366,19 @@ def plot_learning_curve(
                 f"{curve_fit.slope:.1%} slope"
             ),
         )
+
+        # Spell the slope range out on the chart, because "the interval is too
+        # wide to act on" is the finding a reader should leave with.
+        if slope_lo is not None:
+            ax.annotate(
+                f"Slope could be anywhere from {slope_lo:.1%} to {slope_hi:.1%}\n"
+                f"({curve_fit.n_obs} lots, {curve_fit.df} "
+                f"degree{'s' if curve_fit.df != 1 else ''} of freedom)",
+                xy=(0.02, 0.04), xycoords="axes fraction",
+                fontsize=10, color=PRIMARY, fontweight="bold",
+                bbox={"boxstyle": "round,pad=0.5", "facecolor": "white",
+                      "edgecolor": PRIMARY, "alpha": 0.9, "linewidth": 1.2},
+            )
 
         spread = list(actual_avg)
         if forecast_lots is not None and len(forecast_lots):
