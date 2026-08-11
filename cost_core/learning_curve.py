@@ -489,6 +489,22 @@ class CurveFit:
         return self.model.t1
 
     @property
+    def df(self) -> int:
+        """Residual degrees of freedom: observations minus parameters.
+
+        Surfaced on the fit itself because it is the number that decides
+        whether a curve fitted to a real production programme means anything.
+        A lot-level fit has ``lots - 2`` degrees of freedom, so a four-lot
+        programme has two, and every interval it produces will be very wide.
+        """
+        return self.result.df
+
+    @property
+    def n_obs(self) -> int:
+        """Number of observations the curve was fitted to."""
+        return self.result.n_obs
+
+    @property
     def standard_error(self) -> float:
         """Standard error of the estimate, in dollars."""
         return self.result.standard_error

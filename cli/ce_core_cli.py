@@ -91,6 +91,64 @@ def run_simulate(args: argparse.Namespace) -> None:
     except Exception as e:
         abort(f"Simulation engine error: {e}")
 
+def run_fit_lots(args: argparse.Namespace) -> None:
+    """Fit a learning curve to a two-column lot file: units and cost."""
+    path = Path(args.csv)
+    if not path.is_file():
+        abort(f"Lot file not found: {path}")
+
+    try:
+        from cost_core.lots import LotSeries, analyse_lots, build_assumption_log
+
+        series = LotSeries.read(
+            path,
+            dollar_year=args.dollar_year,
+            cost_basis=args.cost_basis,
+            first_unit=args.first_unit,
+            quantity_definition=args.quantity_definition,
+            program=args.program or path.stem,
+            units_col=args.units_col,
+            cost_col=args.cost_col,
+        )
+        report = analyse_lots(series, theory=args.theory, method=args.method)
+
+        print(f"\n--- {series.program} ---")
+        print(report.narrative())
+        print("\nLots as read and fitted:")
+        columns = ["lot", "units", "cost", "first_unit", "last_unit",
+                   "lot_average_cost", "fitted_average", "percent_error"]
+        print(report.per_lot[columns].to_string(index=False))
+        print("\nSummary:")
+        print(report.summary().to_string(index=False))
+
+        if args.forecast:
+            quantities = [int(x) for x in args.forecast.replace(" ", "").split(",") if x]
+            print(f"\nForecast ({args.level:.0%} prediction interval):")
+            print(report.forecast(quantities, level=args.level).to_string(index=False))
+
+        if args.out:
+            out = Path(args.out)
+            out.mkdir(parents=True, exist_ok=True)
+            report.per_lot.to_csv(out / "lots_fitted.csv", index=False)
+            report.summary().to_csv(out / "summary.csv", index=False)
+            if report.by_method:
+                report.method_comparison().to_csv(out / "methods.csv", index=False)
+                report.theory_comparison().to_csv(out / "theories.csv", index=False)
+            build_assumption_log(report, source=path).write(out / "ASSUMPTIONS.md")
+
+            from cost_core.reporting import charts
+
+            lot_table = report.per_lot.rename(columns={"cost": "lot_cost"})
+            charts.plot_learning_curve(
+                report.fit, lot_table, out / "learning_curve.png",
+                title=f"{series.program}: cost improvement curve",
+            )
+            log.info(f"Wrote results and ASSUMPTIONS.md to {out}")
+
+    except Exception as e:
+        abort(f"Lot curve fit failed: {e}")
+
+
 def run_full(args: argparse.Namespace) -> None:
     """Generate, ingest, fit, simulate and report, in one command."""
     try:
@@ -156,6 +214,38 @@ def main() -> None:
     p_sim.add_argument("--qty-dist", "--quantity-dist", dest="qty_dist",
                        required=True)
 
+    # Subcommand: fit-lots -- the simple front door for real production data
+    p_lots = sub.add_parser(
+        "fit-lots",
+        help="Fit a curve to a two-column lot file (units, cost)",
+    )
+    p_lots.add_argument("--csv", required=True,
+                        help="CSV or XLSX with a units column and a cost column")
+    p_lots.add_argument("--dollar-year", type=int, required=True,
+                        help="Fiscal year the constant dollars are stated in")
+    p_lots.add_argument("--out", default=None,
+                        help="Directory for results, chart and ASSUMPTIONS.md")
+    p_lots.add_argument("--cost-basis", default="recurring",
+                        choices=["recurring", "total"],
+                        help="'total' includes nonrecurring and warns")
+    p_lots.add_argument("--first-unit", type=int, default=1,
+                        help="Unit number the first lot starts at")
+    p_lots.add_argument("--theory", default="crawford",
+                        choices=["crawford", "wright"])
+    p_lots.add_argument("--method", default="ols",
+                        choices=["ols", "mupe", "zmpe"])
+    p_lots.add_argument("--quantity-definition", default="unspecified",
+                        help="What a unit means: delivered, completed, accepted")
+    p_lots.add_argument("--program", default=None, help="Program name for reports")
+    p_lots.add_argument("--units-col", default=None,
+                        help="Name the quantity column if it is not recognised")
+    p_lots.add_argument("--cost-col", default=None,
+                        help="Name the cost column if it is not recognised")
+    p_lots.add_argument("--forecast", default=None,
+                        help="Future lot sizes, e.g. '30,40'")
+    p_lots.add_argument("--level", type=float, default=0.80,
+                        help="Prediction interval coverage")
+
     # Subcommand: full-run
     p_run = sub.add_parser(
         "full-run",
@@ -189,6 +279,7 @@ def main() -> None:
         "fit-curve": run_fit,
         "forecast": run_forecast,
         "simulate": run_simulate,
+        "fit-lots": run_fit_lots,
         "full-run": run_full,
     }
 

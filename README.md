@@ -61,6 +61,62 @@ artifacts/
 
 The same seed reproduces the run exactly.
 
+## Fitting a curve to your own lot data
+
+The simplest way in. Two columns, one row per lot:
+
+```csv
+lot,units,cost
+LRIP 1,22,96800000
+LRIP 2,18,70200000
+FRP 1,25,90000000
+FRP 2,30,100500000
+```
+
+```bash
+ce-core fit-lots --csv mylots.csv --dollar-year 2026 --forecast "30,40" --out results/
+```
+
+The `lot` column is optional. Common header spellings (`Qty`, `Quantity`,
+`Total Cost`, `Amount`, …) are recognised automatically; anything unusual is
+named with `--units-col` / `--cost-col`. Currency formatting such as
+`$1,200,000` is parsed. `.xlsx` works with `pip install cost_core[excel]`.
+
+Everything else is derived: lot 1 is units 1–22, lot 2 is units 23–40, and so
+on by running total. That is what turns a flat list of lots into positions on a
+curve. You get the fitted slope and first-unit cost, standard error and CV, an
+interval on the slope, a per-lot percentage error showing which lots the curve
+misses, prediction intervals on forecast lots, and an `ASSUMPTIONS.md`.
+
+### Four things that quietly ruin a lot fit
+
+The tool checks all four, because each one leaves a fit that looks perfectly
+healthy while the slope is several points wrong.
+
+**Nonrecurring cost in the totals.** Nonrecurring is front-loaded, so including
+it makes early lots look expensive and the curve reads steeper than the
+production process really is — overstating future savings. `--cost-basis` must
+be declared and `total` warns.
+
+**Escalation left in "constant" dollars.** `--dollar-year` is **required**: no
+index is applied, but constant dollars are constant relative to a year, and an
+output nobody can place in a year cannot be escalated or compared. Two checks
+run for escalation still in the data — whether cumulative average cost ever
+rises, and whether the log-log residuals bend. The second matters more:
+escalation must exceed roughly 10%/yr before it turns the cumulative average
+upward, whereas the bend is detectable from about 2%. Neither can separate
+moderate escalation from genuinely slower learning without a fiscal year per
+lot, and the log says so.
+
+**Lots that don't start at unit 1.** If the programme has a prior buy the curve
+has already learned through, `--first-unit` shifts the series. Otherwise the
+fitted first-unit cost describes a unit nobody built.
+
+**Too few lots.** Degrees of freedom are `lots − 2`. Two lots interpolate
+exactly and are refused; three gives one degree of freedom and an interval too
+wide to support a decision; five is the practical floor. The tool fits below
+that but says so loudly.
+
 ## Usage guide
 
 ### Full run
