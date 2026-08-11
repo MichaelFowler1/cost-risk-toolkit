@@ -2,24 +2,45 @@
 
 [![tests](https://github.com/MichaelFowler1/cost-risk-toolkit/actions/workflows/tests.yml/badge.svg)](https://github.com/MichaelFowler1/cost-risk-toolkit/actions/workflows/tests.yml)
 
-A Python library and CLI for defense cost estimating: synthetic CSDR/SRDR data
-generation, an ingest pipeline that cleans it, learning curves and parametric
-CERs fitted by unbiased methods, and correlated Monte Carlo risk analysis with
-publication-quality output.
+A Python library and CLI for defense cost estimating. Point it at your own
+production history — units and cost for each lot — and it fits a learning
+curve, tells you which lots it misses, forecasts the next buy with prediction
+intervals, and writes down every assumption it made. It also carries a full
+synthetic CSDR/SRDR pipeline, parametric CERs, and correlated Monte Carlo risk
+analysis.
+
+**Fit a curve to your own lot data in one command:**
+
+```bash
+ce-core fit-lots --csv mylots.csv --dollar-year 2026 --out results/
+```
+
+```csv
+lot,units,cost
+LRIP 1,22,96800000
+LRIP 2,18,70200000
+FRP 1,25,90000000
+```
+
+Two columns is the whole input. [Jump to the details](#fitting-a-curve-to-your-own-lot-data),
+including the four things that quietly ruin a lot fit and how the tool checks
+for each.
 
 ![Learning-curve forecast and Monte Carlo cost risk](docs/hero.png)
 
 *Real output — `cost_core` fits an 85% Wright learning curve and forecasts future lots (left), then runs a 10,000-iteration Monte Carlo total-cost simulation with P50/P80/P90 thresholds (right). Regenerate with `python make_hero.py`, which reads a local `data.csv` (not committed — `.gitignore` excludes `*.csv`).*
 
-> **All data in this repository is synthetic.** No real or proprietary
-> contractor data is used anywhere. The generator produces invented programs
-> in the *shape* of CADE submissions so the pipeline has something realistic
-> to clean; every number comes from a seeded pseudo-random generator.
+> **No real or proprietary data is committed to this repository.** You supply
+> your own for `fit-lots`; nothing you pass in is stored here. Everything the
+> repo ships with — and everything the test suite runs on — comes from a
+> seeded generator producing invented programs in the *shape* of CADE
+> submissions.
 
 ## What it does
 
 | Module | Purpose |
 | --- | --- |
+| `cost_core.lots` | **Your own data:** units and cost per lot, in CSV or Excel. Derives lot boundaries, fits, and guards the four ways this input silently goes wrong |
 | `cost_core.synth` | Seeded synthetic CSDR/SRDR generator: DD 1921, DD 1921-1, DD 1921-2, Cost and Hour Report (FlexFile), Quantity Data Report, SRDR (DD 2630) — with realistic pathologies to clean |
 | `cost_core.ingest` | ETL to one normalised long table: WBS crosswalk, base-year normalisation, resubmission dedup, loud validation gates, row-level provenance |
 | `cost_core.fitting` | Shared estimator: OLS, MUPE and ZMPE, with delta-method prediction and confidence intervals |
@@ -36,11 +57,26 @@ Python 3.11 or higher.
 python -m venv .venv && .venv/Scripts/activate && pip install -e .
 ```
 
+Excel input needs one extra: `pip install -e ".[excel]"`. CSV works without it.
+
 ## Quick start
 
-Run the entire path — generate synthetic submissions, ingest and normalise
-them, fit a learning curve and a CER, simulate with correlation, and write
-charts, tables and an assumptions log:
+### With your own data
+
+```bash
+ce-core fit-lots --csv mylots.csv --dollar-year 2026 --forecast "30,40" --out results/
+```
+
+Prints the fitted slope and first-unit cost, the standard error and CV, an
+interval on the slope, and a per-lot percentage error showing which lots the
+curve misses. With `--out` it also writes a chart and an `ASSUMPTIONS.md`.
+See [Fitting a curve to your own lot data](#fitting-a-curve-to-your-own-lot-data).
+
+### With generated data, to see the whole pipeline
+
+Generate synthetic submissions, ingest and normalise them, fit a learning curve
+and a CER, simulate with correlation, and write charts, tables and an
+assumptions log:
 
 ```bash
 ce-core full-run --out artifacts/ --seed 7
@@ -276,6 +312,7 @@ of a reliable estimate.
 ```
 cost_core/
   fitting.py          shared OLS / MUPE / ZMPE estimator and intervals
+  lots.py             your own lot data: units and cost per lot
   learning_curve.py   Wright and Crawford theories, rate breaks
   monte_carlo.py      correlated risk simulation
   data_io.py          CSV and SQLite loading
@@ -294,7 +331,7 @@ pip install -r requirements.txt pytest
 pytest tests/ -q
 ```
 
-379 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
+436 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
 against closed-form answers rather than against recorded output. The strongest
 ones:
 
@@ -323,8 +360,13 @@ ones:
   of its units.
 - **Simulations are seed-deterministic.** A P80 that moves between runs is not
   a number you can put in front of anyone.
-- **Bad input is refused, not absorbed.** Zero degrees of freedom, unmatched
-  WBS names, non-positive costs in a log fit, a correlation matrix that is not
-  symmetric, a rate break beyond the data, an unknown interval kind, an index
-  asked for a year it does not cover — each raises rather than producing a
-  plausible-looking number.
+- **Escalation detection is tested for its limits, not just its successes.**
+  There is a test asserting that the rising-cumulative-average check *misses*
+  4%/yr escalation — because it does, returning an 88.9% slope against a true
+  85% with an R² of 0.99. That is why the curvature test exists, and there are
+  tests that it fires from 2%/yr and stays silent on ordinary scatter.
+- **Bad input is refused, not absorbed.** Zero degrees of freedom, a missing
+  base year, two lots, fractional units, unmatched WBS names, non-positive
+  costs in a log fit, a correlation matrix that is not symmetric, a rate break
+  beyond the data, an unknown interval kind, an index asked for a year it does
+  not cover — each raises rather than producing a plausible-looking number.
