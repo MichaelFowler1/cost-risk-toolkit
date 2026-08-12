@@ -48,6 +48,7 @@ from typing import Any, Iterable, Literal
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 from cost_core.fitting import FitError
 from cost_core.learning_curve import (METHODS, CurveFit, RateBreak, Theory,
@@ -801,7 +802,52 @@ class LotFitReport:
 
         theta_hat = self.fit.result.theta
         covariance = self.fit.result.cov
-        draws = rng.multivariate_normal(theta_hat, covariance, size=n_iter)
+        dof = self.fit.result.df
+
+        # Sigma is ESTIMATED, not known, so the predictive distribution is t
+        # with n-p degrees of freedom rather than normal. Drawing from a normal
+        # would understate the tails badly on a short series -- at four degrees
+        # of freedom the t multiplier is 1.20x the normal one, and the whole
+        # interval comes out about 16% too narrow. Understating risk is the
+        # one error this library exists to avoid.
+        #
+        # Implemented the standard way: draw a scale factor per iteration from
+        # a scaled inverse chi-square and apply it to BOTH the parameter draw
+        # and the residual shock. A standard normal times sqrt(df/chi2_df) is
+        # exactly a t with df degrees of freedom, so the simulation now agrees
+        # with the analytic interval by construction rather than by luck.
+        scale = np.sqrt(dof / rng.chisquare(dof, size=n_iter))
+
+        # At one or two degrees of freedom the t distribution has no finite
+        # variance, and at one it has no mean either. That is the honest
+        # answer for a three- or four-lot programme, but left alone it
+        # produces an occasional draw so extreme that exp() overflows and the
+        # reported percentiles come back as inf. Clip the scale factor so the
+        # output stays finite, and say clearly that it happened -- a silently
+        # truncated tail would understate risk, and an inf would just look
+        # like a crash.
+        cap = float(np.sqrt(dof / stats.chi2.ppf(1.0 - 1e-4, dof)) * 1e4)
+        n_clipped = int(np.sum(scale > cap))
+        if n_clipped:
+            scale = np.minimum(scale, cap)
+        if dof <= 2:
+            warnings.warn(
+                f"Only {dof} degree(s) of freedom, so the forecast "
+                f"distribution has "
+                + ("no finite mean or variance" if dof == 1 else "no finite variance")
+                + ". Read the percentiles (P50, P80, P90), which remain "
+                f"meaningful; the mean, standard deviation and CV do not. "
+                f"{n_clipped} of {n_iter} draws were clipped to keep the "
+                f"output finite. The real message is that this many lots "
+                f"cannot support a confident forecast.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+        centred = rng.multivariate_normal(
+            np.zeros(theta_hat.size), covariance, size=n_iter
+        )
+        draws = theta_hat + centred * scale[:, None]
 
         breaks = self.fit.model.breaks
         theory = self.fit.theory
@@ -831,6 +877,10 @@ class LotFitReport:
                 except np.linalg.LinAlgError:  # pragma: no cover - guarded above
                     chol = np.linalg.cholesky(corr + np.eye(n_lots) * 1e-10)
                 log_shocks = (rng.standard_normal(per_lot.shape) @ chol.T) * sigma
+            # The same scale factor as the parameter draw. Applying it to only
+            # one of the two would leave half the fix in place and make the
+            # residual and parameter terms mutually inconsistent.
+            log_shocks = log_shocks * scale[:, None]
             per_lot = per_lot * np.exp(log_shocks)
             totals = per_lot.sum(axis=1)
 

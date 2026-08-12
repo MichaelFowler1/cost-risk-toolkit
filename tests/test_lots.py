@@ -524,14 +524,20 @@ def test_the_simulation_agrees_with_the_analytic_interval_on_one_lot():
     disagreement would mean one of the two is wrong."""
     report = analyse_lots(noisy_series())
     analytic = report.forecast([40], level=0.80)
-    sim = report.simulate_forecast([40], n_iter=80_000, seed=3)
+    sim = report.simulate_forecast([40], n_iter=200_000, seed=3)
 
     assert np.percentile(sim.totals, 10) == pytest.approx(
-        analytic["lot_cost_lower"].iloc[0], rel=0.02
+        analytic["lot_cost_lower"].iloc[0], rel=0.005
     )
     assert np.percentile(sim.totals, 90) == pytest.approx(
-        analytic["lot_cost_upper"].iloc[0], rel=0.02
+        analytic["lot_cost_upper"].iloc[0], rel=0.005
     )
+    # The widths, which is where a wrong sampling distribution shows up most.
+    analytic_width = (
+        analytic["lot_cost_upper"].iloc[0] - analytic["lot_cost_lower"].iloc[0]
+    )
+    simulated_width = np.percentile(sim.totals, 90) - np.percentile(sim.totals, 10)
+    assert simulated_width == pytest.approx(analytic_width, rel=0.01)
 
 
 def test_correlated_lot_residuals_widen_the_total():
@@ -845,3 +851,95 @@ def test_mupe_and_zmpe_stay_at_zero_however_scattered_the_data(scatter):
         # Orders of magnitude apart at every scatter level, so the claim that
         # MUPE drives the bias to zero is not an artefact of tight data.
         assert ols > bias * 1_000
+
+
+@pytest.mark.parametrize("n_lots", [4, 5, 6])
+def test_the_simulation_uses_a_t_distribution_not_a_normal(n_lots):
+    """Sigma is estimated, not known, so the predictive distribution is t with
+    n-p degrees of freedom. Drawing parameters from a normal instead makes the
+    interval about 16% too narrow at four degrees of freedom -- understating
+    risk, which is the one direction that matters.
+
+    Checked by comparing the simulated spread against the analytic interval,
+    which uses the t multiplier explicitly. A normal-based simulation cannot
+    match it; a t-based one matches to well under a percent.
+    """
+    quantities, costs = lot_costs_from()
+    rng = np.random.default_rng(0)
+    series_n = LotSeries(
+        quantities=quantities[:n_lots],
+        costs=(costs * rng.lognormal(0.0, 0.12, len(costs)))[:n_lots],
+        dollar_year=2026,
+    )
+    report = analyse_lots(series_n)
+    analytic = report.forecast([40], level=0.80)
+    sim = report.simulate_forecast([40], n_iter=200_000, seed=1)
+
+    analytic_width = float(
+        analytic["lot_cost_upper"].iloc[0] - analytic["lot_cost_lower"].iloc[0]
+    )
+    simulated_width = float(
+        np.percentile(sim.totals, 90) - np.percentile(sim.totals, 10)
+    )
+    assert simulated_width == pytest.approx(analytic_width, rel=0.015)
+
+
+def test_the_simulation_is_wider_than_a_normal_based_one_would_be():
+    """Isolates the t-versus-normal question directly.
+
+    Comparing a three-lot fit against a six-lot fit does not test this: taking
+    fewer lots also changes sigma, and that swamps the degrees-of-freedom
+    effect. Instead, take one fit and ask what its interval would have been
+    with a normal multiplier rather than a t one. The simulation must be
+    meaningfully wider than that, and must match the t-based analytic
+    interval.
+    """
+    from scipy import stats as sps
+
+    quantities, costs = lot_costs_from()
+    rng = np.random.default_rng(0)
+    report = analyse_lots(LotSeries(
+        quantities=quantities,
+        costs=costs * rng.lognormal(0.0, 0.12, len(costs)),
+        dollar_year=2026,
+    ))
+    dof = report.fit.df
+    analytic = report.forecast([40], level=0.80)
+    analytic_width = float(
+        analytic["lot_cost_upper"].iloc[0] - analytic["lot_cost_lower"].iloc[0]
+    )
+
+    # What the same interval would be if the multiplier were normal.
+    shrink = sps.norm.ppf(0.90) / sps.t.ppf(0.90, dof)
+    normal_width = analytic_width * shrink
+    assert shrink < 0.90, "at these df the two multipliers should differ clearly"
+
+    sim = report.simulate_forecast([40], n_iter=200_000, seed=1)
+    simulated_width = float(
+        np.percentile(sim.totals, 90) - np.percentile(sim.totals, 10)
+    )
+    assert simulated_width == pytest.approx(analytic_width, rel=0.015)
+    assert simulated_width > normal_width * 1.05
+
+
+def test_a_three_lot_forecast_warns_that_its_moments_are_undefined():
+    """Three lots leaves one degree of freedom, where the predictive
+    distribution is Cauchy-like: percentiles are meaningful, the mean and
+    standard deviation are not. The tool says so rather than reporting an
+    inf, and rather than silently truncating the tail."""
+    quantities, costs = lot_costs_from()
+    rng = np.random.default_rng(2)
+    three = LotSeries(
+        quantities=quantities[:3],
+        costs=(costs * rng.lognormal(0.0, 0.10, len(costs)))[:3],
+        dollar_year=2026,
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = analyse_lots(three)
+    with pytest.warns(RuntimeWarning, match="no finite mean or variance"):
+        sim = report.simulate_forecast([40], n_iter=20_000, seed=5)
+
+    # Percentiles stay usable and finite even though the moments do not.
+    assert np.isfinite(sim.p50) and np.isfinite(sim.p80) and np.isfinite(sim.p90)
+    assert sim.p50 < sim.p80 < sim.p90
