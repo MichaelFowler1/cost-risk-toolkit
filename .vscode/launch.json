@@ -1,0 +1,102 @@
+{
+  // Run configurations for VS Code. Press F5, or pick one from the Run and
+  // Debug panel (Ctrl+Shift+D). Every entry runs from the repo root so that
+  // relative paths like example_lots.csv resolve.
+  //
+  // These use whichever interpreter VS Code has selected, so pick the project
+  // environment first: Ctrl+Shift+P -> "Python: Select Interpreter" -> the
+  // .venv in this folder (or wherever you installed the package).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // The one you want most of the time. Edit example_lots.csv, press F5.
+      "name": "fit-lots: example_lots.csv",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli.ce_core_cli",
+      "args": [
+        "fit-lots",
+        "--csv", "example_lots.csv",
+        "--dollar-year", "2026",
+        "--forecast", "30,40",
+        "--out", "results"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      // Prompts for the file and base year, so you can point it at real data
+      // without editing this file.
+      "name": "fit-lots: pick a file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli.ce_core_cli",
+      "args": [
+        "fit-lots",
+        "--csv", "${input:lotFile}",
+        "--dollar-year", "${input:dollarYear}",
+        "--out", "results"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "full-run: the whole synthetic pipeline",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cli.ce_core_cli",
+      "args": ["full-run", "--out", "artifacts", "--seed", "7", "--iters", "20000"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      // Runs whatever .py file is open in the editor. Handy for scratch
+      // scripts that import cost_core directly.
+      "name": "Run the current file",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      // Stops on the first failure with the full traceback.
+      "name": "pytest: whole suite",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/", "-q", "-x"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "pytest: the lot-input tests only",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["tests/test_lots.py", "-v"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "lotFile",
+      "type": "promptString",
+      "description": "Path to your lot file (CSV or XLSX)",
+      "default": "example_lots.csv"
+    },
+    {
+      "id": "dollarYear",
+      "type": "promptString",
+      "description": "Fiscal year your constant dollars are stated in",
+      "default": "2026"
+    }
+  ]
+}

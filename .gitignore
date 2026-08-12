@@ -19,6 +19,10 @@ __pycache__/
 # to run against. Six made-up lots; no real programme data.
 !/example_lots.csv
 
+# Editor run configurations. Portable -- every path is relative to the
+# workspace -- so they travel with the repo rather than being rebuilt by hand.
+!/.vscode/launch.json
+
 # OS junk
 .DS_Store
 # Build artifacts (pip install . / python -m build)
