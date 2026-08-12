@@ -8,9 +8,16 @@ __pycache__/
 *.pyc
 
 # Local Data/Results (keeps your repo clean)
+# The blanket *.csv rule is deliberate: it is what stops real contractor cost
+# data being committed by accident. Add exceptions one file at a time, and
+# only for files that are safe to publish.
 *.csv
 *.json
-!pyproject.toml 
+!pyproject.toml
+
+# Invented sample input for `ce-core fit-lots`, so a fresh clone has something
+# to run against. Six made-up lots; no real programme data.
+!/example_lots.csv
 
 # OS junk
 .DS_Store
