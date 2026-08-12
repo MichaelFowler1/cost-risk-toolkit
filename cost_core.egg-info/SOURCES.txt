@@ -6,6 +6,7 @@ cost_core/__init__.py
 cost_core/data_io.py
 cost_core/fitting.py
 cost_core/learning_curve.py
+cost_core/lots.py
 cost_core/monte_carlo.py
 cost_core.egg-info/PKG-INFO
 cost_core.egg-info/SOURCES.txt
@@ -33,6 +34,7 @@ tests/test_data_io.py
 tests/test_fitting.py
 tests/test_ingest.py
 tests/test_learning_curve.py
+tests/test_lots.py
 tests/test_monte_carlo.py
 tests/test_reporting.py
 tests/test_synth.py

@@ -475,3 +475,130 @@ def test_the_whole_path_is_deterministic():
     assert a.fit.slope == b.fit.slope
     assert a.fit.t1 == b.fit.t1
     pd.testing.assert_frame_equal(a.per_lot, b.per_lot)
+
+
+# ====================================================== forecast simulation
+def noisy_series(scatter=0.08, seed=0, **kwargs):
+    """A series with realistic scatter.
+
+    The simulation tests deliberately do *not* use the noiseless helper: lots
+    lying exactly on a curve give sigma of zero and a covariance of zero, so
+    every draw returns the same number and the "distribution" is a point. That
+    is the right answer for perfect data, and a useless basis for testing a
+    simulator.
+    """
+    quantities, costs = lot_costs_from()
+    rng = np.random.default_rng(seed)
+    kwargs.setdefault("dollar_year", 2026)
+    return LotSeries(
+        quantities=quantities,
+        costs=costs * rng.lognormal(0.0, scatter, len(costs)),
+        **kwargs,
+    )
+
+
+def test_a_perfect_fit_forecasts_with_no_uncertainty():
+    """The degenerate case, asserted rather than left as a surprise. If the
+    lots lie exactly on a curve there is nothing left to be uncertain about,
+    and the simulation must say so instead of manufacturing spread."""
+    sim = analyse_lots(series()).simulate_forecast([40], n_iter=2_000, seed=1)
+    assert sim.std == pytest.approx(0.0, abs=1e-6)
+    assert sim.p80 == pytest.approx(sim.point_estimate, rel=1e-9)
+
+
+def test_the_simulation_centres_on_the_deterministic_forecast():
+    """The point estimate should sit near the middle of the simulated
+    distribution, because the simulation is that same curve with its
+    uncertainty attached rather than a different model."""
+    sim = analyse_lots(noisy_series()).simulate_forecast([30, 40], n_iter=20_000, seed=1)
+    assert sim.point_estimate_percentile == pytest.approx(50.0, abs=4.0)
+    assert sim.mean == pytest.approx(sim.point_estimate, rel=0.02)
+    assert sim.p50 <= sim.p80 <= sim.p90
+
+
+def test_the_simulation_agrees_with_the_analytic_interval_on_one_lot():
+    """Two independent routes to the same answer. For a single forecast lot
+    the delta-method prediction interval and the Monte Carlo have to agree --
+    there is no correlation assumption in play to separate them, so a
+    disagreement would mean one of the two is wrong."""
+    report = analyse_lots(noisy_series())
+    analytic = report.forecast([40], level=0.80)
+    sim = report.simulate_forecast([40], n_iter=80_000, seed=3)
+
+    assert np.percentile(sim.totals, 10) == pytest.approx(
+        analytic["lot_cost_lower"].iloc[0], rel=0.02
+    )
+    assert np.percentile(sim.totals, 90) == pytest.approx(
+        analytic["lot_cost_upper"].iloc[0], rel=0.02
+    )
+
+
+def test_correlated_lot_residuals_widen_the_total():
+    """The same lesson as the WBS-level simulator: treating consecutive lots
+    as independent lets their shocks cancel and understates the spread of the
+    whole buy."""
+    report = analyse_lots(noisy_series())
+    independent = report.simulate_forecast(
+        [30, 40, 40], n_iter=40_000, seed=5, residual_correlation=0.0
+    )
+    correlated = report.simulate_forecast(
+        [30, 40, 40], n_iter=40_000, seed=5, residual_correlation=0.5
+    )
+    assert correlated.std > independent.std
+    assert correlated.p80 > independent.p80
+
+
+def test_dropping_the_residual_narrows_it_to_a_confidence_statement():
+    report = analyse_lots(noisy_series())
+    with_residual = report.simulate_forecast([40], n_iter=20_000, seed=7)
+    curve_only = report.simulate_forecast(
+        [40], n_iter=20_000, seed=7, include_residual=False
+    )
+    assert curve_only.std < with_residual.std
+    assert "confidence statement" in curve_only.narrative()
+
+
+def test_a_looser_fit_produces_a_wider_forecast_distribution():
+    """The whole point of propagating the fit: a curve estimated from scattered
+    lots must forecast less confidently than one estimated from clean lots."""
+    quantities, costs = lot_costs_from()
+    rng = np.random.default_rng(11)
+    tight = analyse_lots(LotSeries(
+        quantities=quantities, costs=costs * rng.lognormal(0, 0.01, len(costs)),
+        dollar_year=2026)).simulate_forecast([40], n_iter=20_000, seed=1)
+    loose = analyse_lots(LotSeries(
+        quantities=quantities, costs=costs * rng.lognormal(0, 0.15, len(costs)),
+        dollar_year=2026)).simulate_forecast([40], n_iter=20_000, seed=1)
+    assert loose.cv > tight.cv * 3
+
+
+def test_the_simulation_is_seed_deterministic():
+    report = analyse_lots(noisy_series())
+    a = report.simulate_forecast([30, 40], n_iter=5_000, seed=42)
+    b = report.simulate_forecast([30, 40], n_iter=5_000, seed=42)
+    assert np.array_equal(a.totals, b.totals)
+    assert a.p80 == b.p80
+    assert report.simulate_forecast([30, 40], n_iter=5_000, seed=43).p80 != a.p80
+
+
+def test_the_simulation_reports_the_history_it_came_from_not_the_forecast():
+    sim = analyse_lots(noisy_series()).simulate_forecast([30, 40], n_iter=2_000, seed=1)
+    assert sim.n_history_lots == len(PROFILE)
+    assert f"{len(PROFILE)}-lot history" in sim.narrative()
+
+
+def test_lot_level_samples_add_up_to_the_total():
+    sim = analyse_lots(noisy_series()).simulate_forecast([30, 40], n_iter=2_000, seed=1)
+    assert sim.per_lot.shape == (2_000, 2)
+    assert sim.totals == pytest.approx(sim.per_lot.sum(axis=1), rel=1e-12)
+
+
+@pytest.mark.parametrize("bad", [[0], [30, -5], []])
+def test_bad_forecast_quantities_are_refused(bad):
+    with pytest.raises(LotInputError, match="positive"):
+        analyse_lots(noisy_series()).simulate_forecast(bad, n_iter=1_000, seed=1)
+
+
+def test_too_few_iterations_are_refused():
+    with pytest.raises(LotInputError, match="at least 2 iterations"):
+        analyse_lots(noisy_series()).simulate_forecast([40], n_iter=1, seed=1)

@@ -121,10 +121,23 @@ def run_fit_lots(args: argparse.Namespace) -> None:
         print("\nSummary:")
         print(report.summary().to_string(index=False))
 
+        quantities, forecast, simulation = [], None, None
         if args.forecast:
             quantities = [int(x) for x in args.forecast.replace(" ", "").split(",") if x]
+            forecast = report.forecast(quantities, level=args.level)
             print(f"\nForecast ({args.level:.0%} prediction interval):")
-            print(report.forecast(quantities, level=args.level).to_string(index=False))
+            print(forecast.to_string(index=False))
+
+            if args.simulate:
+                simulation = report.simulate_forecast(
+                    quantities, n_iter=args.simulate, seed=args.seed
+                )
+                print(f"\nMonte Carlo of the future buy ({args.simulate:,} iterations):")
+                print(simulation.narrative())
+                print()
+                print(simulation.summary().to_string(index=False))
+        elif args.simulate:
+            abort("--simulate needs --forecast, so it knows which lots to cost.")
 
         if args.out:
             out = Path(args.out)
@@ -134,6 +147,8 @@ def run_fit_lots(args: argparse.Namespace) -> None:
             if report.by_method:
                 report.method_comparison().to_csv(out / "methods.csv", index=False)
                 report.theory_comparison().to_csv(out / "theories.csv", index=False)
+            if forecast is not None:
+                forecast.to_csv(out / "forecast.csv", index=False)
             build_assumption_log(report, source=path).write(out / "ASSUMPTIONS.md")
 
             from cost_core.reporting import charts
@@ -141,8 +156,20 @@ def run_fit_lots(args: argparse.Namespace) -> None:
             lot_table = report.per_lot.rename(columns={"cost": "lot_cost"})
             charts.plot_learning_curve(
                 report.fit, lot_table, out / "learning_curve.png",
+                forecast_lots=report._forecast_spans(quantities) if quantities else None,
+                level=args.level,
                 title=f"{series.program}: cost improvement curve",
             )
+            if simulation is not None:
+                simulation.summary().to_csv(out / "forecast_simulation.csv", index=False)
+                charts.plot_s_curve(
+                    simulation, out / "forecast_s_curve.png",
+                    title=f"{series.program}: cost of the next {sum(quantities)} units",
+                    subtitle=(
+                        f"{args.simulate:,} iterations from the fitted curve, "
+                        f"constant FY{args.dollar_year} dollars"
+                    ),
+                )
             log.info(f"Wrote results and ASSUMPTIONS.md to {out}")
 
     except Exception as e:
@@ -245,6 +272,11 @@ def main() -> None:
                         help="Future lot sizes, e.g. '30,40'")
     p_lots.add_argument("--level", type=float, default=0.80,
                         help="Prediction interval coverage")
+    p_lots.add_argument("--simulate", type=int, default=0, metavar="N",
+                        help="Monte Carlo the forecast buy over N iterations "
+                             "(needs --forecast); writes an S-curve")
+    p_lots.add_argument("--seed", type=int, default=0,
+                        help="Seed for --simulate, so the P80 is reproducible")
 
     # Subcommand: full-run
     p_run = sub.add_parser(

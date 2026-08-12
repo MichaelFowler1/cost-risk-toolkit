@@ -51,9 +51,9 @@ import pandas as pd
 
 from cost_core.fitting import FitError
 from cost_core.learning_curve import (METHODS, CurveFit, RateBreak, Theory,
-                                      comparison_table, compare_methods,
-                                      compare_theories, fit_curve,
-                                      retransformation_report)
+                                      _model_from_theta, comparison_table,
+                                      compare_methods, compare_theories,
+                                      fit_curve, retransformation_report)
 
 logger = logging.getLogger(__name__)
 
@@ -692,6 +692,143 @@ class LotFitReport:
             np.array(spans), level=level, kind="prediction"
         )
 
+    def simulate_forecast(
+        self,
+        quantities: Iterable[int],
+        *,
+        n_iter: int = 20_000,
+        seed: int | None = None,
+        include_residual: bool = True,
+        residual_correlation: float = 0.30,
+    ) -> "ForecastSimulation":
+        """Monte Carlo the cost of a future buy, using only the fitted curve.
+
+        The rest of this library simulates risk across WBS elements from
+        distributions an analyst elicits. Lot data supports something
+        different and, for a production buy, often more defensible: the
+        uncertainty is *measured from the programme's own history* rather than
+        judged, so there is nothing to argue about except the data.
+
+        Two sources are propagated, and they are not the same thing:
+
+        **Parameter uncertainty.** The slope and first-unit cost are estimates
+        from a handful of lots, and a short series pins them down loosely. Each
+        iteration draws a (log T1, b) pair from the fitted covariance, so the
+        simulation explores every curve the data cannot rule out. On four lots
+        this dominates.
+
+        **Residual scatter.** Even given the true curve, an individual lot
+        lands off it. Each iteration applies a multiplicative shock drawn from
+        the fitted residual spread. This is what makes the answer a
+        *prediction* about a real future lot rather than a statement about
+        where the fitted line sits.
+
+        What this deliberately does *not* include: schedule risk, requirement
+        changes, rate changes not present in the history, or anything else the
+        past lots never experienced. It is production cost risk conditional on
+        the programme continuing as it has been, which is a narrower and more
+        honest claim than a full risk model.
+
+        Args:
+            quantities: Units in each future lot.
+            n_iter: Iterations.
+            seed: Fixed seed. A P80 that moves between runs is not defensible.
+            include_residual: Include lot-to-lot scatter. Setting this False
+                gives the uncertainty in the fitted *curve* alone, which is a
+                confidence statement, not a prediction.
+            residual_correlation: Correlation between the residual shocks of
+                different future lots. **Not zero by default**, for exactly the
+                reason set out in :mod:`cost_core.monte_carlo`: consecutive
+                lots on one programme share a workforce, a supply base and a
+                schedule, so when one comes in high the next usually does too.
+                Treating them as independent lets the shocks cancel and
+                understates the variance of the total buy. Parameter
+                uncertainty is already perfectly correlated across lots -- one
+                curve is drawn per iteration and applied to all of them --
+                which is correct and usually the dominant term.
+
+        Raises:
+            LotInputError: On a non-positive quantity, too few iterations, or
+                a correlation outside the range a matrix of this size allows.
+        """
+        quantities = [int(q) for q in quantities]
+        if not quantities or any(q <= 0 for q in quantities):
+            raise LotInputError("Forecast lot quantities must all be positive.")
+        if n_iter < 2:
+            raise LotInputError(
+                f"Need at least 2 iterations to form a distribution; got {n_iter}."
+            )
+
+        spans = self._forecast_spans(quantities)
+        rng = np.random.default_rng(seed)
+
+        theta_hat = self.fit.result.theta
+        covariance = self.fit.result.cov
+        draws = rng.multivariate_normal(theta_hat, covariance, size=n_iter)
+
+        breaks = self.fit.model.breaks
+        theory = self.fit.theory
+        totals = np.empty(n_iter, dtype=float)
+        per_lot = np.empty((n_iter, len(spans)), dtype=float)
+
+        for i, theta in enumerate(draws):
+            model = _model_from_theta(theta, theory, breaks)
+            costs = model.lot_cost(spans[:, 0], spans[:, 1])
+            per_lot[i] = costs
+            totals[i] = costs.sum()
+
+        if include_residual:
+            # Multiplicative, because the fit's residuals are proportional,
+            # and correlated across lots, because they are not independent
+            # events on one production line.
+            n_lots = per_lot.shape[1]
+            sigma = self.fit.result.sigma
+            if n_lots == 1 or residual_correlation == 0.0:
+                log_shocks = rng.standard_normal(per_lot.shape) * sigma
+            else:
+                from cost_core.monte_carlo import uniform_correlation
+
+                corr = uniform_correlation(n_lots, residual_correlation)
+                try:
+                    chol = np.linalg.cholesky(corr)
+                except np.linalg.LinAlgError:  # pragma: no cover - guarded above
+                    chol = np.linalg.cholesky(corr + np.eye(n_lots) * 1e-10)
+                log_shocks = (rng.standard_normal(per_lot.shape) @ chol.T) * sigma
+            per_lot = per_lot * np.exp(log_shocks)
+            totals = per_lot.sum(axis=1)
+
+        point = float(
+            np.sum(self.fit.model.lot_cost(spans[:, 0], spans[:, 1]))
+        )
+        logger.info(
+            "%s: simulated %d future lots (%d units) over %d iterations; "
+            "point estimate %.4g sits at the %.1fth percentile",
+            self.series.program, len(spans), sum(quantities), n_iter,
+            point, float(np.mean(totals <= point) * 100.0),
+        )
+        return ForecastSimulation(
+            totals=totals,
+            per_lot=per_lot,
+            quantities=tuple(quantities),
+            spans=spans,
+            point_estimate=point,
+            seed=seed,
+            included_residual=include_residual,
+            residual_correlation=residual_correlation,
+            n_history_lots=self.series.n_lots,
+            program=self.series.program,
+            dollar_year=self.series.dollar_year,
+        )
+
+    def _forecast_spans(self, quantities: Iterable[int]) -> np.ndarray:
+        """Unit ranges for future lots, continuing from the last unit built."""
+        cursor = int(self.series.unit_ranges()[-1, 1])
+        spans = []
+        for q in quantities:
+            spans.append((cursor + 1, cursor + int(q)))
+            cursor += int(q)
+        return np.array(spans, dtype=int)
+
     def summary(self) -> pd.DataFrame:
         """Headline numbers, in the order they should be read.
 
@@ -764,6 +901,105 @@ class LotFitReport:
                 "with compare=True."
             )
         return retransformation_report(self.by_method)
+
+
+@dataclass
+class ForecastSimulation:
+    """Distribution of the cost of a future buy, from the fitted curve.
+
+    Exposes the same vocabulary as the WBS-level simulator in
+    :mod:`cost_core.monte_carlo` -- ``totals``, ``point_estimate``,
+    ``point_estimate_percentile`` -- so the same S-curve chart draws it.
+    """
+
+    totals: np.ndarray
+    per_lot: np.ndarray
+    quantities: tuple[int, ...]
+    spans: np.ndarray
+    point_estimate: float
+    seed: int | None
+    included_residual: bool
+    residual_correlation: float = 0.0
+    n_history_lots: int = 0
+    program: str = "unnamed program"
+    dollar_year: int | None = None
+
+    @property
+    def n_iter(self) -> int:
+        return int(self.totals.size)
+
+    @property
+    def mean(self) -> float:
+        return float(np.mean(self.totals))
+
+    @property
+    def std(self) -> float:
+        return float(np.std(self.totals, ddof=1))
+
+    @property
+    def cv(self) -> float:
+        return float(self.std / self.mean) if self.mean else float("nan")
+
+    @property
+    def p50(self) -> float:
+        return float(np.percentile(self.totals, 50))
+
+    @property
+    def p80(self) -> float:
+        return float(np.percentile(self.totals, 80))
+
+    @property
+    def p90(self) -> float:
+        return float(np.percentile(self.totals, 90))
+
+    def percentile_of(self, value: float) -> float:
+        return float(np.mean(self.totals <= value) * 100.0)
+
+    @property
+    def point_estimate_percentile(self) -> float:
+        return self.percentile_of(self.point_estimate)
+
+    def summary(self) -> pd.DataFrame:
+        rows = [
+            ("iterations", self.n_iter),
+            ("future_lots", len(self.quantities)),
+            ("future_units", int(sum(self.quantities))),
+            ("point_estimate", self.point_estimate),
+            ("point_estimate_percentile", self.point_estimate_percentile),
+            ("mean", self.mean),
+            ("std_dev", self.std),
+            ("cv", self.cv),
+            ("p50", self.p50),
+            ("p80", self.p80),
+            ("p90", self.p90),
+            ("reserve_to_p80", self.p80 - self.point_estimate),
+            ("reserve_to_p80_pct",
+             100.0 * (self.p80 / self.point_estimate - 1.0)
+             if self.point_estimate else float("nan")),
+        ]
+        return pd.DataFrame(rows, columns=["statistic", "value"])
+
+    def narrative(self) -> str:
+        basis = (
+            f"curve uncertainty plus lot-to-lot scatter correlated at "
+            f"{self.residual_correlation:.2f} across future lots"
+            if self.included_residual
+            else "curve uncertainty only (a confidence statement, not a "
+                 "prediction about a real lot)"
+        )
+        year = f" FY{self.dollar_year}" if self.dollar_year else ""
+        return (
+            f"{self.program}: {len(self.quantities)} future lot(s) totalling "
+            f"{sum(self.quantities)} units. Point estimate "
+            f"{self.point_estimate:,.0f}{year} sits at the "
+            f"{self.point_estimate_percentile:.0f}th percentile; P50 "
+            f"{self.p50:,.0f}, P80 {self.p80:,.0f}, P90 {self.p90:,.0f}. "
+            f"Risk reserve to P80 is {self.p80 - self.point_estimate:,.0f} "
+            f"({100 * (self.p80 / self.point_estimate - 1):.1f}%). CV "
+            f"{self.cv:.1%}. Uncertainty propagated: {basis}. Measured from "
+            f"the programme's own {self.n_history_lots}-lot history rather "
+            f"than from elicited distributions."
+        )
 
 
 def build_assumption_log(report: "LotFitReport", source: str | Path | None = None):

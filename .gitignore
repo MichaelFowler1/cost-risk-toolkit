@@ -17,3 +17,9 @@ __pycache__/
 # Build artifacts (pip install . / python -m build)
 build/
 dist/
+
+# Run output. Charts and the assumptions log are regenerated from a seed or
+# from your own input file, so they do not belong in version control -- and
+# output from real cost data should never be committed by accident.
+results/
+artifacts/
