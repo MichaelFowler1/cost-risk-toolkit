@@ -124,6 +124,57 @@ curve. You get the fitted slope and first-unit cost, standard error and CV, an
 interval on the slope, a per-lot percentage error showing which lots the curve
 misses, prediction intervals on forecast lots, and an `ASSUMPTIONS.md`.
 
+### Re-using the curve on another program
+
+The fit is also an estimating relationship you can lift and apply elsewhere.
+The equation is printed and written to `equation.csv`:
+
+```
+Unit Cost(x) = 5,899,940.09 * x^(-0.128073)
+```
+
+`--price-lots` applies it to any buy profile from unit 1, producing the
+learning curve table an analyst would build by hand — lot midpoints included:
+
+```bash
+ce-core fit-lots --csv mylots.csv --dollar-year 2026 --price-lots "10,15,20,25,30" --out results/
+```
+
+The `lot_midpoint` column is the *algebraic* midpoint: the unit whose cost
+equals the lot average. Most tools approximate it, because they only have an
+approximate lot average to work from. Here the lot average is exact, so the
+midpoint is solved for directly — and there's a test asserting the cost at the
+midpoint equals the lot average, which is its definition.
+
+This is the analogy use case: price a program that has no cost history of its
+own using the slope from one that does. **Its validity is a judgement, not a
+result** — the slope carries across only if the two programs are comparable in
+product, process, rate and contractor. Nothing in the data can confirm that,
+so the assumptions log records it as an untested assumption and notes that the
+extra error it introduces is not in any interval reported.
+
+### Forecasting the next buy, with risk
+
+`--forecast` prices future lots continuing from the last unit built, with
+prediction intervals. `--simulate` then Monte Carlos them:
+
+```bash
+ce-core fit-lots --csv mylots.csv --dollar-year 2026 --forecast "30,40" --simulate 50000 --out results/
+```
+
+Unlike the WBS-level simulator, this needs no elicited distributions — the
+uncertainty is *measured from the program's own history*. Two sources are
+propagated: parameter uncertainty in the fitted slope and T1, which dominates
+on a short series, and lot-to-lot scatter, which is what makes the answer a
+prediction about a real lot. Residuals across future lots are correlated at
+0.30 by default for the same reason WBS elements are — consecutive lots share
+a workforce and a schedule, and treating them as independent understates the
+spread of the whole buy.
+
+It does *not* include schedule risk, requirement changes, or rate changes the
+history never saw. That's a narrower claim than a full risk model, and the log
+says so.
+
 ### Four things that quietly ruin a lot fit
 
 The tool checks all four, because each one leaves a fit that looks perfectly
@@ -331,7 +382,7 @@ pip install -r requirements.txt pytest
 pytest tests/ -q
 ```
 
-436 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
+462 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
 against closed-form answers rather than against recorded output. The strongest
 ones:
 

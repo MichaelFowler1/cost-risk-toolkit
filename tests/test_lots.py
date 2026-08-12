@@ -18,6 +18,7 @@ import pandas as pd
 import pytest
 
 from cost_core.learning_curve import CurveModel, Theory
+from cost_core.fitting import FitError
 from cost_core.lots import (COMFORTABLE_LOTS, LotInputError, LotSeries,
                             analyse_lots, build_assumption_log)
 
@@ -602,3 +603,123 @@ def test_bad_forecast_quantities_are_refused(bad):
 def test_too_few_iterations_are_refused():
     with pytest.raises(LotInputError, match="at least 2 iterations"):
         analyse_lots(noisy_series()).simulate_forecast([40], n_iter=1, seed=1)
+
+
+# ================================================ the equation, and analogy
+def test_the_equation_reproduces_the_fitted_curve_when_evaluated_by_hand():
+    """The equation is only worth publishing if someone can retype it and get
+    the same numbers, so the test does exactly that: parse T1 and b back out
+    of the printed string and price a unit with them."""
+    import re
+
+    fit = analyse_lots(series()).fit
+    text = fit.equation()
+    t1 = float(re.search(r"= ([\d,\.]+) \*", text).group(1).replace(",", ""))
+    b = float(re.search(r"x\^\(([-\d\.]+)\)", text).group(1))
+
+    for unit in (1, 7, 50, 300):
+        by_hand = t1 * unit**b
+        assert by_hand == pytest.approx(
+            float(fit.model.unit_cost([unit])[0]), rel=1e-5
+        ), unit
+
+
+def test_the_equation_names_the_quantity_it_prices():
+    """Crawford prices a unit, Wright prices a cumulative average. Reading one
+    as the other is the classic way a borrowed curve goes wrong."""
+    quantities, costs = lot_costs_from()
+    crawford = LotSeries(quantities=quantities, costs=costs, dollar_year=2026).fit(
+        theory=Theory.CRAWFORD
+    )
+    wright = LotSeries(quantities=quantities, costs=costs, dollar_year=2026).fit(
+        theory=Theory.WRIGHT
+    )
+    assert crawford.equation().startswith("Unit Cost(x)")
+    assert wright.equation().startswith("Cumulative Average Cost(x)")
+
+
+def test_the_coefficient_table_carries_everything_needed_to_rebuild_the_curve():
+    detail = analyse_lots(series()).fit.equation_detail()
+    terms = set(detail["term"])
+    for needed in ("T1_first_unit_cost", "b_exponent", "slope_2_to_the_b",
+                   "theory", "fitting_method", "degrees_of_freedom"):
+        assert needed in terms, needed
+
+
+def test_the_lot_midpoint_is_the_unit_whose_cost_is_the_lot_average():
+    """That is the definition of the algebraic lot midpoint. Solved for
+    exactly here rather than approximated, so it holds to solver precision."""
+    fit = analyse_lots(series()).fit
+    priced = fit.price_lots([10, 15, 20, 25, 30])
+    assert priced["cost_at_midpoint"].to_numpy() == pytest.approx(
+        priced["lot_average_cost"].to_numpy(), rel=1e-9
+    )
+    # And it always falls inside its own lot.
+    assert (priced["lot_midpoint"] >= priced["first_unit"]).all()
+    assert (priced["lot_midpoint"] <= priced["last_unit"]).all()
+
+
+def test_pricing_a_plan_starts_at_unit_one_by_default():
+    priced = analyse_lots(series()).fit.price_lots([10, 15, 20])
+    assert priced["first_unit"].iloc[0] == 1
+    # Lots tile the unit sequence: each starts where the previous ended plus one.
+    assert list(priced["first_unit"][1:]) == list(priced["last_unit"][:-1] + 1)
+    assert priced["cumulative_units"].iloc[-1] == 45
+
+
+def test_pricing_from_a_later_unit_is_cheaper_because_learning_has_happened():
+    fit = analyse_lots(series()).fit
+    fresh = fit.price_lots([20], first_unit=1)
+    experienced = fit.price_lots([20], first_unit=101)
+    assert experienced["lot_cost"].iloc[0] < fresh["lot_cost"].iloc[0]
+
+
+def test_the_priced_plan_is_internally_consistent():
+    priced = analyse_lots(series()).fit.price_lots([12, 18, 24])
+    assert priced["lot_cost"].to_numpy() == pytest.approx(
+        (priced["lot_average_cost"] * priced["units"]).to_numpy(), rel=1e-12
+    )
+    assert priced["cumulative_cost"].to_numpy() == pytest.approx(
+        np.cumsum(priced["lot_cost"]), rel=1e-12
+    )
+    assert priced["cumulative_average_cost"].to_numpy() == pytest.approx(
+        (priced["cumulative_cost"] / priced["cumulative_units"]).to_numpy(), rel=1e-12
+    )
+    # Within a lot the first unit is dearer than the last, and the average
+    # sits between them.
+    assert (priced["first_unit_in_lot_cost"] > priced["last_unit_in_lot_cost"]).all()
+    assert (priced["lot_average_cost"] < priced["first_unit_in_lot_cost"]).all()
+    assert (priced["lot_average_cost"] > priced["last_unit_in_lot_cost"]).all()
+
+
+def test_pricing_a_plan_matches_the_curve_it_came_from():
+    """Round trip: price the programme's own lot plan and the answer must be
+    the fitted values, not a re-derivation that drifts."""
+    report = analyse_lots(series())
+    priced = report.price_lot_plan(PROFILE)
+    assert priced["lot_average_cost"].to_numpy() == pytest.approx(
+        report.fit.result.fitted, rel=1e-9
+    )
+
+
+def test_a_priced_plan_is_recorded_in_the_log_as_an_assumption():
+    """Analogy is a judgement, not a result. The log has to say so, or the
+    number reads as though it came from data."""
+    report = analyse_lots(series(program="SOURCE PROGRAM"))
+    priced = report.price_lot_plan([10, 20, 30])
+    text = build_assumption_log(report, priced_plan=priced).render()
+    assert "analogy" in text.lower()
+    assert "Analyst judgement" in text
+    assert "not included in any interval" in text
+    assert "Priced lot plan" in text
+
+
+@pytest.mark.parametrize("bad", [[0], [10, -5], []])
+def test_a_bad_lot_plan_is_refused(bad):
+    with pytest.raises(FitError, match="positive whole units"):
+        analyse_lots(series()).fit.price_lots(bad)
+
+
+def test_pricing_from_unit_zero_is_refused():
+    with pytest.raises(FitError, match="first_unit must be"):
+        analyse_lots(series()).fit.price_lots([10], first_unit=0)

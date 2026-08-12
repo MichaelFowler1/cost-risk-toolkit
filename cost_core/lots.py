@@ -692,6 +692,29 @@ class LotFitReport:
             np.array(spans), level=level, kind="prediction"
         )
 
+    def equation(self) -> str:
+        """The fitted curve written out, for quoting or re-use elsewhere."""
+        return self.fit.equation()
+
+    def price_lot_plan(
+        self, quantities: Iterable[int], *, first_unit: int = 1
+    ) -> pd.DataFrame:
+        """Price an arbitrary lot plan with this curve, from unit 1 by default.
+
+        The curve used as an estimating relationship rather than as a forecast
+        of its own programme: hand it a buy profile and it produces the
+        learning curve table an analyst would build by hand, lot midpoints and
+        all.
+
+        The intended use is analogy -- pricing a programme that has no cost
+        history of its own using the slope from one that does. That is a
+        judgement about whether the two programmes are similar enough in
+        product and process for the slope to carry, and it belongs in the
+        assumptions log, which is why :func:`build_assumption_log` records it
+        as an assumption rather than a result whenever a plan is priced.
+        """
+        return self.fit.price_lots(quantities, first_unit=first_unit)
+
     def simulate_forecast(
         self,
         quantities: Iterable[int],
@@ -1002,7 +1025,12 @@ class ForecastSimulation:
         )
 
 
-def build_assumption_log(report: "LotFitReport", source: str | Path | None = None):
+def build_assumption_log(
+    report: "LotFitReport",
+    source: str | Path | None = None,
+    priced_plan: pd.DataFrame | None = None,
+    priced_from_unit: int = 1,
+):
     """Assemble the written assumptions log for a lot-based fit.
 
     Records the dollar basis as an explicit decision, the quantity definition
@@ -1088,7 +1116,24 @@ def build_assumption_log(report: "LotFitReport", source: str | Path | None = Non
         )
 
     log.section(
-        "3. Curve fit",
+        "3. The fitted equation",
+        f"**{fit.equation()}**\n\n"
+        f"Stated in constant FY{series.dollar_year} dollars, with `x` the "
+        f"cumulative unit number counting from the start of production. Under "
+        f"{fit.theory.value} theory this prices "
+        + (
+            "an individual unit; the cost of a lot is the sum over the units "
+            "it contains."
+            if fit.theory is Theory.CRAWFORD else
+            "the cumulative *average* through quantity x; the cost of a lot is "
+            "the difference between the cumulative totals at its endpoints. "
+            "Reading it as a unit cost is the most common way a borrowed curve "
+            "produces a wrong answer."
+        ),
+    ).table("3.1 Coefficients", fit.equation_detail())
+
+    log.section(
+        "4. Curve fit",
         f"- Theory: **{fit.theory.value}**\n"
         f"- Method: **{fit.method.upper()}**\n"
         f"- Slope **{fit.slope:.2%}**, first-unit cost "
@@ -1096,26 +1141,62 @@ def build_assumption_log(report: "LotFitReport", source: str | Path | None = Non
         f"- Standard error {fit.standard_error:,.0f}, CV {fit.cv:.1%}, "
         f"{fit.df} degrees of freedom\n\n"
         f"{report.narrative()}",
-    ).table("3.1 Headline statistics", report.summary()).table(
-        "3.2 Per-lot fit quality", report.per_lot[
+    ).table("4.1 Headline statistics", report.summary()).table(
+        "4.2 Per-lot fit quality", report.per_lot[
             ["lot", "units", "lot_average_cost", "fitted_average", "percent_error"]
         ]
     )
 
     if report.by_method:
-        log.table("3.3 Fitting methods compared", report.method_comparison())
+        log.table("4.3 Fitting methods compared", report.method_comparison())
         try:
             log.table(
-                "3.4 Retransformation bias measured on this dataset",
+                "4.4 Retransformation bias measured on this dataset",
                 report.retransformation().to_frame(),
             )
         except FitError:  # pragma: no cover - only when compare=False
             pass
     if report.by_theory:
-        log.table("3.5 Theories compared", report.theory_comparison())
+        log.table("4.5 Theories compared", report.theory_comparison())
+
+    if priced_plan is not None:
+        total = float(priced_plan["lot_cost"].sum())
+        units = int(priced_plan["units"].sum())
+        log.section(
+            "5. Curve applied to another lot plan (analogy)",
+            f"The fitted equation was applied to a lot plan of "
+            f"{list(priced_plan['units'])}, priced from unit "
+            f"{priced_from_unit}: {units} units for "
+            f"{total:,.0f} in constant FY{series.dollar_year} dollars.\n\n"
+            f"The `lot_midpoint` column is the algebraic midpoint -- the unit "
+            f"whose cost equals the lot average. It is solved for exactly here "
+            f"rather than approximated, because the lot average is itself "
+            f"exact, and it is the figure to check the curve against by hand.\n\n"
+            f"**This is an analogy, and its validity is a judgement, not a "
+            f"result.** The slope carries across only if the two programmes are "
+            f"similar enough in product, process, production rate and "
+            f"contractor. Nothing in the data can confirm that; the estimate "
+            f"inherits the uncertainty of the fitted curve *plus* whatever "
+            f"error the analogy itself introduces, and the second is not "
+            f"quantified anywhere in this document.",
+        ).table("5.1 Priced lot plan", priced_plan)
+        log.assume(
+            "Analogy",
+            f"The {fit.slope:.2%} slope fitted to {series.program} applies to "
+            f"the priced lot plan.",
+            "Analyst judgement that the two programmes are comparable in "
+            "product, process, rate and contractor. Not testable from this "
+            "data, and not included in any interval reported here.",
+        )
+        log.gao(
+            "Credible",
+            "Where the curve was applied by analogy, the analogy is recorded "
+            "as an untested assumption rather than presented as a fitted "
+            "result.",
+        )
 
     log.section(
-        "4. On R squared",
+        "6. On R squared",
         "R squared is reported last and should not be used as a validity "
         "check on this data. Lot average cost falls monotonically against "
         "cumulative quantity by construction, so almost any downward-sloping "

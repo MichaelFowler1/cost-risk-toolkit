@@ -36,6 +36,7 @@ import logging
 import warnings
 from dataclasses import dataclass, field, replace
 from enum import Enum
+from typing import Iterable
 
 import numpy as np
 import pandas as pd
@@ -629,6 +630,158 @@ class CurveFit:
                 "upper": point * np.exp(spread),
                 "level": level,
                 "kind": kind,
+            }
+        )
+
+    # ------------------------------------------------------ the equation
+    def equation(self, *, precision: int = 6) -> str:
+        """The fitted relationship written out, ready to be quoted or re-used.
+
+        A curve is only reusable if someone can read the formula off the page
+        and apply it themselves. Under Crawford the equation prices an
+        individual unit; under Wright it prices the cumulative average through
+        a quantity. Getting that distinction wrong is the most common way a
+        borrowed curve produces a wrong answer, so the label says which.
+        """
+        b = self.model.b
+        t1 = self.model.t1
+        left = (
+            "Unit Cost(x)" if self.theory is Theory.CRAWFORD
+            else "Cumulative Average Cost(x)"
+        )
+        text = f"{left} = {t1:,.{precision - 4}f} * x^({b:.{precision}f})"
+        if self.breaks:
+            steps = ", ".join(
+                f"x{chr(8805)}{brk.at_unit}: *{brk.step_factor:.4f}"
+                for brk in self.breaks if brk.step_factor is not None
+            )
+            if steps:
+                text += f"   with rate break(s) [{steps}]"
+        return text
+
+    def equation_detail(self) -> pd.DataFrame:
+        """Every coefficient a reader needs to reproduce the curve by hand."""
+        rows = [
+            ("theory", self.theory.value),
+            ("fitting_method", self.method.upper()),
+            ("equation", self.equation()),
+            ("T1_first_unit_cost", self.model.t1),
+            ("b_exponent", self.model.b),
+            ("slope_2_to_the_b", self.model.slope),
+            ("lots_fitted", self.n_obs),
+            ("degrees_of_freedom", self.df),
+            ("standard_error", self.standard_error),
+            ("cv", self.cv),
+        ]
+        lo, hi = self.slope_interval
+        rows.insert(7, ("slope_lower_80", lo))
+        rows.insert(8, ("slope_upper_80", hi))
+        return pd.DataFrame(rows, columns=["term", "value"])
+
+    # --------------------------------------------------- applying the curve
+    def lot_midpoint(self, first_unit, last_unit) -> np.ndarray:
+        """The algebraic lot midpoint: the unit whose cost *is* the lot average.
+
+        Most tools approximate this, because they only have an approximate lot
+        average to work from. Here the lot average is exact, so the midpoint
+        can be solved for directly rather than estimated: under a smooth curve
+        it is ``(lot_average / T1) ** (1/b)``.
+
+        Reported because it is what an analyst checks the curve against by
+        hand, and because a midpoint that drifts oddly across lots is a quick
+        tell that something is wrong with the lot definitions.
+        """
+        first = np.atleast_1d(np.asarray(first_unit, dtype=int))
+        last = np.atleast_1d(np.asarray(last_unit, dtype=int))
+        average = self.model.lot_average(first, last)
+
+        if self.model.is_smooth and self.theory is Theory.CRAWFORD:
+            return (average / self.model.t1) ** (1.0 / self.model.b)
+
+        # With a rate break, or under Wright, invert numerically inside the lot.
+        from scipy import optimize
+
+        out = np.empty(first.size, dtype=float)
+        for i, (f, l, target) in enumerate(zip(first, last, average)):
+            if f == l:
+                out[i] = float(f)
+                continue
+            try:
+                out[i] = optimize.brentq(
+                    lambda x, t=target: float(self.model.unit_cost(x)[0]) - t,
+                    float(f), float(l),
+                )
+            except ValueError:  # pragma: no cover - non-monotone across a break
+                out[i] = float("nan")
+        return out
+
+    def price_lots(
+        self, quantities: Iterable[int], *, first_unit: int = 1
+    ) -> pd.DataFrame:
+        """Apply this curve to any lot plan, from unit 1 by default.
+
+        This is the curve used as an *estimating relationship* rather than as a
+        forecast of its own programme: give it a buy profile and it prices
+        every lot from the start of production, the way an analyst would build
+        a learning curve table by hand.
+
+        The intended use is analogy. A curve fitted to a programme with good
+        cost history can price a new programme whose lot plan differs, provided
+        the two are similar enough in product and process for the slope to
+        carry over -- which is a judgement the analyst makes and the
+        assumptions log should record.
+
+        Args:
+            quantities: Units in each lot, in build order.
+            first_unit: Unit number the first lot starts at. Leave at 1 to
+                price from the beginning of production; raise it to price a
+                programme that already has units behind it.
+
+        Returns:
+            DataFrame with, per lot: units, first and last unit, the algebraic
+            lot midpoint, the cost of the unit at that midpoint, the lot
+            average, the lot total, and running cumulative figures.
+
+        Raises:
+            FitError: If any quantity is not a positive whole number.
+        """
+        quantities = [int(q) for q in quantities]
+        if not quantities or any(q <= 0 for q in quantities):
+            raise FitError(
+                f"Lot quantities must all be positive whole units; got "
+                f"{quantities}."
+            )
+        if first_unit < 1:
+            raise FitError(f"first_unit must be 1 or greater; got {first_unit}.")
+
+        cursor, spans = first_unit, []
+        for q in quantities:
+            spans.append((cursor, cursor + q - 1))
+            cursor += q
+        spans = np.array(spans, dtype=int)
+
+        lot_cost = self.model.lot_cost(spans[:, 0], spans[:, 1])
+        lot_average = lot_cost / np.array(quantities, dtype=float)
+        midpoint = self.lot_midpoint(spans[:, 0], spans[:, 1])
+
+        cumulative_units = np.cumsum(quantities)
+        cumulative_cost = np.cumsum(lot_cost)
+
+        return pd.DataFrame(
+            {
+                "lot": np.arange(1, len(quantities) + 1),
+                "units": quantities,
+                "first_unit": spans[:, 0],
+                "last_unit": spans[:, 1],
+                "lot_midpoint": midpoint,
+                "cost_at_midpoint": self.model.unit_cost(midpoint),
+                "lot_average_cost": lot_average,
+                "lot_cost": lot_cost,
+                "first_unit_in_lot_cost": self.model.unit_cost(spans[:, 0]),
+                "last_unit_in_lot_cost": self.model.unit_cost(spans[:, 1]),
+                "cumulative_units": cumulative_units,
+                "cumulative_cost": cumulative_cost,
+                "cumulative_average_cost": cumulative_cost / cumulative_units,
             }
         )
 

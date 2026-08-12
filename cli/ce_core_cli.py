@@ -121,6 +121,21 @@ def run_fit_lots(args: argparse.Namespace) -> None:
         print("\nSummary:")
         print(report.summary().to_string(index=False))
 
+        print(f"\nFitted equation:\n  {report.equation()}")
+        print("\nCoefficients:")
+        print(report.fit.equation_detail().to_string(index=False))
+
+        priced = None
+        if args.price_lots:
+            plan = [int(x) for x in args.price_lots.replace(" ", "").split(",") if x]
+            priced = report.price_lot_plan(plan, first_unit=args.price_from_unit)
+            print(
+                f"\nThis curve applied to a lot plan of {plan}, "
+                f"from unit {args.price_from_unit} "
+                f"(use as an analogy for a programme with no history of its own):"
+            )
+            print(priced.to_string(index=False))
+
         quantities, forecast, simulation = [], None, None
         if args.forecast:
             quantities = [int(x) for x in args.forecast.replace(" ", "").split(",") if x]
@@ -149,7 +164,13 @@ def run_fit_lots(args: argparse.Namespace) -> None:
                 report.theory_comparison().to_csv(out / "theories.csv", index=False)
             if forecast is not None:
                 forecast.to_csv(out / "forecast.csv", index=False)
-            build_assumption_log(report, source=path).write(out / "ASSUMPTIONS.md")
+            report.fit.equation_detail().to_csv(out / "equation.csv", index=False)
+            if priced is not None:
+                priced.to_csv(out / "lot_plan_priced.csv", index=False)
+            build_assumption_log(
+                report, source=path, priced_plan=priced,
+                priced_from_unit=args.price_from_unit,
+            ).write(out / "ASSUMPTIONS.md")
 
             from cost_core.reporting import charts
 
@@ -277,6 +298,12 @@ def main() -> None:
                              "(needs --forecast); writes an S-curve")
     p_lots.add_argument("--seed", type=int, default=0,
                         help="Seed for --simulate, so the P80 is reproducible")
+    p_lots.add_argument("--price-lots", default=None, metavar="Q1,Q2,...",
+                        help="Apply the fitted curve to this lot plan from "
+                             "unit 1, with lot midpoints. For pricing an "
+                             "analogous program that has no history of its own")
+    p_lots.add_argument("--price-from-unit", type=int, default=1,
+                        help="Unit the priced plan starts at (default 1)")
 
     # Subcommand: full-run
     p_run = sub.add_parser(
