@@ -776,3 +776,72 @@ def test_the_fit_does_not_depend_on_any_midpoint_approximation():
     # The first lot is where the approximations are worst, and it is exactly
     # the lot a midpoint-based fit would misprice.
     assert abs(geometric[0] / exact[0] - 1) > 0.20
+
+
+# =================================== does OLS really differ from MUPE/ZMPE?
+@pytest.mark.parametrize("scatter", [0.05, 0.10, 0.20, 0.30])
+def test_ols_percentage_bias_grows_as_the_square_of_the_scatter(scatter):
+    """A reviewer reasonably asked why OLS shows a mean percentage error near
+    zero on tight data, and whether that means the three methods collapse into
+    each other.
+
+    They do not. The bias is *second order* in sigma, so on a tight fit it is
+    genuinely tiny while remaining astronomically larger than MUPE's. The
+    closed form: mean((y-f)/f) is identically mean(exp(r)) - 1 over the fitted
+    log residuals, and since those residuals are projections their population
+    variance is sigma^2 (n-p)/n rather than sigma^2. So the expected bias is
+    sigma^2 (n-p) / 2n -- which is what this asserts, averaged over seeds to
+    take out sampling noise.
+    """
+    quantities, costs = lot_costs_from()
+    n, p = len(quantities), 2
+
+    observed, predicted = [], []
+    for seed in range(200):
+        rng = np.random.default_rng(seed)
+        fit = LotSeries(
+            quantities=quantities,
+            costs=costs * rng.lognormal(0.0, scatter, len(costs)),
+            dollar_year=2026,
+        ).fit(method="ols")
+        observed.append(fit.result.mean_percent_error)
+        predicted.append(fit.result.sigma**2 * (n - p) / (2 * n))
+
+    assert np.mean(observed) == pytest.approx(np.mean(predicted), rel=0.05)
+    # Positive, and big enough to matter once the data is genuinely scattered.
+    assert np.mean(observed) > 0
+    if scatter >= 0.20:
+        assert np.mean(observed) > 0.01          # more than a percent
+
+
+def test_the_mean_percentage_error_identity_holds_exactly():
+    """mean((y-f)/f) == mean(exp(log residual)) - 1, by definition. Worth
+    pinning because the whole argument above rests on it."""
+    fit = analyse_lots(noisy_series(scatter=0.20)).fit
+    assert fit.result.mean_percent_error == pytest.approx(
+        float(np.mean(np.exp(fit.result.log_residuals)) - 1.0), rel=1e-12
+    )
+
+
+@pytest.mark.parametrize("scatter", [0.05, 0.10, 0.30])
+def test_mupe_and_zmpe_stay_at_zero_however_scattered_the_data(scatter):
+    """The distinction that matters: OLS bias grows with scatter, theirs does
+    not move off zero. At 30% scatter OLS is around 3% and MUPE is 1e-10%."""
+    from cost_core.learning_curve import compare_methods
+
+    quantities, costs = lot_costs_from()
+    rng = np.random.default_rng(4)
+    lots = LotSeries(
+        quantities=quantities,
+        costs=costs * rng.lognormal(0.0, scatter, len(costs)),
+        dollar_year=2026,
+    )
+    fits = compare_methods(lots=lots.unit_ranges(), lot_costs=lots.costs)
+
+    ols = abs(fits["ols"].result.mean_percent_error)
+    for method in ("mupe", "zmpe"):
+        bias = abs(fits[method].result.mean_percent_error)
+        assert bias < 1e-8, method
+        # Orders of magnitude apart at every scatter level, so the claim that
+        # MUPE drives the bias to zero is not an artefact of tight data.
+        assert ols > bias * 1_000
