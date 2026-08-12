@@ -668,10 +668,14 @@ class CurveFit:
             ("T1_first_unit_cost", self.model.t1),
             ("b_exponent", self.model.b),
             ("slope_2_to_the_b", self.model.slope),
-            ("lots_fitted", self.n_obs),
+            ("lots_the_curve_was_fitted_to", self.n_obs),
             ("degrees_of_freedom", self.df),
             ("standard_error", self.standard_error),
             ("cv", self.cv),
+            ("solver_converged", self.result.converged),
+            ("solver_iterations", self.result.n_iter),
+            ("residual_sigma", self.result.sigma),
+            ("mean_percent_error", self.result.mean_percent_error),
         ]
         lo, hi = self.slope_interval
         rows.insert(7, ("slope_lower_80", lo))

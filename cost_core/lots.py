@@ -579,9 +579,14 @@ class LotFitReport:
         -- a second source, a design change, a cold line.
         """
         frame = self.series.to_frame()
+        ranges = self.series.unit_ranges()
+        # Derived after the fit, never used by it -- see the note on
+        # LotFitReport for why the fit works on exact lot averages instead.
+        frame["lot_midpoint"] = self.fit.lot_midpoint(ranges[:, 0], ranges[:, 1])
         frame["fitted_average"] = self.fit.result.fitted
-        frame["percent_error"] = self.fit.result.percent_errors * 100.0
         frame["fitted_lot_cost"] = frame["fitted_average"] * frame["units"]
+        frame["residual"] = frame["cost"] - frame["fitted_lot_cost"]
+        frame["percent_error"] = self.fit.result.percent_errors * 100.0
         return frame
 
     def curvature(self) -> tuple[float, float]:
@@ -712,8 +717,17 @@ class LotFitReport:
         product and process for the slope to carry, and it belongs in the
         assumptions log, which is why :func:`build_assumption_log` records it
         as an assumption rather than a result whenever a plan is priced.
+
+        Every row carries the source programme's name and its lot count.
+        Without that, an output folder holds one table saying the curve was
+        fitted to six lots and another showing five priced lots, with nothing
+        to say they describe different programmes -- which reads as a
+        truncation bug rather than as two different things.
         """
-        return self.fit.price_lots(quantities, first_unit=first_unit)
+        priced = self.fit.price_lots(quantities, first_unit=first_unit)
+        priced.insert(0, "priced_by_analogy_from", self.series.program)
+        priced.insert(1, "source_lots_fitted", self.series.n_lots)
+        return priced
 
     def simulate_forecast(
         self,

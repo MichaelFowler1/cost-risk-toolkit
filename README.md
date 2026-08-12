@@ -382,7 +382,7 @@ pip install -r requirements.txt pytest
 pytest tests/ -q
 ```
 
-462 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
+466 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
 against closed-form answers rather than against recorded output. The strongest
 ones:
 

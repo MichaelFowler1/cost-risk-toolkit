@@ -723,3 +723,56 @@ def test_a_bad_lot_plan_is_refused(bad):
 def test_pricing_from_unit_zero_is_refused():
     with pytest.raises(FitError, match="first_unit must be"):
         analyse_lots(series()).fit.price_lots([10], first_unit=0)
+
+
+def test_the_fitted_lots_table_carries_midpoints_and_residuals():
+    """The residuals table is the one that shows fit quality. The priced-plan
+    table cannot: every row there sits on the curve by construction."""
+    per_lot = analyse_lots(noisy_series()).per_lot
+    for column in ("lot_midpoint", "fitted_average", "fitted_lot_cost",
+                   "residual", "percent_error"):
+        assert column in per_lot.columns, column
+    # Residual is actual minus predicted, in dollars.
+    assert per_lot["residual"].to_numpy() == pytest.approx(
+        (per_lot["cost"] - per_lot["fitted_lot_cost"]).to_numpy(), rel=1e-9
+    )
+    # And unlike the priced plan, these do NOT all sit on the curve.
+    assert per_lot["percent_error"].abs().max() > 0.5
+
+
+def test_the_priced_plan_says_which_program_it_borrowed_from():
+    """Two tables in one folder, one fitted to six lots and one pricing five,
+    with nothing to distinguish them, reads as a truncation bug."""
+    report = analyse_lots(series(program="SOURCE PROGRAM"))
+    priced = report.price_lot_plan([10, 15, 20, 25, 30])
+    assert (priced["priced_by_analogy_from"] == "SOURCE PROGRAM").all()
+    assert (priced["source_lots_fitted"] == len(PROFILE)).all()
+    assert len(priced) == 5          # the plan, not the source programme
+
+
+def test_the_coefficient_table_reports_solver_convergence():
+    """Whether the fit actually converged is not something a reader should
+    have to take on trust."""
+    detail = analyse_lots(noisy_series()).fit.equation_detail()
+    terms = dict(zip(detail["term"], detail["value"]))
+    assert terms["solver_converged"] is True or terms["solver_converged"] == True
+    assert int(terms["solver_iterations"]) >= 1
+    assert "lots_the_curve_was_fitted_to" in terms
+
+
+def test_the_fit_does_not_depend_on_any_midpoint_approximation():
+    """The midpoint is derived after the fit, never used by it. Proof: the
+    algebraic midpoint of the first lot differs from the usual approximations
+    by tens of percent, yet the fit recovers the generating curve exactly. A
+    fit that priced lots at an approximate midpoint could not do that."""
+    quantities, costs = lot_costs_from(slope=0.85, t1=5e6)
+    s = LotSeries(quantities=quantities, costs=costs, dollar_year=2026)
+    fit = s.fit()
+    assert fit.slope == pytest.approx(0.85, rel=1e-6)
+
+    ranges = s.unit_ranges()
+    exact = fit.lot_midpoint(ranges[:, 0], ranges[:, 1])
+    geometric = np.sqrt(ranges[:, 0] * ranges[:, 1])
+    # The first lot is where the approximations are worst, and it is exactly
+    # the lot a midpoint-based fit would misprice.
+    assert abs(geometric[0] / exact[0] - 1) > 0.20
