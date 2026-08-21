@@ -9,6 +9,14 @@ intervals, and writes down every assumption it made. It also carries a full
 synthetic CSDR/SRDR pipeline, parametric CERs, and correlated Monte Carlo risk
 analysis.
 
+**Prefer a window to a terminal?** The desktop lot cost model takes analogy
+lots and estimate lots, fits three competing models and writes an Excel
+workbook:
+
+```bash
+ce-core gui
+```
+
 **Fit a curve to your own lot data in one command:**
 
 ```bash
@@ -40,6 +48,8 @@ for each.
 
 | Module | Purpose |
 | --- | --- |
+| `cost_core.lotmodel` | **The desktop tool:** analogy lots in, estimate lots out. Fits LC / Rate / LC+Rate, selects on significance with an AICc tiebreak, writes the Excel workbook |
+| `cost_core.gui` | The tkinter front end for it — paste from Excel, five tabs |
 | `cost_core.lots` | **Your own data:** units and cost per lot, in CSV or Excel. Derives lot boundaries, fits, and guards the four ways this input silently goes wrong |
 | `cost_core.synth` | Seeded synthetic CSDR/SRDR generator: DD 1921, DD 1921-1, DD 1921-2, Cost and Hour Report (FlexFile), Quantity Data Report, SRDR (DD 2630) — with realistic pathologies to clean |
 | `cost_core.ingest` | ETL to one normalised long table: WBS crosswalk, base-year normalisation, resubmission dedup, loud validation gates, row-level provenance |
@@ -96,6 +106,59 @@ artifacts/
 ```
 
 The same seed reproduces the run exactly.
+
+## The desktop lot cost model
+
+```bash
+ce-core gui
+```
+
+Five tabs. Enter historical **analogy lots** (fiscal year, quantity, unit cost)
+and forecast **estimate lots** (fiscal year, quantity, complexity factor),
+paste straight from Excel with Ctrl+V, and press Run Model.
+
+Three models are fitted to the analogy lots and every estimate lot is priced
+under all three, so the projections carry the models the tool *did not* pick
+alongside the one it did:
+
+```
+LC        ln(cost) = ln(T1) + b*ln(lot midpoint)
+Rate      ln(cost) = ln(T1) + c*ln(lot quantity)
+LC+Rate   both terms together
+```
+
+Selection goes to LC+Rate when its rate coefficient is significant, to Rate
+when the rate slope is significant *and* beats LC by more than the AICc tie
+threshold, and to LC otherwise. Where AICc disagrees with the significance
+gate, the summary says so instead of hiding it. Because the lot midpoint
+depends on the slope being fitted, the fit iterates to a fixed point — the
+Goal Seek the original workbook did by hand.
+
+### What the fifth tab adds
+
+The estimate is untouched by any of this; a golden-master test fails if a
+single coefficient moves. What the Statistics tab reports is how much
+confidence those numbers can carry:
+
+- **Retransformation bias.** The fit is OLS on `ln(cost)`, then exponentiated
+  back. That estimates the *median* and understates the *mean* by `exp(s²/2)`.
+  MUPE and ZMPE refit the same regressors under a proportional-error loss and
+  drive the mean percentage error to zero, so the bias is measured on your
+  data rather than argued about.
+- **Influence.** Six analogy lots is a normal sample here, and at that size one
+  lot can set the slope while every summary statistic looks healthy. Leverage
+  and Cook's distance name it. On the tool's own example data, analogy lot 1
+  carries leverage 0.81 and Cook's D 4.1.
+- **Prediction intervals** on every projected lot — for a *new* lot, carrying
+  the residual scatter, with a t multiplier because sigma is estimated.
+- **Buy risk.** A distribution over the total of the estimate lots with
+  P50/P80/P90 and where the point estimate falls on it. Residuals across lots
+  are correlated at 0.30 by default, for the same reason WBS elements are.
+
+Four extra sheets are appended to the workbook — `Fit_Methods`, `Influence`,
+`Prediction_Intervals`, `Buy_Risk` — after the original three are written, so
+an analyst who wants only the original three still gets exactly those. Switch
+the whole layer off in tab 3 and the tool behaves as it always did.
 
 ## Fitting a curve to your own lot data
 
@@ -382,7 +445,7 @@ pip install -r requirements.txt pytest
 pytest tests/ -q
 ```
 
-479 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
+520 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
 against closed-form answers rather than against recorded output. The strongest
 ones:
 

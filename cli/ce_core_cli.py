@@ -91,6 +91,15 @@ def run_simulate(args: argparse.Namespace) -> None:
     except Exception as e:
         abort(f"Simulation engine error: {e}")
 
+def run_gui(args: argparse.Namespace) -> None:
+    """Launch the desktop lot cost model."""
+    try:
+        from cost_core.gui import main as gui_main
+    except ImportError as e:
+        abort(f"The GUI needs tkinter, which is not available ({e}).")
+    raise SystemExit(gui_main())
+
+
 def run_fit_lots(args: argparse.Namespace) -> None:
     """Fit a learning curve to a two-column lot file: units and cost."""
     path = Path(args.csv)
@@ -262,6 +271,12 @@ def main() -> None:
     p_sim.add_argument("--qty-dist", "--quantity-dist", dest="qty_dist",
                        required=True)
 
+    # Subcommand: gui -- the desktop lot cost model
+    sub.add_parser(
+        "gui",
+        help="Launch the desktop lot cost model (analogy + estimate lots)",
+    )
+
     # Subcommand: fit-lots -- the simple front door for real production data
     p_lots = sub.add_parser(
         "fit-lots",
@@ -338,6 +353,7 @@ def main() -> None:
         "fit-curve": run_fit,
         "forecast": run_forecast,
         "simulate": run_simulate,
+        "gui": run_gui,
         "fit-lots": run_fit_lots,
         "full-run": run_full,
     }
