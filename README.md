@@ -50,7 +50,7 @@ for each.
 | --- | --- |
 | `cost_core.lotmodel` | **The desktop tool:** analogy lots in, estimate lots out. Fits LC / Rate / LC+Rate, selects on significance with an AICc tiebreak, writes the Excel workbook |
 | `cost_core.gui` | The tkinter front end for it — paste from Excel, five tabs |
-| `cost_core.lots` | **Your own data:** units and cost per lot, in CSV or Excel. Derives lot boundaries, fits, and guards the four ways this input silently goes wrong |
+| `cost_core.lots` | **Your own data:** units and cost per lot, in CSV or Excel. Runs the same three-model lot cost engine as the desktop tool, then layers the statistics on top |
 | `cost_core.synth` | Seeded synthetic CSDR/SRDR generator: DD 1921, DD 1921-1, DD 1921-2, Cost and Hour Report (FlexFile), Quantity Data Report, SRDR (DD 2630) — with realistic pathologies to clean |
 | `cost_core.ingest` | ETL to one normalised long table: WBS crosswalk, base-year normalisation, resubmission dedup, loud validation gates, row-level provenance |
 | `cost_core.fitting` | Shared estimator: OLS, MUPE and ZMPE, with delta-method prediction and confidence intervals |
@@ -198,8 +198,8 @@ The equation is printed and written to `equation.csv`:
 Unit Cost(x) = 5,899,940.09 * x^(-0.128073)
 ```
 
-`--price-lots` applies it to any buy profile from unit 1, producing the
-learning curve table an analyst would build by hand — lot midpoints included:
+`--price-lots` applies the selected model to any buy profile from unit 1,
+producing the learning curve table an analyst would build by hand:
 
 ```bash
 ce-core fit-lots --csv mylots.csv --dollar-year 2026 --price-lots "10,15,20,25,30" --out results/
@@ -239,6 +239,22 @@ spread of the whole buy.
 It does *not* include schedule risk, requirement changes, or rate changes the
 history never saw. That's a narrower claim than a full risk model, and the log
 says so.
+
+### How it fits
+
+Three candidate models against the lot midpoint, one selected:
+
+```
+LC        ln(unit cost) = ln(T1) + b*ln(lot midpoint)
+Rate      ln(unit cost) = ln(T1) + c*ln(lot quantity)
+LC+Rate   both terms together
+```
+
+This is the same engine the desktop tool runs, so `ce-core fit-lots` and
+`ce-core gui` give the same answer for the same lots. All three models are
+fitted and all three price every lot, so the alternatives stay on the record.
+Because the midpoint depends on the slope being fitted, the fit iterates to a
+fixed point.
 
 ### Four things that quietly ruin a lot fit
 
@@ -447,7 +463,7 @@ pip install -r requirements.txt pytest
 pytest tests/ -q
 ```
 
-520 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
+496 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
 against closed-form answers rather than against recorded output. The strongest
 ones:
 

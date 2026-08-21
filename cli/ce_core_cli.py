@@ -101,7 +101,7 @@ def run_gui(args: argparse.Namespace) -> None:
 
 
 def run_fit_lots(args: argparse.Namespace) -> None:
-    """Fit a learning curve to a two-column lot file: units and cost."""
+    """Fit the lot cost model to a two-column lot file: units and cost."""
     path = Path(args.csv)
     if not path.is_file():
         abort(f"Lot file not found: {path}")
@@ -119,63 +119,89 @@ def run_fit_lots(args: argparse.Namespace) -> None:
             units_col=args.units_col,
             cost_col=args.cost_col,
         )
-        report = analyse_lots(series, theory=args.theory, method=args.method)
 
-        print(f"\n--- {series.program} ---")
+        forecast = None
+        if args.forecast:
+            forecast = [int(x) for x in args.forecast.replace(" ", "").split(",") if x]
+
+        report = analyse_lots(
+            series, forecast=forecast, complexity=args.complexity,
+            level=args.level, t_gate=args.t_gate, aicc_tie=args.aicc_tie,
+        )
+
+        print()
+        print(f"--- {series.program} ---")
         print(report.narrative())
-        print("\nLots as read and fitted:")
-        columns = ["lot", "units", "cost", "first_unit", "last_unit",
-                   "lot_average_cost", "fitted_average", "percent_error"]
-        print(report.per_lot[columns].to_string(index=False))
-        print("\nSummary:")
-        print(report.summary().to_string(index=False))
 
-        print(f"\nFitted equation:\n  {report.equation()}")
-        print("\nCoefficients:")
+        print()
+        print("Models compared (the engine fits all three):")
+        print(report.model_comparison().to_string(index=False))
+
+        print()
+        print(f"Selected: {report.selected_model}")
+        print(f"  {report.equation()}")
+        print()
+        print("Coefficients:")
         print(report.fit.equation_detail().to_string(index=False))
+
+        print()
+        print("Analogy lots as fitted:")
+        print(report.per_lot[[
+            "lot", "units", "lot_midpoint", "lot_average_cost",
+            "fitted_unit_cost", "percent_error",
+        ]].to_string(index=False))
+
+        print()
+        print("Retransformation bias, measured on this data:")
+        methods = report.methods()
+        print(f"  OLS understates the mean by {methods.percent_understated:.3f}%"
+              f"   exp(s2/2) = {methods.theoretical_factor:.5f}"
+              f"   Duan smearing = {methods.smearing_factor:.5f}")
+        print(methods.frame.to_string(index=False))
+
+        print()
+        print("Influence on the analogy lots:")
+        print(report.influence().to_string(index=False))
+
+        label = "Forecast" if forecast else "Back-cast of the fitted lots"
+        print()
+        print(f"{label} ({args.level:.0%} prediction interval):")
+        print(report.intervals().to_string(index=False))
+
+        simulation = None
+        if args.simulate:
+            simulation = report.simulate(n_iter=args.simulate, seed=args.seed)
+            print()
+            print(f"Monte Carlo of the buy ({args.simulate:,} iterations):")
+            print(simulation.narrative())
+            print()
+            print(simulation.summary().to_string(index=False))
 
         priced = None
         if args.price_lots:
             plan = [int(x) for x in args.price_lots.replace(" ", "").split(",") if x]
             priced = report.price_lot_plan(plan, first_unit=args.price_from_unit)
-            print(
-                f"\nThis curve applied to a lot plan of {plan}, "
-                f"from unit {args.price_from_unit} "
-                f"(use as an analogy for a programme with no history of its own):"
-            )
+            print()
+            print(f"This model applied to a lot plan of {plan}, from unit "
+                  f"{args.price_from_unit} (analogy for a programme with no "
+                  f"history of its own):")
             print(priced.to_string(index=False))
-
-        quantities, forecast, simulation = [], None, None
-        if args.forecast:
-            quantities = [int(x) for x in args.forecast.replace(" ", "").split(",") if x]
-            forecast = report.forecast(quantities, level=args.level)
-            print(f"\nForecast ({args.level:.0%} prediction interval):")
-            print(forecast.to_string(index=False))
-
-            if args.simulate:
-                simulation = report.simulate_forecast(
-                    quantities, n_iter=args.simulate, seed=args.seed
-                )
-                print(f"\nMonte Carlo of the future buy ({args.simulate:,} iterations):")
-                print(simulation.narrative())
-                print()
-                print(simulation.summary().to_string(index=False))
-        elif args.simulate:
-            abort("--simulate needs --forecast, so it knows which lots to cost.")
 
         if args.out:
             out = Path(args.out)
             out.mkdir(parents=True, exist_ok=True)
             report.per_lot.to_csv(out / "lots_fitted.csv", index=False)
             report.summary().to_csv(out / "summary.csv", index=False)
-            if report.by_method:
-                report.method_comparison().to_csv(out / "methods.csv", index=False)
-                report.theory_comparison().to_csv(out / "theories.csv", index=False)
-            if forecast is not None:
-                forecast.to_csv(out / "forecast.csv", index=False)
+            report.model_comparison().to_csv(out / "models_compared.csv", index=False)
             report.fit.equation_detail().to_csv(out / "equation.csv", index=False)
+            report.methods().frame.to_csv(out / "fit_methods.csv", index=False)
+            report.influence().to_csv(out / "influence.csv", index=False)
+            report.intervals().to_csv(out / "prediction_intervals.csv", index=False)
+            report.fit.projections.to_csv(out / "projections.csv", index=False)
             if priced is not None:
                 priced.to_csv(out / "lot_plan_priced.csv", index=False)
+            if simulation is not None:
+                simulation.summary().to_csv(out / "buy_risk.csv", index=False)
             build_assumption_log(
                 report, source=path, priced_plan=priced,
                 priced_from_unit=args.price_from_unit,
@@ -183,27 +209,18 @@ def run_fit_lots(args: argparse.Namespace) -> None:
 
             from cost_core.reporting import charts
 
-            lot_table = report.per_lot.rename(columns={"cost": "lot_cost"})
-            charts.plot_learning_curve(
-                report.fit, lot_table, out / "learning_curve.png",
-                forecast_lots=report._forecast_spans(quantities) if quantities else None,
-                level=args.level,
-                title=f"{series.program}: cost improvement curve",
-            )
             if simulation is not None:
-                simulation.summary().to_csv(out / "forecast_simulation.csv", index=False)
                 charts.plot_s_curve(
-                    simulation, out / "forecast_s_curve.png",
-                    title=f"{series.program}: cost of the next {sum(quantities)} units",
-                    subtitle=(
-                        f"{args.simulate:,} iterations from the fitted curve, "
-                        f"constant FY{args.dollar_year} dollars"
-                    ),
+                    simulation, out / "buy_s_curve.png",
+                    title=f"{series.program}: cost of the priced lots",
+                    subtitle=(f"{args.simulate:,} iterations from the "
+                              f"{report.selected_model} fit, constant "
+                              f"FY{args.dollar_year} dollars"),
                 )
             log.info(f"Wrote results and ASSUMPTIONS.md to {out}")
 
     except Exception as e:
-        abort(f"Lot curve fit failed: {e}")
+        abort(f"Lot cost model failed: {e}")
 
 
 def run_full(args: argparse.Namespace) -> None:
@@ -293,10 +310,12 @@ def main() -> None:
                         help="'total' includes nonrecurring and warns")
     p_lots.add_argument("--first-unit", type=int, default=1,
                         help="Unit number the first lot starts at")
-    p_lots.add_argument("--theory", default="crawford",
-                        choices=["crawford", "wright"])
-    p_lots.add_argument("--method", default="ols",
-                        choices=["ols", "mupe", "zmpe"])
+    p_lots.add_argument("--complexity", type=float, default=1.0,
+                        help="Complexity factor applied to the priced lots")
+    p_lots.add_argument("--t-gate", type=float, default=2.0,
+                        help="Significance cutoff on the rate coefficient")
+    p_lots.add_argument("--aicc-tie", type=float, default=2.0,
+                        help="How much better on AICc Rate must be to beat LC")
     p_lots.add_argument("--quantity-definition", default="unspecified",
                         help="What a unit means: delivered, completed, accepted")
     p_lots.add_argument("--program", default=None, help="Program name for reports")

@@ -12,10 +12,22 @@ lot, how many units and what it cost. Two columns.
 
 Everything else is derived. Lot 1 is units 1-22, lot 2 is units 23-40, and so
 on by running total, which is what turns a flat list of lots into a position on
-a learning curve. The fitting itself is the existing engine in
-:mod:`cost_core.learning_curve`; this module is the part that takes a user's
-two columns, checks the things that silently ruin a curve, and hands over
-something well formed.
+a learning curve.
+
+**The fitting is the lot cost model in :mod:`cost_core.lotmodel`** -- the same
+engine the desktop tool runs, so the command line and the window give the same
+answer for the same lots. Three candidate models are fitted against the lot
+midpoint and one is selected:
+
+    LC        ln(unit cost) = ln(T1) + b * ln(lot midpoint)
+    Rate      ln(unit cost) = ln(T1) + c * ln(lot quantity)
+    LC+Rate   both terms together
+
+The midpoint is the unit whose cost equals the lot average, and under a power
+curve it depends on the slope being fitted -- so the fit iterates to a fixed
+point rather than solving in one pass. Selection goes to LC+Rate when its rate
+coefficient is significant, to Rate when the rate slope is significant and
+beats LC by more than the AICc tie threshold, and to LC otherwise.
 
 **The three ways this input goes wrong quietly**, all of which are checked
 here rather than left to the analyst to remember:
@@ -33,9 +45,11 @@ given and records the declared dollar basis; it does not deflate. Supply
 constant-year dollars, or normalise first through
 :mod:`cost_core.ingest.inflation`.
 
-*Too few lots.* Degrees of freedom are ``lots - 2``. Two lots interpolate
-exactly and are refused. Three gives one degree of freedom and an interval so
-wide it cannot support a decision. Five is the practical floor.
+*Too few lots.* A two-parameter model on this data has ``lots - 2`` degrees of
+freedom. Two lots interpolate exactly and are refused. Three gives one degree
+of freedom and an interval too wide to support a decision. Five is the
+practical floor, and LC+Rate needs more still because it spends a third
+parameter.
 """
 
 from __future__ import annotations
@@ -51,12 +65,20 @@ import pandas as pd
 from scipy import stats
 
 from cost_core.fitting import FitError
-from cost_core.learning_curve import (METHODS, CurveFit, RateBreak, Theory,
-                                      _model_from_theta, comparison_table,
-                                      compare_methods, compare_theories,
-                                      fit_curve, retransformation_report)
+from cost_core.lotmodel import (generate_analyst_summary,
+                                generate_fit_chart_data, run_lot_cost_model)
+from cost_core.lotmodel.enrich import (BuyRisk, EnrichmentError,
+                                       compare_fitting_methods,
+                                       influence_diagnostics,
+                                       projection_intervals, selected_model_name,
+                                       simulate_buy)
+from cost_core.lotmodel.mathx import lmp_func
 
 logger = logging.getLogger(__name__)
+
+#: Residual correlation across forecast lots, re-exported so callers of this
+#: module do not have to reach into the lotmodel package for it.
+from cost_core.lotmodel.enrich import DEFAULT_LOT_CORRELATION  # noqa: E402
 
 CostBasis = Literal["recurring", "total"]
 
@@ -359,85 +381,6 @@ class LotSeries:
             }
         )
 
-    # ----------------------------------------------------------- the fit
-    def fit(
-        self,
-        *,
-        theory: Theory | str = Theory.CRAWFORD,
-        method: str = "ols",
-        breaks: Iterable[RateBreak] = (),
-        allow_small_sample: bool = True,
-    ) -> CurveFit:
-        """Fit a learning curve to this production history.
-
-        Args:
-            theory: Crawford unit theory (the usual reading of lot cost) or
-                Wright cumulative average.
-            method: ``"ols"``, ``"mupe"`` or ``"zmpe"``.
-            breaks: Rate breaks to model explicitly.
-            allow_small_sample: If False, refuse rather than warn when there
-                are too few lots to support the model.
-
-        Raises:
-            LotInputError: With fewer than three lots, or when the sample is
-                too small and ``allow_small_sample`` is False.
-        """
-        if self.n_lots < 3:
-            raise LotInputError(
-                f"{self.n_lots} lot(s) cannot support a learning curve. Two "
-                f"points and two parameters interpolate exactly, leaving no "
-                f"way to estimate a standard error or an interval -- a perfect "
-                f"fit that means nothing. Three lots is the minimum and five "
-                f"is the practical floor."
-            )
-
-        if self.cost_basis == "total":
-            message = (
-                f"Lot costs for {self.program} are declared as TOTAL cost, "
-                f"which includes nonrecurring. Nonrecurring cost is "
-                f"front-loaded and does not follow a learning curve, so it "
-                f"makes the early lots look expensive and the fitted slope "
-                f"come out steeper than the production process really is -- "
-                f"overstating future savings. Fit on recurring cost only "
-                f"where the data allows it."
-            )
-            warnings.warn(message, RuntimeWarning, stacklevel=2)
-            logger.warning(message)
-
-        # Look for escalation still sitting in "constant" dollars before
-        # fitting, so the analyst sees it alongside the slope rather than
-        # after quoting it.
-        self.check_constant_dollars()
-
-        if self.n_lots < COMFORTABLE_LOTS:
-            message = (
-                f"{self.n_lots} lots gives {self.df} degree(s) of freedom, "
-                f"below the {COMFORTABLE_LOTS} lots normally wanted. The slope "
-                f"will carry a very wide interval and a single unusual lot can "
-                f"set it. Treat the point estimate as indicative and read the "
-                f"per-lot errors before relying on it."
-            )
-            if not allow_small_sample:
-                raise LotInputError(message)
-            warnings.warn(message, RuntimeWarning, stacklevel=2)
-
-        ranges = self.unit_ranges()
-        fit = fit_curve(
-            theory=theory,
-            method=method,
-            lots=ranges,
-            lot_costs=self.costs,
-            breaks=tuple(breaks),
-        )
-        logger.info(
-            "%s: fitted %s %s curve on %d lots (%d units), slope %.2f%%, "
-            "T1 %.4g, CV %.1f%%",
-            self.program, str(theory), method.upper(), self.n_lots,
-            self.total_units, fit.slope * 100.0, fit.t1, fit.cv * 100.0,
-        )
-        return fit
-
-    # --------------------------------------------------------------- I/O
     @classmethod
     def from_frame(
         cls,
@@ -533,6 +476,295 @@ class LotSeries:
         logger.info("Read %d row(s) from %s", len(frame), path)
         return cls.from_frame(frame, **kwargs)
 
+    # ----------------------------------------------------------- the fit
+    def to_analogy_frame(self) -> pd.DataFrame:
+        """The history in the shape the lot cost engine expects.
+
+        Unit cost rather than lot cost, because the engine fits ``ln(AUC)``.
+        Lot order is the build order the series was given in, which is what
+        the running unit count depends on.
+        """
+        return pd.DataFrame({
+            "Lot": np.arange(1, self.n_lots + 1),
+            "Qty": self.quantities.astype(float),
+            "AUC": self.costs / self.quantities,
+        })
+
+    def estimate_frame(self, quantities: Iterable[int],
+                       complexity: float = 1.0) -> pd.DataFrame:
+        """A forecast buy in the shape the engine expects.
+
+        Raises:
+            LotInputError: If any quantity is not a positive whole number.
+        """
+        quantities = [int(q) for q in quantities]
+        if not quantities or any(q <= 0 for q in quantities):
+            raise LotInputError(
+                f"Forecast lot quantities must all be positive whole units; "
+                f"got {quantities}.")
+        return pd.DataFrame({
+            "Lot": np.arange(1, len(quantities) + 1),
+            "Qty": [float(q) for q in quantities],
+            "Complexity": [float(complexity)] * len(quantities),
+        })
+
+    # ----------------------------------------------------------- the fit
+    def fit(
+        self,
+        *,
+        forecast: Iterable[int] | None = None,
+        complexity: float = 1.0,
+        t_gate: float = 2.0,
+        aicc_tie: float = 2.0,
+        allow_small_sample: bool = True,
+        program: str | None = None,
+    ) -> "LotModelFit":
+        """Fit LC, Rate and LC+Rate to this history and select between them.
+
+        Args:
+            forecast: Units in each future lot. When omitted the history's own
+                quantities are priced instead, which back-casts the lots the
+                model was fitted on -- useful on its own, and it keeps the
+                engine's estimate table non-empty.
+            complexity: Complexity factor applied to every forecast lot.
+            t_gate: Significance cutoff on the rate coefficient.
+            aicc_tie: How much better on AICc Rate must be to beat LC.
+            allow_small_sample: If False, refuse rather than warn when there
+                are too few lots to support the model.
+            program: Name carried into reports.
+
+        Raises:
+            LotInputError: With fewer than three lots, or when the sample is
+                too small and ``allow_small_sample`` is False.
+        """
+        if self.n_lots < 3:
+            raise LotInputError(
+                f"{self.n_lots} lot(s) cannot support a learning curve. Two "
+                f"points and two parameters interpolate exactly, leaving no "
+                f"way to estimate a standard error or an interval -- a perfect "
+                f"fit that means nothing. Three lots is the minimum and five "
+                f"is the practical floor.")
+
+        if self.cost_basis == "total":
+            message = (
+                f"Lot costs for {self.program} are declared as TOTAL cost, "
+                f"which includes nonrecurring. Nonrecurring cost is "
+                f"front-loaded and does not follow a learning curve, so it "
+                f"makes the early lots look expensive and the fitted slope "
+                f"come out steeper than the production process really is -- "
+                f"overstating future savings. Fit on recurring cost only "
+                f"where the data allows it.")
+            warnings.warn(message, RuntimeWarning, stacklevel=2)
+            logger.warning(message)
+
+        # Escalation still sitting in "constant" dollars, before fitting, so
+        # the analyst sees it alongside the slope rather than after quoting it.
+        self.check_constant_dollars()
+
+        if self.n_lots < COMFORTABLE_LOTS:
+            message = (
+                f"{self.n_lots} lots gives {self.n_lots - 2} degree(s) of "
+                f"freedom on a two-parameter model, below the "
+                f"{COMFORTABLE_LOTS} lots normally wanted. The slope will "
+                f"carry a very wide interval and a single unusual lot can set "
+                f"it. Treat the point estimate as indicative and read the "
+                f"per-lot errors before relying on it.")
+            if not allow_small_sample:
+                raise LotInputError(message)
+            warnings.warn(message, RuntimeWarning, stacklevel=2)
+
+        quantities = list(forecast) if forecast is not None else list(self.quantities)
+        estimate = self.estimate_frame(quantities, complexity)
+
+        prior_fit = self.first_unit - 1
+        prior_fcst = (prior_fit + self.total_units) if forecast is not None else prior_fit
+
+        overrides = {
+            "TGate": float(t_gate),
+            "AiccTie": float(aicc_tie),
+            "FitPriorUnits": int(prior_fit),
+            "FcstPriorUnits": int(prior_fcst),
+            "CostUnitScale": 1.0,
+            "TotalScale": 1.0,
+            "DefaultCF": float(complexity),
+        }
+
+        projections, ctx = run_lot_cost_model(
+            self.to_analogy_frame(), estimate, overrides)
+        summary = generate_analyst_summary(ctx, {
+            "RunID": "", "Program": program or self.program,
+            "RunLabel": "", "BaseYear": f"FY{self.dollar_year}"})
+
+        fit = LotModelFit(series=self, projections=projections, ctx=ctx,
+                          summary=summary, chart=generate_fit_chart_data(ctx),
+                          forecast_quantities=quantities,
+                          is_forecast=forecast is not None,
+                          complexity=float(complexity))
+        logger.info(
+            "%s: %s selected on %d lots, slope %s, T1 %.4g",
+            self.program, fit.selected_model, self.n_lots,
+            f"{fit.slope:.2%}" if fit.slope is not None else "n/a", fit.t1)
+        return fit
+
+
+@dataclass
+class LotModelFit:
+    """The three fitted models, the one selected, and what they price.
+
+    A thin wrapper over the engine's output. Everything here reads the models
+    the engine fitted; nothing recomputes them, so the numbers a caller sees
+    are the numbers the desktop tool would show for the same lots.
+    """
+
+    series: "LotSeries"
+    projections: pd.DataFrame
+    ctx: dict
+    summary: pd.DataFrame
+    chart: pd.DataFrame
+    forecast_quantities: list[int]
+    is_forecast: bool
+    complexity: float = 1.0
+
+    # ------------------------------------------------------------ selection
+    @property
+    def selected_model(self) -> str:
+        """Which of LC, Rate or LC+Rate the selection rule chose."""
+        return selected_model_name(self.summary)
+
+    @property
+    def selection_note(self) -> str:
+        """Why this model was chosen, in the engine's own words.
+
+        The engine writes the reason into the selected model's own column
+        rather than the shared Value column, so read it from there.
+        """
+        row = self.summary[self.summary["Item"] == "Selection basis"]
+        if row.empty:
+            return ""
+        note = str(row.iloc[0].get(self.selected_model, "")).strip()
+        if not note:
+            note = str(row.iloc[0].get("Value", "")).strip()
+        return note
+
+    def _summary_value(self, item: str, column: str = "Value") -> str:
+        row = self.summary[self.summary["Item"] == item]
+        return str(row.iloc[0][column]) if not row.empty else ""
+
+    # ------------------------------------------------------- coefficients
+    @property
+    def t1(self) -> float:
+        """Theoretical first-unit cost under the selected model."""
+        return {"LC": self.ctx.get("t1_lc"), "Rate": self.ctx.get("t1_rt"),
+                "LC+Rate": self.ctx.get("t1_br")}[self.selected_model]
+
+    @property
+    def b(self) -> float | None:
+        """Learning exponent, or None when the selected model has no LC term."""
+        return {"LC": self.ctx.get("b_lc"), "Rate": None,
+                "LC+Rate": self.ctx.get("b_br")}[self.selected_model]
+
+    @property
+    def c(self) -> float | None:
+        """Rate exponent, or None when the selected model has no rate term."""
+        return {"LC": None, "Rate": self.ctx.get("b_rt"),
+                "LC+Rate": self.ctx.get("c_br")}[self.selected_model]
+
+    @property
+    def slope(self) -> float | None:
+        """Learning slope, ``2 ** b``. None when there is no learning term."""
+        return None if self.b is None else float(2.0 ** self.b)
+
+    @property
+    def rate_slope(self) -> float | None:
+        """Rate slope, ``2 ** c``: the cost effect of doubling the lot size."""
+        return None if self.c is None else float(2.0 ** self.c)
+
+    @property
+    def n_obs(self) -> int:
+        return int(self.ctx.get("n_keep", 0))
+
+    @property
+    def n_params(self) -> int:
+        return {"LC": 2, "Rate": 2, "LC+Rate": 3}[self.selected_model]
+
+    @property
+    def df(self) -> int:
+        """Residual degrees of freedom on the selected model."""
+        return self.n_obs - self.n_params
+
+    @property
+    def sigma(self) -> float:
+        """Standard error of the estimate, on the log scale."""
+        model = {"LC": "mdl_lc", "Rate": "mdl_rt",
+                 "LC+Rate": "mdl_lcr"}[self.selected_model]
+        return float(self.ctx[model]["SEy"])
+
+    @property
+    def cv(self) -> float:
+        """Coefficient of variation implied by the log-space scatter."""
+        return float(np.sqrt(np.exp(self.sigma ** 2) - 1.0))
+
+    @property
+    def r_squared(self) -> float:
+        """Reported for completeness, and last. See the module notes."""
+        model = {"LC": "mdl_lc", "Rate": "mdl_rt",
+                 "LC+Rate": "mdl_lcr"}[self.selected_model]
+        return float(self.ctx[model]["R2"])
+
+    def equation(self, *, precision: int = 6) -> str:
+        """The selected model written out, ready to quote or re-use."""
+        terms = [f"{self.t1:,.2f}"]
+        if self.b is not None:
+            terms.append(f"midpoint^({self.b:.{precision}f})")
+        if self.c is not None:
+            terms.append(f"qty^({self.c:.{precision}f})")
+        return "Unit Cost = " + " * ".join(terms)
+
+    def equation_detail(self) -> pd.DataFrame:
+        """Every coefficient a reader needs to rebuild the model by hand."""
+        rows = [
+            ("selected_model", self.selected_model),
+            ("selection_note", self.selection_note),
+            ("equation", self.equation()),
+            ("T1_first_unit_cost", self.t1),
+            ("b_learning_exponent", self.b if self.b is not None else ""),
+            ("learning_slope", self.slope if self.slope is not None else ""),
+            ("c_rate_exponent", self.c if self.c is not None else ""),
+            ("rate_slope", self.rate_slope if self.rate_slope is not None else ""),
+            ("lots_fitted", self.n_obs),
+            ("parameters", self.n_params),
+            ("degrees_of_freedom", self.df),
+            ("SEE_log", self.sigma),
+            ("cv", self.cv),
+            ("r_squared_read_last", self.r_squared),
+        ]
+        return pd.DataFrame(rows, columns=["term", "value"])
+
+    def model_comparison(self) -> pd.DataFrame:
+        """LC, Rate and LC+Rate side by side, as the engine reported them.
+
+        The models that were not selected are shown too, because the first
+        question a reviewer asks is what the alternatives said.
+        """
+        wanted = ["Fitted", "SELECTED", "T1 ($K)", "Learning exponent (b)",
+                  "Learning curve slope", "Rate exponent (c)", "Rate slope",
+                  "R2 (log)", "Adj R2", "SEE (log)", "CV", "MAPE",
+                  "Mean bias", "AICc", "dAICc", "t (rate coeff)"]
+        rows = [r for _, r in self.summary.iterrows() if r["Item"] in wanted]
+        return pd.DataFrame(rows)[["Item", "LC", "Rate", "LC+Rate"]].reset_index(
+            drop=True)
+
+    def lot_midpoints(self) -> np.ndarray:
+        """The midpoint each analogy lot was priced at, under the selection."""
+        column = {"LC": "LC Lot Midpoint", "Rate": "LC Lot Midpoint",
+                  "LC+Rate": "LC+Rate Lot Midpoint"}[self.selected_model]
+        if column in self.chart.columns:
+            return self.chart[column].to_numpy(dtype=float)
+        b = self.b if self.b is not None else 0.0
+        spans = self.series.unit_ranges()
+        return np.array([lmp_func(s, e, q, b) for (s, e), q
+                         in zip(spans, self.series.quantities)], dtype=float)
+
 
 def _parse_currency(values: pd.Series) -> np.ndarray:
     """Coerce a cost column to float, tolerating $ signs and thousands commas.
@@ -564,80 +796,219 @@ def _parse_currency(values: pd.Series) -> np.ndarray:
 # --------------------------------------------------------------------------
 @dataclass
 class LotFitReport:
-    """A fitted curve and everything a reviewer will ask about it."""
+    """A fitted lot cost model and everything a reviewer will ask about it.
+
+    The fit itself comes from :mod:`cost_core.lotmodel`; this adds the layer
+    that says how much confidence the numbers carry. None of it feeds back into
+    the estimate.
+    """
 
     series: LotSeries
-    fit: CurveFit
-    by_method: dict[str, CurveFit] = field(default_factory=dict)
-    by_theory: dict[str, CurveFit] = field(default_factory=dict)
+    fit: LotModelFit
+    level: float = 0.80
+    _methods: Any = field(default=None, repr=False)
+    _influence: Any = field(default=None, repr=False)
+
+    # -------------------------------------------------------------- the fit
+    @property
+    def selected_model(self) -> str:
+        return self.fit.selected_model
+
+    def equation(self) -> str:
+        return self.fit.equation()
 
     @property
     def per_lot(self) -> pd.DataFrame:
-        """Actual against fitted for each lot, with the percentage error.
+        """Actual against fitted for each analogy lot, with the midpoint.
 
-        The most useful diagnostic on a short series: it shows *which* lot the
-        curve misses, which is usually a programmatic event somebody remembers
-        -- a second source, a design change, a cold line.
+        The most useful diagnostic on a short series: it names which lot the
+        model misses, and that lot usually maps to something a programme
+        manager remembers.
         """
+        _, _, fitted = self._fitted()
+        actual = self.series.costs / self.series.quantities
         frame = self.series.to_frame()
-        ranges = self.series.unit_ranges()
-        # Derived after the fit, never used by it -- see the note on
-        # LotFitReport for why the fit works on exact lot averages instead.
-        frame["lot_midpoint"] = self.fit.lot_midpoint(ranges[:, 0], ranges[:, 1])
-        frame["fitted_average"] = self.fit.result.fitted
-        frame["fitted_lot_cost"] = frame["fitted_average"] * frame["units"]
+        frame["lot_midpoint"] = self.fit.lot_midpoints()
+        frame["fitted_unit_cost"] = fitted
+        frame["fitted_lot_cost"] = fitted * frame["units"]
         frame["residual"] = frame["cost"] - frame["fitted_lot_cost"]
-        frame["percent_error"] = self.fit.result.percent_errors * 100.0
+        frame["percent_error"] = (actual - fitted) / fitted * 100.0
         return frame
 
+    def model_comparison(self) -> pd.DataFrame:
+        return self.fit.model_comparison()
+
+    def _fitted(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Design matrix, log response and fitted unit costs, full precision.
+
+        Rebuilt from the model the engine fitted rather than read off the
+        chart sheet, which rounds to cents for display. Rounding is invisible
+        in a report and quite visible to a residual diagnostic.
+        """
+        from cost_core.lotmodel.enrich import _design
+
+        design, y_log, _ = _design(self.fit.ctx, self.selected_model)
+        beta = np.linalg.lstsq(design, y_log, rcond=None)[0]
+        return design, y_log, np.exp(design @ beta)
+
+    # ------------------------------------------------------- added statistics
+    def methods(self):
+        """OLS against MUPE and ZMPE on the selected model's own regressors."""
+        if self._methods is None:
+            self._methods = compare_fitting_methods(self.fit.ctx,
+                                                    self.selected_model)
+        return self._methods
+
+    def influence(self) -> pd.DataFrame:
+        """Leverage and Cook's distance for each analogy lot."""
+        if self._influence is None:
+            self._influence = influence_diagnostics(
+                self.fit.ctx, self.selected_model,
+                labels=list(self.series.labels))
+        return self._influence
+
+    def intervals(self, level: float | None = None) -> pd.DataFrame:
+        """Prediction intervals on every priced lot."""
+        return projection_intervals(self.fit.ctx, self.fit.projections,
+                                    self.selected_model,
+                                    level=self.level if level is None else level)
+
+    def forecast(self, quantities: Iterable[int] | None = None, *,
+                 level: float | None = None,
+                 complexity: float | None = None) -> pd.DataFrame:
+        """Price future lots with prediction intervals.
+
+        With no argument this prices whatever the fit was given. Passing
+        quantities refits nothing -- it re-prices under the same selected
+        model, continuing from the last unit already built.
+        """
+        if quantities is None:
+            return self.intervals(level=level)
+        refit = self.series.fit(
+            forecast=quantities,
+            complexity=self.fit.complexity if complexity is None else complexity,
+            program=self.series.program)
+        return projection_intervals(
+            refit.ctx, refit.projections, refit.selected_model,
+            level=self.level if level is None else level)
+
+    def price_lot_plan(self, quantities: Iterable[int], *,
+                       first_unit: int = 1,
+                       complexity: float | None = None) -> pd.DataFrame:
+        """Price an arbitrary buy profile with this model, from unit 1.
+
+        The model used as an estimating relationship rather than as a forecast
+        of its own programme. The intended use is analogy: pricing a programme
+        with no cost history using the slope from one that has it, which is a
+        judgement about whether the two are comparable and is recorded in the
+        assumptions log as an untested assumption.
+        """
+        quantities = [int(q) for q in quantities]
+        if not quantities or any(q <= 0 for q in quantities):
+            raise LotInputError(
+                f"Lot quantities must all be positive whole units; got "
+                f"{quantities}.")
+        if first_unit < 1:
+            raise LotInputError(
+                f"first_unit must be 1 or greater; got {first_unit}.")
+
+        cf = self.fit.complexity if complexity is None else complexity
+        estimate = self.series.estimate_frame(quantities, cf)
+        overrides = {
+            "TGate": 2.0, "AiccTie": 2.0,
+            "FitPriorUnits": self.series.first_unit - 1,
+            "FcstPriorUnits": int(first_unit) - 1,
+            "CostUnitScale": 1.0, "TotalScale": 1.0, "DefaultCF": float(cf),
+        }
+        projections, _ = run_lot_cost_model(
+            self.series.to_analogy_frame(), estimate, overrides)
+
+        model = self.selected_model
+        priced = projections[[
+            "Lot", "Lot Quantity", "First Unit in Lot", "Last Unit in Lot",
+            f"{model} Lot Midpoint (unit no.)", f"{model} Unit Cost ($K)",
+            f"{model} Lot Cost After Complexity ($)",
+        ]].copy()
+        priced.columns = ["lot", "units", "first_unit", "last_unit",
+                          "lot_midpoint", "unit_cost", "lot_cost"]
+        priced.insert(0, "priced_by_analogy_from", self.series.program)
+        priced.insert(1, "source_lots_fitted", self.series.n_lots)
+        priced["cumulative_units"] = priced["units"].cumsum()
+        priced["cumulative_cost"] = priced["lot_cost"].cumsum()
+        return priced
+
+    def simulate(self, quantities: Iterable[int] | None = None, *,
+                 n_iter: int = 20_000, seed: int | None = 0,
+                 lot_correlation: float = DEFAULT_LOT_CORRELATION) -> BuyRisk:
+        """Monte Carlo the total of the priced lots.
+
+        Parameter uncertainty is drawn once per iteration from the fitted
+        covariance and applied to every lot; residual scatter is drawn per lot
+        and correlated across them. Both are t-distributed on the fit's degrees
+        of freedom, because sigma is estimated rather than known.
+        """
+        if quantities is None:
+            ctx, projections = self.fit.ctx, self.fit.projections
+        else:
+            refit = self.series.fit(forecast=quantities,
+                                    complexity=self.fit.complexity,
+                                    program=self.series.program)
+            ctx, projections = refit.ctx, refit.projections
+        return simulate_buy(ctx, projections, self.selected_model,
+                            n_iter=n_iter, seed=seed,
+                            lot_correlation=lot_correlation)
+
+    # ---------------------------------------------------------- diagnostics
     def curvature(self) -> tuple[float, float]:
         """Quadratic term in the log-log residuals, and its t statistic.
 
-        A correctly specified learning curve is a straight line in log-log
-        space, so its residuals should show no systematic bend. Escalation
-        left in supposedly-constant dollars produces a very distinctive one:
-        escalation compounds with *time* while learning compounds with *log
-        quantity*, and since quantity grows faster than linearly in lot index,
-        the mismatch shows up as convexity.
+        A correctly specified model leaves no systematic bend in its residuals,
+        so a significant quadratic term says these lots are not one clean
+        curve -- a rate break, a design change, a production gap, or a model
+        that does not fit.
 
-        This is far more sensitive than checking whether cumulative average
-        cost rises. Escalation has to exceed roughly 10% a year before it
-        overwhelms learning enough to turn the cumulative average upward,
-        whereas the bend is detectable from about 2% -- which matters, because
-        2-6% is the realistic range and it is exactly the range that passes a
-        level check while shifting the fitted slope by several points.
+        A note on what it does *not* do here. Fitted against the lot midpoint,
+        this test is a poor detector of escalation: the fitted slope moves with
+        the escalation, the midpoint moves with the slope, and the trend is
+        largely absorbed rather than left in the residuals. Measured on a
+        six-lot series, the quadratic t barely moves between 0% and 20% a year.
+        Escalation detection here rests on the level check in
+        :meth:`LotSeries.check_constant_dollars`, which needs roughly 10% a
+        year before it bites. Below that, the only reliable answer is a fiscal
+        year attached to each lot.
 
         Returns:
             ``(coefficient, t_statistic)``. Both NaN when there are too few
-            lots to estimate a quadratic (fewer than four).
+            lots to estimate a quadratic, or when the fit is so close that the
+            residuals carry nothing but rounding error.
         """
-        arr = self.series.unit_ranges()
-        x = np.log(np.sqrt(arr[:, 0] * arr[:, 1]))
-        observed = np.log(self.series.costs / self.series.quantities)
-        residual = observed - np.log(self.fit.result.fitted)
+        x = np.log(self.fit.lot_midpoints())
+        _, observed, fitted_levels = self._fitted()
+        residual = observed - np.log(fitted_levels)
 
-        design = np.column_stack([np.ones(x.size), x, x**2])
+        design = np.column_stack([np.ones(x.size), x, x ** 2])
         dof = x.size - design.shape[1]
         if dof < 1:
             return float("nan"), float("nan")
 
+        # A model that passes through every point leaves residuals at the
+        # floating-point floor. Fitting a quadratic to those returns a large t
+        # from pure rounding, which would flag the cleanest possible data as
+        # bent. Nothing is there to test.
+        scale = float(np.max(np.abs(observed))) or 1.0
+        if float(np.max(np.abs(residual))) <= 1e-9 * scale:
+            return float("nan"), float("nan")
+
         beta, *_ = np.linalg.lstsq(design, residual, rcond=None)
-        fitted_resid = design @ beta
-        sigma2 = float(np.sum((residual - fitted_resid) ** 2) / dof)
+        sigma2 = float(np.sum((residual - design @ beta) ** 2) / dof)
         if sigma2 <= 0:
             return float(beta[2]), float("nan")
         se = float(np.sqrt(sigma2 * np.linalg.inv(design.T @ design)[2, 2]))
-        return float(beta[2]), float(beta[2] / se) if se > 0 else float("nan")
+        return float(beta[2]), (float(beta[2] / se) if se > 0 else float("nan"))
 
-    def check_curve_shape(self, *, threshold: float = 2.5, warn: bool = True) -> list[str]:
-        """Flag a systematic bend in the residuals.
-
-        Escalation is the most common cause but not the only one -- a rate
-        break, a design change or a production gap bends the curve too. The
-        finding is therefore phrased as "this is not a single clean curve",
-        with escalation named as the first thing to rule out, rather than as a
-        diagnosis.
-        """
+    def check_curve_shape(self, *, threshold: float = 2.5,
+                          warn: bool = True) -> list[str]:
+        """Flag a systematic bend in the residuals."""
         findings: list[str] = []
         coefficient, t_stat = self.curvature()
 
@@ -646,23 +1017,16 @@ class LotFitReport:
                 findings.append(
                     f"Only {self.series.n_lots} lots, too few to test the "
                     f"shape of the residuals; a systematic bend from "
-                    f"escalation or a rate break could not be detected here."
-                )
+                    f"escalation or a rate break could not be detected here.")
         elif abs(t_stat) > threshold:
             direction = "upward (convex)" if coefficient > 0 else "downward (concave)"
-            extra = (
-                " Convexity is the signature of escalation left in dollars "
-                "declared constant: it compounds with time while learning "
-                "compounds with log quantity. Rule that out first, then look "
-                "for a rate break, design change or production gap."
-                if coefficient > 0 else
-                " Check for a rate break or a change in the production "
-                "process partway through the series."
-            )
             findings.append(
                 f"The residuals bend {direction} (quadratic t = {t_stat:.1f}), "
-                f"so these lots are not one clean learning curve.{extra}"
-            )
+                f"so these lots are not one clean curve. Look for a rate "
+                f"break, a design change or a production gap partway through "
+                f"the series. Note this test is not a reliable escalation "
+                f"detector under a midpoint fit -- the slope and the midpoint "
+                f"move with the escalation and absorb it.")
 
         if warn:
             for finding in findings:
@@ -672,447 +1036,113 @@ class LotFitReport:
 
     def diagnostics(self) -> list[str]:
         """Every data-quality finding, in one list."""
-        return [
-            *self.series.check_constant_dollars(warn=False),
-            *self.check_curve_shape(warn=False),
-        ]
+        notes = [*self.series.check_constant_dollars(warn=False),
+                 *self.check_curve_shape(warn=False)]
+        influential = self.influence().loc[
+            self.influence()["Influential"], "Lot"].tolist()
+        if influential:
+            notes.append(
+                f"Lot(s) {', '.join(map(str, influential))} exceed the "
+                f"conventional Cook's distance flag and are setting this fit. "
+                f"Confirm each belongs in the sample before relying on the "
+                f"slope.")
+        return notes
 
-    def forecast(
-        self, quantities: Iterable[int], *, level: float = 0.80
-    ) -> pd.DataFrame:
-        """Forecast the next lots, continuing from the last unit built.
-
-        Prediction intervals, not confidence intervals: the question is what a
-        *new lot* will cost, not where the fitted line lies.
-        """
-        quantities = [int(q) for q in quantities]
-        if any(q <= 0 for q in quantities):
-            raise LotInputError("Forecast lot quantities must be positive.")
-
-        cursor = int(self.series.unit_ranges()[-1, 1])
-        spans = []
-        for q in quantities:
-            spans.append((cursor + 1, cursor + q))
-            cursor += q
-        return self.fit.forecast_lots(
-            np.array(spans), level=level, kind="prediction"
-        )
-
-    def equation(self) -> str:
-        """The fitted curve written out, for quoting or re-use elsewhere."""
-        return self.fit.equation()
-
-    def price_lot_plan(
-        self, quantities: Iterable[int], *, first_unit: int = 1
-    ) -> pd.DataFrame:
-        """Price an arbitrary lot plan with this curve, from unit 1 by default.
-
-        The curve used as an estimating relationship rather than as a forecast
-        of its own programme: hand it a buy profile and it produces the
-        learning curve table an analyst would build by hand, lot midpoints and
-        all.
-
-        The intended use is analogy -- pricing a programme that has no cost
-        history of its own using the slope from one that does. That is a
-        judgement about whether the two programmes are similar enough in
-        product and process for the slope to carry, and it belongs in the
-        assumptions log, which is why :func:`build_assumption_log` records it
-        as an assumption rather than a result whenever a plan is priced.
-
-        Every row carries the source programme's name and its lot count.
-        Without that, an output folder holds one table saying the curve was
-        fitted to six lots and another showing five priced lots, with nothing
-        to say they describe different programmes -- which reads as a
-        truncation bug rather than as two different things.
-        """
-        priced = self.fit.price_lots(quantities, first_unit=first_unit)
-        priced.insert(0, "priced_by_analogy_from", self.series.program)
-        priced.insert(1, "source_lots_fitted", self.series.n_lots)
-        return priced
-
-    def simulate_forecast(
-        self,
-        quantities: Iterable[int],
-        *,
-        n_iter: int = 20_000,
-        seed: int | None = None,
-        include_residual: bool = True,
-        residual_correlation: float = 0.30,
-    ) -> "ForecastSimulation":
-        """Monte Carlo the cost of a future buy, using only the fitted curve.
-
-        The rest of this library simulates risk across WBS elements from
-        distributions an analyst elicits. Lot data supports something
-        different and, for a production buy, often more defensible: the
-        uncertainty is *measured from the programme's own history* rather than
-        judged, so there is nothing to argue about except the data.
-
-        Two sources are propagated, and they are not the same thing:
-
-        **Parameter uncertainty.** The slope and first-unit cost are estimates
-        from a handful of lots, and a short series pins them down loosely. Each
-        iteration draws a (log T1, b) pair from the fitted covariance, so the
-        simulation explores every curve the data cannot rule out. On four lots
-        this dominates.
-
-        **Residual scatter.** Even given the true curve, an individual lot
-        lands off it. Each iteration applies a multiplicative shock drawn from
-        the fitted residual spread. This is what makes the answer a
-        *prediction* about a real future lot rather than a statement about
-        where the fitted line sits.
-
-        What this deliberately does *not* include: schedule risk, requirement
-        changes, rate changes not present in the history, or anything else the
-        past lots never experienced. It is production cost risk conditional on
-        the programme continuing as it has been, which is a narrower and more
-        honest claim than a full risk model.
-
-        Args:
-            quantities: Units in each future lot.
-            n_iter: Iterations.
-            seed: Fixed seed. A P80 that moves between runs is not defensible.
-            include_residual: Include lot-to-lot scatter. Setting this False
-                gives the uncertainty in the fitted *curve* alone, which is a
-                confidence statement, not a prediction.
-            residual_correlation: Correlation between the residual shocks of
-                different future lots. **Not zero by default**, for exactly the
-                reason set out in :mod:`cost_core.monte_carlo`: consecutive
-                lots on one programme share a workforce, a supply base and a
-                schedule, so when one comes in high the next usually does too.
-                Treating them as independent lets the shocks cancel and
-                understates the variance of the total buy. Parameter
-                uncertainty is already perfectly correlated across lots -- one
-                curve is drawn per iteration and applied to all of them --
-                which is correct and usually the dominant term.
-
-        Raises:
-            LotInputError: On a non-positive quantity, too few iterations, or
-                a correlation outside the range a matrix of this size allows.
-        """
-        quantities = [int(q) for q in quantities]
-        if not quantities or any(q <= 0 for q in quantities):
-            raise LotInputError("Forecast lot quantities must all be positive.")
-        if n_iter < 2:
-            raise LotInputError(
-                f"Need at least 2 iterations to form a distribution; got {n_iter}."
-            )
-
-        spans = self._forecast_spans(quantities)
-        rng = np.random.default_rng(seed)
-
-        theta_hat = self.fit.result.theta
-        covariance = self.fit.result.cov
-        dof = self.fit.result.df
-
-        # Sigma is ESTIMATED, not known, so the predictive distribution is t
-        # with n-p degrees of freedom rather than normal. Drawing from a normal
-        # would understate the tails badly on a short series -- at four degrees
-        # of freedom the t multiplier is 1.20x the normal one, and the whole
-        # interval comes out about 16% too narrow. Understating risk is the
-        # one error this library exists to avoid.
-        #
-        # Implemented the standard way: draw a scale factor per iteration from
-        # a scaled inverse chi-square and apply it to BOTH the parameter draw
-        # and the residual shock. A standard normal times sqrt(df/chi2_df) is
-        # exactly a t with df degrees of freedom, so the simulation now agrees
-        # with the analytic interval by construction rather than by luck.
-        scale = np.sqrt(dof / rng.chisquare(dof, size=n_iter))
-
-        # At one or two degrees of freedom the t distribution has no finite
-        # variance, and at one it has no mean either. That is the honest
-        # answer for a three- or four-lot programme, but left alone it
-        # produces an occasional draw so extreme that exp() overflows and the
-        # reported percentiles come back as inf. Clip the scale factor so the
-        # output stays finite, and say clearly that it happened -- a silently
-        # truncated tail would understate risk, and an inf would just look
-        # like a crash.
-        cap = float(np.sqrt(dof / stats.chi2.ppf(1.0 - 1e-4, dof)) * 1e4)
-        n_clipped = int(np.sum(scale > cap))
-        if n_clipped:
-            scale = np.minimum(scale, cap)
-        if dof <= 2:
-            warnings.warn(
-                f"Only {dof} degree(s) of freedom, so the forecast "
-                f"distribution has "
-                + ("no finite mean or variance" if dof == 1 else "no finite variance")
-                + ". Read the percentiles (P50, P80, P90), which remain "
-                f"meaningful; the mean, standard deviation and CV do not. "
-                f"{n_clipped} of {n_iter} draws were clipped to keep the "
-                f"output finite. The real message is that this many lots "
-                f"cannot support a confident forecast.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
-        centred = rng.multivariate_normal(
-            np.zeros(theta_hat.size), covariance, size=n_iter
-        )
-        draws = theta_hat + centred * scale[:, None]
-
-        breaks = self.fit.model.breaks
-        theory = self.fit.theory
-        totals = np.empty(n_iter, dtype=float)
-        per_lot = np.empty((n_iter, len(spans)), dtype=float)
-
-        for i, theta in enumerate(draws):
-            model = _model_from_theta(theta, theory, breaks)
-            costs = model.lot_cost(spans[:, 0], spans[:, 1])
-            per_lot[i] = costs
-            totals[i] = costs.sum()
-
-        if include_residual:
-            # Multiplicative, because the fit's residuals are proportional,
-            # and correlated across lots, because they are not independent
-            # events on one production line.
-            n_lots = per_lot.shape[1]
-            sigma = self.fit.result.sigma
-            if n_lots == 1 or residual_correlation == 0.0:
-                log_shocks = rng.standard_normal(per_lot.shape) * sigma
-            else:
-                from cost_core.monte_carlo import uniform_correlation
-
-                corr = uniform_correlation(n_lots, residual_correlation)
-                try:
-                    chol = np.linalg.cholesky(corr)
-                except np.linalg.LinAlgError:  # pragma: no cover - guarded above
-                    chol = np.linalg.cholesky(corr + np.eye(n_lots) * 1e-10)
-                log_shocks = (rng.standard_normal(per_lot.shape) @ chol.T) * sigma
-            # The same scale factor as the parameter draw. Applying it to only
-            # one of the two would leave half the fix in place and make the
-            # residual and parameter terms mutually inconsistent.
-            log_shocks = log_shocks * scale[:, None]
-            per_lot = per_lot * np.exp(log_shocks)
-            totals = per_lot.sum(axis=1)
-
-        point = float(
-            np.sum(self.fit.model.lot_cost(spans[:, 0], spans[:, 1]))
-        )
-        logger.info(
-            "%s: simulated %d future lots (%d units) over %d iterations; "
-            "point estimate %.4g sits at the %.1fth percentile",
-            self.series.program, len(spans), sum(quantities), n_iter,
-            point, float(np.mean(totals <= point) * 100.0),
-        )
-        return ForecastSimulation(
-            totals=totals,
-            per_lot=per_lot,
-            quantities=tuple(quantities),
-            spans=spans,
-            point_estimate=point,
-            seed=seed,
-            included_residual=include_residual,
-            residual_correlation=residual_correlation,
-            n_history_lots=self.series.n_lots,
-            program=self.series.program,
-            dollar_year=self.series.dollar_year,
-        )
-
-    def _forecast_spans(self, quantities: Iterable[int]) -> np.ndarray:
-        """Unit ranges for future lots, continuing from the last unit built."""
-        cursor = int(self.series.unit_ranges()[-1, 1])
-        spans = []
-        for q in quantities:
-            spans.append((cursor + 1, cursor + int(q)))
-            cursor += int(q)
-        return np.array(spans, dtype=int)
-
+    # -------------------------------------------------------------- output
     def summary(self) -> pd.DataFrame:
-        """Headline numbers, in the order they should be read.
-
-        R squared is last, and carries a caveat. On a learning curve fitted to
-        lot averages the points are strongly trended by construction, so R
-        squared is high for almost any downward-sloping model and does not
-        discriminate between one that forecasts well and one that does not.
-        """
-        lo, hi = self.fit.slope_interval
+        """Headline numbers, in the order they should be read."""
         rows = [
+            ("selected_model", self.selected_model),
             ("lots", self.series.n_lots),
             ("units", self.series.total_units),
+            ("parameters", self.fit.n_params),
             ("degrees_of_freedom", self.fit.df),
-            ("slope", self.fit.slope),
-            ("slope_lower_80", lo),
-            ("slope_upper_80", hi),
-            ("first_unit_cost_t1", self.fit.t1),
-            ("standard_error", self.fit.standard_error),
+            ("T1_first_unit_cost", self.fit.t1),
+            ("learning_slope", self.fit.slope if self.fit.slope is not None else ""),
+            ("rate_slope", self.fit.rate_slope
+             if self.fit.rate_slope is not None else ""),
+            ("SEE_log", self.fit.sigma),
             ("cv", self.fit.cv),
-            ("mean_percent_error", self.fit.result.mean_percent_error),
-            ("worst_lot_percent_error", float(
-                np.max(np.abs(self.fit.result.percent_errors)) * 100.0
-            )),
+            ("worst_lot_percent_error",
+             float(np.max(np.abs(self.per_lot["percent_error"].to_numpy())))),
+            ("ols_understates_mean_pct", self.methods().percent_understated),
             ("r_squared_read_last", self.fit.r_squared),
         ]
         return pd.DataFrame(rows, columns=["statistic", "value"])
 
     def narrative(self) -> str:
         """A few sentences a reviewer can read without the tables."""
-        lo, hi = self.fit.slope_interval
-        worst = int(np.argmax(np.abs(self.fit.result.percent_errors)))
+        per_lot = self.per_lot
+        worst = int(np.argmax(np.abs(per_lot["percent_error"].to_numpy())))
+        slope = (f"{self.fit.slope:.2%} learning slope"
+                 if self.fit.slope is not None else "no learning term")
+        rate = (f", {self.fit.rate_slope:.2%} rate slope"
+                if self.fit.rate_slope is not None else "")
         parts = [
-            f"{self.series.program}: {self.fit.theory.value.title()} curve "
-            f"fitted by {self.fit.method.upper()} to {self.series.n_lots} lots "
-            f"covering {self.series.total_units} units, in constant FY"
-            f"{self.series.dollar_year} dollars. Slope "
-            f"{self.fit.slope:.2%} (80% interval {lo:.1%} to {hi:.1%}), "
-            f"first-unit cost {self.fit.t1:,.0f}, standard error "
-            f"{self.fit.standard_error:,.0f}, CV {self.fit.cv:.1%} on "
-            f"{self.fit.df} degree{'s' if self.fit.df != 1 else ''} of freedom.",
-            f"The curve misses {self.series.labels[worst]} by "
-            f"{self.fit.result.percent_errors[worst] * 100:+.1f}%, the largest "
+            f"{self.series.program}: {self.selected_model} selected on "
+            f"{self.series.n_lots} lots covering {self.series.total_units} "
+            f"units, in constant FY{self.series.dollar_year} dollars. {slope}"
+            f"{rate}, first-unit cost {self.fit.t1:,.0f}, SEE {self.fit.sigma:.4f} "
+            f"on the log scale, CV {self.fit.cv:.1%}, {self.fit.df} degree"
+            f"{'s' if self.fit.df != 1 else ''} of freedom.",
+            f"{self.fit.selection_note}".strip(),
+            f"The model misses {per_lot['lot'].iloc[worst]} by "
+            f"{per_lot['percent_error'].iloc[worst]:+.1f}%, the largest "
             f"departure in the series.",
         ]
         parts.extend(self.diagnostics())
         if self.series.cost_basis == "total":
             parts.append(
                 "Costs were declared as totals including nonrecurring, so this "
-                "slope is steeper than the production process alone."
-            )
+                "slope is steeper than the production process alone.")
         if self.series.n_lots < COMFORTABLE_LOTS:
             parts.append(
                 f"With only {self.series.n_lots} lots this is an indicative "
                 f"fit; the interval on the slope is too wide to separate it "
-                f"from neighbouring curves."
-            )
-        return " ".join(parts)
-
-    def method_comparison(self) -> pd.DataFrame:
-        return comparison_table(self.by_method) if self.by_method else pd.DataFrame()
-
-    def theory_comparison(self) -> pd.DataFrame:
-        return comparison_table(self.by_theory) if self.by_theory else pd.DataFrame()
-
-    def retransformation(self):
-        """Bias of the naive OLS retransformation, measured on this dataset."""
-        if "ols" not in self.by_method:
-            raise FitError(
-                "Retransformation bias needs the OLS fit; run analyse_lots "
-                "with compare=True."
-            )
-        return retransformation_report(self.by_method)
+                f"from neighbouring curves.")
+        return " ".join(p for p in parts if p)
 
 
-@dataclass
-class ForecastSimulation:
-    """Distribution of the cost of a future buy, from the fitted curve.
+def analyse_lots(series: LotSeries, *, forecast: Iterable[int] | None = None,
+                 complexity: float = 1.0, level: float = 0.80,
+                 t_gate: float = 2.0, aicc_tie: float = 2.0) -> LotFitReport:
+    """Fit a lot series and assemble the full diagnostic report.
 
-    Exposes the same vocabulary as the WBS-level simulator in
-    :mod:`cost_core.monte_carlo` -- ``totals``, ``point_estimate``,
-    ``point_estimate_percentile`` -- so the same S-curve chart draws it.
+    Args:
+        series: The production history.
+        forecast: Units in each future lot. Omitted, the history's own
+            quantities are re-priced.
+        complexity: Complexity factor on the priced lots.
+        level: Coverage for the prediction intervals.
+        t_gate: Significance cutoff on the rate coefficient.
+        aicc_tie: How much better on AICc Rate must be to beat LC.
     """
-
-    totals: np.ndarray
-    per_lot: np.ndarray
-    quantities: tuple[int, ...]
-    spans: np.ndarray
-    point_estimate: float
-    seed: int | None
-    included_residual: bool
-    residual_correlation: float = 0.0
-    n_history_lots: int = 0
-    program: str = "unnamed program"
-    dollar_year: int | None = None
-
-    @property
-    def n_iter(self) -> int:
-        return int(self.totals.size)
-
-    @property
-    def mean(self) -> float:
-        return float(np.mean(self.totals))
-
-    @property
-    def std(self) -> float:
-        return float(np.std(self.totals, ddof=1))
-
-    @property
-    def cv(self) -> float:
-        return float(self.std / self.mean) if self.mean else float("nan")
-
-    @property
-    def p50(self) -> float:
-        return float(np.percentile(self.totals, 50))
-
-    @property
-    def p80(self) -> float:
-        return float(np.percentile(self.totals, 80))
-
-    @property
-    def p90(self) -> float:
-        return float(np.percentile(self.totals, 90))
-
-    def percentile_of(self, value: float) -> float:
-        return float(np.mean(self.totals <= value) * 100.0)
-
-    @property
-    def point_estimate_percentile(self) -> float:
-        return self.percentile_of(self.point_estimate)
-
-    def summary(self) -> pd.DataFrame:
-        rows = [
-            ("iterations", self.n_iter),
-            ("future_lots", len(self.quantities)),
-            ("future_units", int(sum(self.quantities))),
-            ("point_estimate", self.point_estimate),
-            ("point_estimate_percentile", self.point_estimate_percentile),
-            ("mean", self.mean),
-            ("std_dev", self.std),
-            ("cv", self.cv),
-            ("p50", self.p50),
-            ("p80", self.p80),
-            ("p90", self.p90),
-            ("reserve_to_p80", self.p80 - self.point_estimate),
-            ("reserve_to_p80_pct",
-             100.0 * (self.p80 / self.point_estimate - 1.0)
-             if self.point_estimate else float("nan")),
-        ]
-        return pd.DataFrame(rows, columns=["statistic", "value"])
-
-    def narrative(self) -> str:
-        basis = (
-            f"curve uncertainty plus lot-to-lot scatter correlated at "
-            f"{self.residual_correlation:.2f} across future lots"
-            if self.included_residual
-            else "curve uncertainty only (a confidence statement, not a "
-                 "prediction about a real lot)"
-        )
-        year = f" FY{self.dollar_year}" if self.dollar_year else ""
-        return (
-            f"{self.program}: {len(self.quantities)} future lot(s) totalling "
-            f"{sum(self.quantities)} units. Point estimate "
-            f"{self.point_estimate:,.0f}{year} sits at the "
-            f"{self.point_estimate_percentile:.0f}th percentile; P50 "
-            f"{self.p50:,.0f}, P80 {self.p80:,.0f}, P90 {self.p90:,.0f}. "
-            f"Risk reserve to P80 is {self.p80 - self.point_estimate:,.0f} "
-            f"({100 * (self.p80 / self.point_estimate - 1):.1f}%). CV "
-            f"{self.cv:.1%}. Uncertainty propagated: {basis}. Measured from "
-            f"the programme's own {self.n_history_lots}-lot history rather "
-            f"than from elicited distributions."
-        )
+    fit = series.fit(forecast=forecast, complexity=complexity,
+                     t_gate=t_gate, aicc_tie=aicc_tie)
+    return LotFitReport(series=series, fit=fit, level=level)
 
 
-def build_assumption_log(
-    report: "LotFitReport",
-    source: str | Path | None = None,
-    priced_plan: pd.DataFrame | None = None,
-    priced_from_unit: int = 1,
-):
-    """Assemble the written assumptions log for a lot-based fit.
+def build_assumption_log(report: LotFitReport,
+                         source: str | Path | None = None,
+                         priced_plan: pd.DataFrame | None = None,
+                         priced_from_unit: int = 1):
+    """Assemble the written assumptions log for a lot cost model run.
 
     Records the dollar basis as an explicit decision, the quantity definition
-    the analyst declared, every diagnostic, and the methodological choices --
-    mapped to the four characteristics of a reliable estimate in the GAO Cost
-    Estimating and Assessment Guide.
+    the analyst declared, the model selection and why, every diagnostic, and
+    the methodological choices -- mapped to the four characteristics of a
+    reliable estimate in the GAO Cost Estimating and Assessment Guide.
     """
     from cost_core.reporting.assumptions import AssumptionLog
 
     series, fit = report.series, report.fit
     log = AssumptionLog(
-        title=f"Learning curve assumptions and provenance - {series.program}"
-    )
+        title=f"Lot cost model assumptions and provenance - {series.program}")
 
     log.section(
         "1. Source data",
         f"- Source: {source if source else 'supplied in memory'}\n"
-        f"- {series.n_lots} lots covering {series.total_units} units, "
+        f"- {series.n_lots} analogy lots covering {series.total_units} units, "
         f"first unit numbered {series.first_unit}\n"
         f"- Cost basis declared: **{series.cost_basis}**\n"
         f"- Quantity definition declared: **{series.quantity_definition}**\n"
@@ -1121,15 +1151,14 @@ def build_assumption_log(
 
     # --- the escalation decision, recorded as a decision
     findings = report.diagnostics()
-    coefficient, t_stat = report.curvature()
+    _, t_stat = report.curvature()
     body = series.dollar_basis_note()
     body += (
         "\n\nTwo checks were run for escalation left in the data. The first "
         "asks whether cumulative average cost ever rises, which it should not "
         "on a learning curve. The second tests the log-log residuals for a "
         "systematic bend, since escalation compounds with time while learning "
-        "compounds with log quantity and the mismatch shows up as convexity."
-    )
+        "compounds with log quantity and the mismatch shows up as convexity.")
     if findings:
         body += "\n\n**Findings:**\n" + "\n".join(f"- {f}" for f in findings)
     else:
@@ -1137,205 +1166,167 @@ def build_assumption_log(
             f"\n\nNeither check fired: cumulative average cost falls "
             f"monotonically, and the residual curvature is not significant "
             f"(quadratic t = {t_stat:.1f}). This is consistent with the "
-            f"constant-dollar declaration."
-        )
+            f"constant-dollar declaration.")
     body += (
         "\n\n**Limits of these checks.** The level check only fires once "
         "escalation is severe enough to overwhelm learning, which on a typical "
-        "profile takes about 10% a year. The curvature test is sensitive from "
-        "roughly 2%, but a rate break or design change bends the residuals the "
-        "same way, so it identifies a departure from a single clean curve "
-        "rather than escalation specifically. Neither can separate moderate "
-        "escalation from genuinely slower learning without a fiscal year "
-        "attached to each lot."
-    )
+        "profile takes about 10% a year. The curvature test does not fill that "
+        "gap under a midpoint fit: the fitted slope moves with the escalation "
+        "and the midpoint moves with the slope, so the trend is absorbed "
+        "rather than left in the residuals, and the quadratic term barely "
+        "responds. It is a test that these lots are one clean curve, not a "
+        "test for escalation. Below roughly 10% a year, moderate escalation "
+        "and genuinely slower learning cannot be told apart without a fiscal "
+        "year attached to each lot.")
     log.section("2. Dollar basis and escalation", body)
+
     log.assume(
         "Dollar basis",
         f"Costs are constant FY{series.dollar_year} dollars; no inflation "
         f"index applied by this tool.",
         "Declared by the analyst on ingest. Normalisation, if any was needed, "
-        "happened upstream and is not verifiable from this input.",
-    )
+        "happened upstream and is not verifiable from this input.")
     log.assume(
         "Quantity definition",
         f"A 'unit' means: {series.quantity_definition}.",
         "Declared by the analyst. Delivered, completed and accepted counts "
-        "differ, and the difference shifts every point on the curve.",
-    )
+        "differ, and the difference shifts every point on the curve.")
     log.assume(
         "Lot sequencing",
         f"Lots are contiguous and in build order, starting at unit "
         f"{series.first_unit}.",
-        "Implied by supplying lots as an ordered list. A prior buy the curve "
-        "has already learned through would need a higher first unit.",
-    )
+        "Implied by supplying lots as an ordered list. A prior buy the model "
+        "has already learned through would need a higher first unit.")
     if series.cost_basis == "total":
         log.assume(
             "Nonrecurring cost included",
             "Lot costs include nonrecurring cost.",
             "Declared by the analyst. Nonrecurring is front-loaded and does "
             "not follow the curve, so the fitted slope is steeper than the "
-            "production process alone.",
-        )
+            "production process alone.")
 
+    # --- the model, and why this one
+    slope = (f"{fit.slope:.2%}" if fit.slope is not None else "n/a")
+    rate = (f"{fit.rate_slope:.2%}" if fit.rate_slope is not None else "n/a")
     log.section(
-        "3. The fitted equation",
+        "3. Model selected",
+        f"**{fit.selected_model}** — {fit.selection_note}\n\n"
         f"**{fit.equation()}**\n\n"
-        f"Stated in constant FY{series.dollar_year} dollars, with `x` the "
-        f"cumulative unit number counting from the start of production. Under "
-        f"{fit.theory.value} theory this prices "
-        + (
-            "an individual unit; the cost of a lot is the sum over the units "
-            "it contains."
-            if fit.theory is Theory.CRAWFORD else
-            "the cumulative *average* through quantity x; the cost of a lot is "
-            "the difference between the cumulative totals at its endpoints. "
-            "Reading it as a unit cost is the most common way a borrowed curve "
-            "produces a wrong answer."
-        ),
-    ).table("3.1 Coefficients", fit.equation_detail())
+        f"Unit cost in constant FY{series.dollar_year} dollars, with the "
+        f"midpoint the unit whose cost equals the lot average. Because that "
+        f"midpoint depends on the slope being fitted, the fit iterates to a "
+        f"fixed point rather than solving in one pass.\n\n"
+        f"- Learning slope {slope}, rate slope {rate}\n"
+        f"- T1 {fit.t1:,.2f}, SEE {fit.sigma:.4f} on the log scale, "
+        f"CV {fit.cv:.1%}\n"
+        f"- {fit.n_obs} lots, {fit.n_params} parameters, {fit.df} degrees of "
+        f"freedom\n\n"
+        f"Three models were fitted and all three priced every lot, so the "
+        f"alternatives are on the record rather than discarded.",
+    ).table("3.1 Models compared", fit.model_comparison()
+            ).table("3.2 Coefficients", fit.equation_detail()
+                    ).table("3.3 Per-lot fit quality", report.per_lot[
+                        ["lot", "units", "lot_midpoint", "lot_average_cost",
+                         "fitted_unit_cost", "percent_error"]])
 
+    # --- the added statistics
+    methods = report.methods()
     log.section(
-        "4. Curve fit",
-        f"- Theory: **{fit.theory.value}**\n"
-        f"- Method: **{fit.method.upper()}**\n"
-        f"- Slope **{fit.slope:.2%}**, first-unit cost "
-        f"{fit.t1:,.0f} (FY{series.dollar_year})\n"
-        f"- Standard error {fit.standard_error:,.0f}, CV {fit.cv:.1%}, "
-        f"{fit.df} degrees of freedom\n\n"
-        f"{report.narrative()}",
-    ).table("4.1 Headline statistics", report.summary()).table(
-        "4.2 Per-lot fit quality", report.per_lot[
-            ["lot", "units", "lot_average_cost", "fitted_average", "percent_error"]
-        ]
-    )
+        "4. Retransformation bias",
+        f"The engine fits ln(unit cost) by ordinary least squares and then "
+        f"exponentiates back to dollars. That step is biased: with log-space "
+        f"errors of variance s², the retransformed value estimates the "
+        f"*median* and understates the *mean* by exp(s²/2).\n\n"
+        f"On this data that factor is **{methods.theoretical_factor:.5f}**, an "
+        f"understatement of **{methods.percent_understated:.3f}%** before any "
+        f"risk analysis begins. Duan's nonparametric smearing estimate agrees "
+        f"at {methods.smearing_factor:.5f}, so the lognormal assumption is not "
+        f"doing the work.\n\n"
+        f"MUPE and ZMPE refit the same regressors under a proportional-error "
+        f"loss and drive the mean percentage error to zero. MUPE places the "
+        f"curve {(methods.mupe_over_ols - 1) * 100:+.3f}% relative to OLS and "
+        f"ZMPE {(methods.zmpe_over_ols - 1) * 100:+.3f}%.",
+    ).table("4.1 Fitting methods compared", methods.frame)
 
-    if report.by_method:
-        log.table("4.3 Fitting methods compared", report.method_comparison())
-        try:
-            log.table(
-                "4.4 Retransformation bias measured on this dataset",
-                report.retransformation().to_frame(),
-            )
-        except FitError:  # pragma: no cover - only when compare=False
-            pass
-    if report.by_theory:
-        log.table("4.5 Theories compared", report.theory_comparison())
+    influence = report.influence()
+    log.section(
+        "5. Influence",
+        f"With {series.n_lots} analogy lots a single lot can set the slope "
+        f"while every summary statistic still looks healthy. Leverage says "
+        f"which lot is unusual in the predictors; Cook's distance says which "
+        f"is actually moving the fit. The conventional flags are 2p/n and 4/n, "
+        f"and they are flags rather than verdicts -- the largest or smallest "
+        f"lot in a sample has high leverage by construction.",
+    ).table("5.1 Leverage and influence", influence)
+
+    intervals = report.intervals()
+    log.section(
+        "6. Prediction intervals",
+        f"Each priced lot carries a {report.level:.0%} **prediction** "
+        f"interval: the range a single new lot is expected to fall in, not the "
+        f"range the fitted line lies in. The two differ by exactly the "
+        f"residual variance, and that term does not shrink with more analogy "
+        f"lots. The multiplier is a t on {fit.df} degrees of freedom, because "
+        f"sigma is estimated rather than known.",
+    ).table("6.1 Priced lots with intervals", intervals)
 
     if priced_plan is not None:
         total = float(priced_plan["lot_cost"].sum())
         units = int(priced_plan["units"].sum())
         log.section(
-            "5. Curve applied to another lot plan (analogy)",
-            f"The fitted equation was applied to a lot plan of "
+            "7. Model applied to another lot plan (analogy)",
+            f"The selected model was applied to a lot plan of "
             f"{list(priced_plan['units'])}, priced from unit "
-            f"{priced_from_unit}: {units} units for "
-            f"{total:,.0f} in constant FY{series.dollar_year} dollars.\n\n"
-            f"The `lot_midpoint` column is the algebraic midpoint -- the unit "
-            f"whose cost equals the lot average. It is solved for exactly here "
-            f"rather than approximated, because the lot average is itself "
-            f"exact, and it is the figure to check the curve against by hand.\n\n"
+            f"{priced_from_unit}: {units} units for {total:,.0f} in constant "
+            f"FY{series.dollar_year} dollars.\n\n"
             f"**This is an analogy, and its validity is a judgement, not a "
-            f"result.** The slope carries across only if the two programmes are "
-            f"similar enough in product, process, production rate and "
+            f"result.** The slope carries across only if the two programmes "
+            f"are similar enough in product, process, production rate and "
             f"contractor. Nothing in the data can confirm that; the estimate "
-            f"inherits the uncertainty of the fitted curve *plus* whatever "
+            f"inherits the uncertainty of the fitted model *plus* whatever "
             f"error the analogy itself introduces, and the second is not "
             f"quantified anywhere in this document.",
-        ).table("5.1 Priced lot plan", priced_plan)
+        ).table("7.1 Priced lot plan", priced_plan)
         log.assume(
             "Analogy",
-            f"The {fit.slope:.2%} slope fitted to {series.program} applies to "
-            f"the priced lot plan.",
+            f"The {fit.selected_model} model fitted to {series.program} "
+            f"applies to the priced lot plan.",
             "Analyst judgement that the two programmes are comparable in "
             "product, process, rate and contractor. Not testable from this "
-            "data, and not included in any interval reported here.",
-        )
+            "data, and not included in any interval reported here.")
         log.gao(
             "Credible",
-            "Where the curve was applied by analogy, the analogy is recorded "
+            "Where the model was applied by analogy, the analogy is recorded "
             "as an untested assumption rather than presented as a fitted "
-            "result.",
-        )
+            "result.")
 
     log.section(
-        "6. On R squared",
+        "8. On R squared",
         "R squared is reported last and should not be used as a validity "
-        "check on this data. Lot average cost falls monotonically against "
-        "cumulative quantity by construction, so almost any downward-sloping "
-        "model returns a high R squared. It measures how tightly the points "
-        "hug the fitted line, which a wrong model can do perfectly well: "
-        "fitting Crawford-generated data as a Wright curve returns R squared "
-        "above 0.99 with a demonstrably wrong forecast. Standard error, in "
-        "dollars, and the per-lot percentage errors are the numbers to argue "
-        "with.",
-    )
+        "check on this data. Unit cost falls monotonically against the lot "
+        "midpoint by construction, so almost any downward-sloping model "
+        "returns a high R squared. It measures how tightly the points hug the "
+        "fitted line, which a wrong model can do perfectly well. The standard "
+        "error of the estimate, the per-lot percentage errors and the "
+        "influence table are the numbers to argue with.")
 
     log.gao(
         "Comprehensive",
-        f"All {series.n_lots} reported lots included; none excluded from the "
-        f"fit.",
+        f"All {series.n_lots} reported lots included in the fit; three "
+        f"candidate models fitted and all three priced every lot."
     ).gao(
         "Well-documented",
-        f"Dollar basis, quantity definition and lot sequencing each recorded "
-        f"as declared assumptions with their basis; source data reproduced in "
-        f"full in table 1.1.",
+        "Dollar basis, quantity definition and lot sequencing each recorded as "
+        "declared assumptions with their basis; source data reproduced in full "
+        "in table 1.1; the selection rule and its outcome stated in section 3."
     ).gao(
         "Accurate",
-        f"Three fitting methods compared rather than one assumed, with the "
-        f"retransformation bias of naive OLS measured on this dataset."
-        if report.by_method else
-        "Single fitting method applied; run with compare=True to measure the "
-        "retransformation bias.",
+        f"Retransformation bias of the log-space fit measured at "
+        f"{methods.percent_understated:.3f}% on this dataset and reported "
+        f"against MUPE and ZMPE refits, rather than left in the estimate."
     ).gao(
         "Credible",
-        f"Slope reported with an 80% interval ({fit.slope_interval[0]:.1%} to "
-        f"{fit.slope_interval[1]:.1%}) on {fit.df} degrees of freedom, and "
-        f"per-lot errors shown so the reader can see which lots the curve "
-        f"misses.",
-    )
+        f"Prediction intervals on every priced lot at {report.level:.0%}, "
+        f"influence diagnostics naming any lot that sets the fit, and a "
+        f"selection note stating why this model was chosen over the other two.")
     return log
-
-
-def analyse_lots(
-    series: LotSeries,
-    *,
-    theory: Theory | str = Theory.CRAWFORD,
-    method: str = "ols",
-    breaks: Iterable[RateBreak] = (),
-    compare: bool = True,
-) -> LotFitReport:
-    """Fit a lot series and assemble the full diagnostic report.
-
-    Args:
-        series: The production history.
-        theory: Headline theory.
-        method: Headline fitting method.
-        breaks: Rate breaks to model explicitly.
-        compare: Also fit the other two methods and the other theory, so the
-            headline number can be shown against its alternatives rather than
-            asserted on its own.
-    """
-    fit = series.fit(theory=theory, method=method, breaks=breaks)
-
-    by_method: dict[str, CurveFit] = {}
-    by_theory: dict[str, CurveFit] = {}
-    if compare:
-        ranges = series.unit_ranges()
-        with warnings.catch_warnings():
-            # The small-sample and cost-basis warnings already fired once on
-            # the headline fit; repeating them per variant is noise.
-            warnings.simplefilter("ignore", RuntimeWarning)
-            by_method = compare_methods(
-                theory=theory, lots=ranges, lot_costs=series.costs,
-                breaks=tuple(breaks),
-            )
-            by_theory = compare_theories(
-                method=method, lots=ranges, lot_costs=series.costs,
-                breaks=tuple(breaks),
-            )
-
-    return LotFitReport(
-        series=series, fit=fit, by_method=by_method, by_theory=by_theory
-    )

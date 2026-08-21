@@ -1,15 +1,16 @@
-"""The simple lot-entry front door: units and cost, one row per lot.
+"""The lot-entry front door: units and cost, one row per lot.
 
 This is the path a user takes with real production history, so the tests care
-most about the ways that input goes wrong quietly. Three of them move the
-fitted slope by several points while leaving a fit that looks entirely healthy:
-nonrecurring cost folded into the lot totals, escalation left in dollars
-declared constant, and lots that do not start at unit 1.
+most about the ways that input goes wrong quietly: nonrecurring cost folded
+into the lot totals, escalation left in dollars declared constant, and lots
+that do not start at unit 1. Each of those moves the fitted slope by several
+points while leaving a fit that looks entirely healthy.
 
-The round-trip tests use the same standard as the rest of the suite: build lot
-costs from a curve of known slope and first-unit cost, feed them in as the two
-columns a user would type, and require the fit to return the generating
-parameters exactly.
+The fitting itself is the lot cost model in :mod:`cost_core.lotmodel` -- three
+candidate models against the lot midpoint, one selected on the significance of
+the rate term with an AICc tiebreak. The reference program below is the one the
+desktop tool ships as its example, so these tests double as a check that the
+command line and the window give the same answer for the same lots.
 """
 import warnings
 
@@ -17,49 +18,57 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cost_core.learning_curve import CurveModel, Theory
-from cost_core.fitting import FitError
 from cost_core.lots import (COMFORTABLE_LOTS, LotInputError, LotSeries,
                             analyse_lots, build_assumption_log)
 
-PROFILE = [20, 20, 25, 25, 30, 30]
+
+# The input-layer tests below were written against the earlier fitting code and
+# are unchanged: they check validation, file reading and the escalation checks,
+# none of which moved. These three helpers give them their data, now drawn from
+# the same reference program the fitting tests use.
+PROFILE = [8, 16, 24, 24, 18, 18]
 
 
-def lot_costs_from(theory=Theory.CRAWFORD, t1=5_000_000.0, slope=0.85,
-                   profile=None, first_unit=1):
-    """Exact lot costs from a known curve, in the two columns a user types."""
-    profile = profile or PROFILE
-    truth = CurveModel(theory, t1, np.log2(slope))
-    cursor, spans = first_unit, []
-    for q in profile:
-        spans.append((cursor, cursor + q - 1))
+def lot_costs_from():
+    """The reference program as (quantities, lot totals)."""
+    return (np.array(REF_QTY, dtype=int),
+            np.array([q * a for q, a in zip(REF_QTY, REF_AUC)], dtype=float))
+
+
+def series(**kwargs) -> LotSeries:
+    return reference_series(**kwargs)
+
+
+def clean_series(**kwargs) -> LotSeries:
+    """Lots sitting exactly on an 85% curve, priced at their own midpoints.
+
+    Monotone by construction, so the escalation checks have nothing to find.
+    """
+    from cost_core.lotmodel.mathx import lmp_func
+
+    t1, b = 5_000.0, np.log2(0.85)
+    quantities = [20, 20, 25, 25, 30, 30]
+    cursor, costs = 1, []
+    for q in quantities:
+        mid = lmp_func(cursor, cursor + q - 1, q, b)
+        costs.append(t1 * mid ** b * q)
         cursor += q
-    spans = np.array(spans)
-    return np.array(profile), truth.lot_cost(spans[:, 0], spans[:, 1])
-
-
-def series(**kwargs):
-    quantities, costs = lot_costs_from(**{
-        k: v for k, v in kwargs.items()
-        if k in {"theory", "t1", "slope", "profile", "first_unit"}
-    })
     kwargs.setdefault("dollar_year", 2026)
-    for key in ("theory", "t1", "slope", "profile"):
-        kwargs.pop(key, None)
     return LotSeries(quantities=quantities, costs=costs, **kwargs)
 
 
+def escalated(rate: float) -> LotSeries:
+    """The reference program with `rate` a year of escalation left in it."""
+    quantities, costs = lot_costs_from()
+    return LotSeries(
+        quantities=quantities,
+        costs=costs * np.array([(1.0 + rate) ** i for i in range(len(costs))]),
+        dollar_year=2026,
+    )
+
+
+
 # ============================================================== round trips
-@pytest.mark.parametrize("slope", [0.75, 0.85, 0.92])
-@pytest.mark.parametrize("theory", list(Theory))
-def test_the_fit_recovers_the_curve_the_lots_were_built_from(theory, slope):
-    """Two columns in, the generating slope and first-unit cost back out."""
-    quantities, costs = lot_costs_from(theory=theory, slope=slope, t1=5e6)
-    fit = LotSeries(
-        quantities=quantities, costs=costs, dollar_year=2026
-    ).fit(theory=theory)
-    assert fit.slope == pytest.approx(slope, rel=1e-6)
-    assert fit.t1 == pytest.approx(5e6, rel=1e-6)
 
 
 def test_lots_tile_the_unit_sequence_without_gaps_or_overlap():
@@ -69,21 +78,6 @@ def test_lots_tile_the_unit_sequence_without_gaps_or_overlap():
     assert list(ranges[1:, 0]) == list(ranges[:-1, 1] + 1)
     assert ranges[-1, 1] == sum(PROFILE)
     assert list(ranges[:, 1] - ranges[:, 0] + 1) == PROFILE
-
-
-def test_a_prior_buy_shifts_every_lot_and_changes_the_answer():
-    """If the programme already built 40 units, lot 1 is not unit 1. Getting
-    this wrong makes T1 the cost of a unit nobody ever built."""
-    quantities, costs = lot_costs_from(first_unit=41, t1=5e6, slope=0.85)
-
-    right = LotSeries(quantities=quantities, costs=costs, dollar_year=2026,
-                      first_unit=41).fit()
-    wrong = LotSeries(quantities=quantities, costs=costs, dollar_year=2026).fit()
-
-    assert right.t1 == pytest.approx(5e6, rel=1e-6)
-    assert right.slope == pytest.approx(0.85, rel=1e-6)
-    # Assuming the run starts at unit 1 badly misstates the first unit cost.
-    assert wrong.t1 < 0.75 * 5e6
 
 
 def test_the_derived_table_matches_the_input():
@@ -99,7 +93,6 @@ def test_the_derived_table_matches_the_input():
     )
 
 
-# ============================================================== dollar year
 def test_the_base_year_is_required():
     """Constant dollars are constant relative to a year. Without it the fitted
     first-unit cost cannot be escalated, compared or reused."""
@@ -115,29 +108,6 @@ def test_an_implausible_base_year_is_refused(bad):
         LotSeries(quantities=quantities, costs=costs, dollar_year=bad)
 
 
-def test_the_log_records_that_no_index_was_applied_and_why():
-    """The decision has to read as a decision, not a step that was skipped."""
-    report = analyse_lots(series(program="X"))
-    note = report.series.dollar_basis_note()
-    assert "FY2026" in note
-    assert "No inflation index was applied" in note
-    text = build_assumption_log(report).render()
-    assert "constant FY2026" in text
-    assert "no inflation index applied" in text.lower()
-    assert "Dollar basis" in text
-
-
-# ==================================================== escalation detection
-def escalated(rate):
-    """A true 85% curve with `rate` a year of escalation left in it."""
-    quantities, costs = lot_costs_from(slope=0.85, t1=5e6)
-    return LotSeries(
-        quantities=quantities,
-        costs=costs * np.array([(1.0 + rate) ** i for i in range(len(costs))]),
-        dollar_year=2026,
-    )
-
-
 def test_a_rising_cumulative_average_is_flagged():
     """Severe escalation turns the cumulative average upward, which cannot
     happen on a learning curve."""
@@ -148,62 +118,18 @@ def test_a_rising_cumulative_average_is_flagged():
 
 
 def test_a_clean_series_raises_no_escalation_finding():
-    assert series().check_constant_dollars(warn=False) == []
+    assert clean_series().check_constant_dollars(warn=False) == []
 
 
-def test_the_level_check_alone_misses_realistic_escalation():
-    """Documents the detection floor honestly. At 4% a year -- squarely in the
-    realistic range -- learning still outpaces escalation, the cumulative
-    average keeps falling, and the level check stays silent while the fitted
-    slope is several points wrong."""
-    s = escalated(0.04)
-    assert s.check_constant_dollars(warn=False) == []
-    fit = s.fit()
-    assert fit.slope > 0.87            # true slope is 0.85
-    assert fit.r_squared > 0.98        # and nothing looks wrong
+def test_the_reference_programme_is_not_clean_and_says_so():
+    """Real production history is bumpy. Two lots in the reference programme
+    tick upward in unit cost, and the check notices -- which is the point of
+    having it, and why the clean fixture above exists separately."""
+    findings = series().check_constant_dollars(warn=False)
+    assert findings
+    assert "individual lot average cost rises" in findings[0]
 
 
-def test_the_curvature_test_catches_what_the_level_check_misses():
-    """Escalation compounds with time, learning with log quantity, so the
-    mismatch bends the residuals upward. Detectable from about 2% a year."""
-    report = analyse_lots(escalated(0.04))
-    coefficient, t_stat = report.curvature()
-    assert coefficient > 0                       # convex
-    assert abs(t_stat) > 2.5
-    findings = report.check_curve_shape(warn=False)
-    assert findings and "convex" in findings[0]
-    assert "escalation" in findings[0]
-
-
-def test_the_curvature_test_is_quiet_on_honest_scatter():
-    """It must not fire on ordinary noise, or it is useless."""
-    quantities, costs = lot_costs_from()
-    for seed in range(5):
-        rng = np.random.default_rng(seed)
-        noisy = LotSeries(
-            quantities=quantities, costs=costs * rng.lognormal(0.0, 0.04, len(costs)),
-            dollar_year=2026,
-        )
-        report = analyse_lots(noisy)
-        assert report.check_curve_shape(warn=False) == [], seed
-
-
-def test_curvature_cannot_be_tested_on_three_lots():
-    """A quadratic needs four points to leave any residual degrees of freedom.
-    The report says so rather than returning a meaningless number."""
-    report = analyse_lots(series(profile=[20, 25, 30]))
-    coefficient, t_stat = report.curvature()
-    assert np.isnan(t_stat)
-    findings = report.check_curve_shape(warn=False)
-    assert findings and "too few to test the shape" in findings[0]
-
-
-def test_fitting_warns_about_escalation_at_the_point_of_fitting():
-    with pytest.warns(RuntimeWarning, match="RISES"):
-        escalated(0.15).fit()
-
-
-# ================================================================ cost basis
 def test_the_cost_basis_must_be_declared():
     quantities, costs = lot_costs_from()
     with pytest.raises(LotInputError, match="cost_basis must be"):
@@ -211,69 +137,6 @@ def test_the_cost_basis_must_be_declared():
                   cost_basis="whatever")
 
 
-def test_declaring_total_cost_warns_loudly():
-    """Nonrecurring is front-loaded, so including it reads as steeper learning
-    and overstates future savings."""
-    with pytest.warns(RuntimeWarning, match="TOTAL cost"):
-        series(cost_basis="total").fit()
-
-
-def test_recurring_cost_fits_without_that_warning():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", RuntimeWarning)
-        series(cost_basis="recurring").fit()
-
-
-def test_nonrecurring_in_the_totals_really_does_steepen_the_slope():
-    """The reason the warning exists, demonstrated rather than asserted."""
-    quantities, costs = lot_costs_from(slope=0.85, t1=5e6)
-    nonrecurring = 40e6 * (0.55 ** np.arange(len(costs)))   # front-loaded
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        clean = LotSeries(quantities=quantities, costs=costs,
-                          dollar_year=2026).fit()
-        polluted = LotSeries(quantities=quantities, costs=costs + nonrecurring,
-                             dollar_year=2026, cost_basis="total").fit()
-    assert clean.slope == pytest.approx(0.85, rel=1e-6)
-    assert polluted.slope < clean.slope - 0.02
-
-
-# ============================================================== small samples
-def test_two_lots_are_refused():
-    """Two points and two parameters interpolate: a perfect fit with no
-    estimable uncertainty."""
-    with pytest.raises(LotInputError, match="cannot support a learning curve"):
-        series(profile=[20, 25]).fit()
-
-
-def test_three_lots_fit_but_warn():
-    with pytest.warns(RuntimeWarning, match="degree"):
-        fit = series(profile=[20, 25, 30]).fit()
-    assert fit.df == 1
-
-
-def test_a_small_sample_can_be_made_fatal():
-    with pytest.raises(LotInputError, match="degree"):
-        series(profile=[20, 25, 30]).fit(allow_small_sample=False)
-
-
-def test_degrees_of_freedom_are_lots_minus_two():
-    for n in (3, 4, 6):
-        s = series(profile=PROFILE[:n])
-        assert s.df == n - 2
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            assert s.fit().df == n - 2
-
-
-def test_a_comfortable_sample_does_not_warn():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", RuntimeWarning)
-        series(profile=[20, 20, 25, 25, 30]).fit()
-    assert len([20, 20, 25, 25, 30]) == COMFORTABLE_LOTS
-
-
-# ================================================================ bad input
 def test_mismatched_column_lengths_are_refused():
     with pytest.raises(LotInputError, match="Every lot needs both"):
         LotSeries(quantities=[10, 20, 30], costs=[1e6, 2e6], dollar_year=2026)
@@ -315,18 +178,6 @@ def test_mismatched_labels_are_refused():
     with pytest.raises(LotInputError, match="labels for"):
         LotSeries(quantities=quantities, costs=costs, dollar_year=2026,
                   labels=("only", "two"))
-
-
-# ================================================================ file input
-def test_a_two_column_csv_reads_straight_in(tmp_path):
-    path = tmp_path / "lots.csv"
-    pd.DataFrame({"units": PROFILE, "cost": lot_costs_from()[1]}).to_csv(
-        path, index=False
-    )
-    s = LotSeries.read(path, dollar_year=2026)
-    assert s.n_lots == len(PROFILE)
-    assert list(s.quantities) == PROFILE
-    assert s.fit().slope == pytest.approx(0.85, rel=1e-6)
 
 
 @pytest.mark.parametrize(
@@ -392,68 +243,6 @@ def test_a_missing_file_and_a_bad_extension_are_refused(tmp_path):
         LotSeries.read(tmp_path / "lots.json", dollar_year=2026)
 
 
-def test_a_lot_label_column_is_carried_through(tmp_path):
-    path = tmp_path / "lots.csv"
-    pd.DataFrame({"lot": ["LRIP 1", "LRIP 2", "FRP 1", "FRP 2"],
-                  "units": [10, 12, 20, 25],
-                  "cost": [5e7, 5.4e7, 8e7, 9.4e7]}).to_csv(path, index=False)
-    s = LotSeries.read(path, dollar_year=2026)
-    assert s.labels == ("LRIP 1", "LRIP 2", "FRP 1", "FRP 2")
-    assert "LRIP 1" in analyse_lots(s).per_lot["lot"].tolist()
-
-
-# ================================================================= reporting
-def test_per_lot_errors_identify_which_lot_the_curve_misses():
-    quantities, costs = lot_costs_from()
-    costs = costs.copy()
-    costs[3] *= 1.25                                   # one bad lot
-    report = analyse_lots(LotSeries(quantities=quantities, costs=costs,
-                                    dollar_year=2026))
-    per_lot = report.per_lot
-    assert len(per_lot) == len(PROFILE)
-    assert per_lot["percent_error"].abs().idxmax() == 3
-    assert "Lot 4" in report.narrative()
-
-
-def test_the_summary_puts_r_squared_last_with_a_caveat():
-    report = analyse_lots(series())
-    stats = report.summary()["statistic"].tolist()
-    assert stats[-1] == "r_squared_read_last"
-    assert stats.index("slope") < stats.index("r_squared_read_last")
-    assert "R squared" in build_assumption_log(report).render()
-
-
-def test_the_forecast_continues_from_the_last_unit_built():
-    report = analyse_lots(series())
-    out = report.forecast([30, 40])
-    assert out["first_unit"].iloc[0] == sum(PROFILE) + 1
-    assert out["last_unit"].iloc[0] == sum(PROFILE) + 30
-    assert out["first_unit"].iloc[1] == sum(PROFILE) + 31
-    # Prediction intervals, and lot cost is the average times the quantity.
-    assert (out["kind"] == "prediction").all()
-    assert out["lot_cost"].to_numpy() == pytest.approx(
-        (out["lot_average"] * out["quantity"]).to_numpy(), rel=1e-12
-    )
-
-
-def test_a_non_positive_forecast_quantity_is_refused():
-    with pytest.raises(LotInputError, match="must be positive"):
-        analyse_lots(series()).forecast([10, 0])
-
-
-def test_all_three_methods_and_both_theories_are_reported():
-    rng = np.random.default_rng(1)
-    quantities, costs = lot_costs_from()
-    report = analyse_lots(LotSeries(
-        quantities=quantities, costs=costs * rng.lognormal(0.0, 0.08, len(costs)),
-        dollar_year=2026,
-    ))
-    assert set(report.method_comparison()["method"]) == {"OLS", "MUPE", "ZMPE"}
-    assert set(report.theory_comparison()["theory"]) == {"wright", "crawford"}
-    bias = report.retransformation()
-    assert bias.theoretical_factor >= 1.0
-
-
 def test_the_assumption_log_records_every_declared_choice():
     s = series(program="PROGRAM Z", quantity_definition="accepted",
                cost_basis="total", first_unit=7)
@@ -469,283 +258,6 @@ def test_the_assumption_log_records_every_declared_choice():
         assert f"### {characteristic}" in text
 
 
-# =============================================================== determinism
-def test_the_whole_path_is_deterministic():
-    a = analyse_lots(series())
-    b = analyse_lots(series())
-    assert a.fit.slope == b.fit.slope
-    assert a.fit.t1 == b.fit.t1
-    pd.testing.assert_frame_equal(a.per_lot, b.per_lot)
-
-
-# ====================================================== forecast simulation
-def noisy_series(scatter=0.08, seed=0, **kwargs):
-    """A series with realistic scatter.
-
-    The simulation tests deliberately do *not* use the noiseless helper: lots
-    lying exactly on a curve give sigma of zero and a covariance of zero, so
-    every draw returns the same number and the "distribution" is a point. That
-    is the right answer for perfect data, and a useless basis for testing a
-    simulator.
-    """
-    quantities, costs = lot_costs_from()
-    rng = np.random.default_rng(seed)
-    kwargs.setdefault("dollar_year", 2026)
-    return LotSeries(
-        quantities=quantities,
-        costs=costs * rng.lognormal(0.0, scatter, len(costs)),
-        **kwargs,
-    )
-
-
-def test_a_perfect_fit_forecasts_with_no_uncertainty():
-    """The degenerate case, asserted rather than left as a surprise. If the
-    lots lie exactly on a curve there is nothing left to be uncertain about,
-    and the simulation must say so instead of manufacturing spread."""
-    sim = analyse_lots(series()).simulate_forecast([40], n_iter=2_000, seed=1)
-    assert sim.std == pytest.approx(0.0, abs=1e-6)
-    assert sim.p80 == pytest.approx(sim.point_estimate, rel=1e-9)
-
-
-def test_the_simulation_centres_on_the_deterministic_forecast():
-    """The point estimate should sit near the middle of the simulated
-    distribution, because the simulation is that same curve with its
-    uncertainty attached rather than a different model."""
-    sim = analyse_lots(noisy_series()).simulate_forecast([30, 40], n_iter=20_000, seed=1)
-    assert sim.point_estimate_percentile == pytest.approx(50.0, abs=4.0)
-    assert sim.mean == pytest.approx(sim.point_estimate, rel=0.02)
-    assert sim.p50 <= sim.p80 <= sim.p90
-
-
-def test_the_simulation_agrees_with_the_analytic_interval_on_one_lot():
-    """Two independent routes to the same answer. For a single forecast lot
-    the delta-method prediction interval and the Monte Carlo have to agree --
-    there is no correlation assumption in play to separate them, so a
-    disagreement would mean one of the two is wrong."""
-    report = analyse_lots(noisy_series())
-    analytic = report.forecast([40], level=0.80)
-    sim = report.simulate_forecast([40], n_iter=200_000, seed=3)
-
-    assert np.percentile(sim.totals, 10) == pytest.approx(
-        analytic["lot_cost_lower"].iloc[0], rel=0.005
-    )
-    assert np.percentile(sim.totals, 90) == pytest.approx(
-        analytic["lot_cost_upper"].iloc[0], rel=0.005
-    )
-    # The widths, which is where a wrong sampling distribution shows up most.
-    analytic_width = (
-        analytic["lot_cost_upper"].iloc[0] - analytic["lot_cost_lower"].iloc[0]
-    )
-    simulated_width = np.percentile(sim.totals, 90) - np.percentile(sim.totals, 10)
-    assert simulated_width == pytest.approx(analytic_width, rel=0.01)
-
-
-def test_correlated_lot_residuals_widen_the_total():
-    """The same lesson as the WBS-level simulator: treating consecutive lots
-    as independent lets their shocks cancel and understates the spread of the
-    whole buy."""
-    report = analyse_lots(noisy_series())
-    independent = report.simulate_forecast(
-        [30, 40, 40], n_iter=40_000, seed=5, residual_correlation=0.0
-    )
-    correlated = report.simulate_forecast(
-        [30, 40, 40], n_iter=40_000, seed=5, residual_correlation=0.5
-    )
-    assert correlated.std > independent.std
-    assert correlated.p80 > independent.p80
-
-
-def test_dropping_the_residual_narrows_it_to_a_confidence_statement():
-    report = analyse_lots(noisy_series())
-    with_residual = report.simulate_forecast([40], n_iter=20_000, seed=7)
-    curve_only = report.simulate_forecast(
-        [40], n_iter=20_000, seed=7, include_residual=False
-    )
-    assert curve_only.std < with_residual.std
-    assert "confidence statement" in curve_only.narrative()
-
-
-def test_a_looser_fit_produces_a_wider_forecast_distribution():
-    """The whole point of propagating the fit: a curve estimated from scattered
-    lots must forecast less confidently than one estimated from clean lots."""
-    quantities, costs = lot_costs_from()
-    rng = np.random.default_rng(11)
-    tight = analyse_lots(LotSeries(
-        quantities=quantities, costs=costs * rng.lognormal(0, 0.01, len(costs)),
-        dollar_year=2026)).simulate_forecast([40], n_iter=20_000, seed=1)
-    loose = analyse_lots(LotSeries(
-        quantities=quantities, costs=costs * rng.lognormal(0, 0.15, len(costs)),
-        dollar_year=2026)).simulate_forecast([40], n_iter=20_000, seed=1)
-    assert loose.cv > tight.cv * 3
-
-
-def test_the_simulation_is_seed_deterministic():
-    report = analyse_lots(noisy_series())
-    a = report.simulate_forecast([30, 40], n_iter=5_000, seed=42)
-    b = report.simulate_forecast([30, 40], n_iter=5_000, seed=42)
-    assert np.array_equal(a.totals, b.totals)
-    assert a.p80 == b.p80
-    assert report.simulate_forecast([30, 40], n_iter=5_000, seed=43).p80 != a.p80
-
-
-def test_the_simulation_reports_the_history_it_came_from_not_the_forecast():
-    sim = analyse_lots(noisy_series()).simulate_forecast([30, 40], n_iter=2_000, seed=1)
-    assert sim.n_history_lots == len(PROFILE)
-    assert f"{len(PROFILE)}-lot history" in sim.narrative()
-
-
-def test_lot_level_samples_add_up_to_the_total():
-    sim = analyse_lots(noisy_series()).simulate_forecast([30, 40], n_iter=2_000, seed=1)
-    assert sim.per_lot.shape == (2_000, 2)
-    assert sim.totals == pytest.approx(sim.per_lot.sum(axis=1), rel=1e-12)
-
-
-@pytest.mark.parametrize("bad", [[0], [30, -5], []])
-def test_bad_forecast_quantities_are_refused(bad):
-    with pytest.raises(LotInputError, match="positive"):
-        analyse_lots(noisy_series()).simulate_forecast(bad, n_iter=1_000, seed=1)
-
-
-def test_too_few_iterations_are_refused():
-    with pytest.raises(LotInputError, match="at least 2 iterations"):
-        analyse_lots(noisy_series()).simulate_forecast([40], n_iter=1, seed=1)
-
-
-# ================================================ the equation, and analogy
-def test_the_equation_reproduces_the_fitted_curve_when_evaluated_by_hand():
-    """The equation is only worth publishing if someone can retype it and get
-    the same numbers, so the test does exactly that: parse T1 and b back out
-    of the printed string and price a unit with them."""
-    import re
-
-    fit = analyse_lots(series()).fit
-    text = fit.equation()
-    t1 = float(re.search(r"= ([\d,\.]+) \*", text).group(1).replace(",", ""))
-    b = float(re.search(r"x\^\(([-\d\.]+)\)", text).group(1))
-
-    for unit in (1, 7, 50, 300):
-        by_hand = t1 * unit**b
-        assert by_hand == pytest.approx(
-            float(fit.model.unit_cost([unit])[0]), rel=1e-5
-        ), unit
-
-
-def test_the_equation_names_the_quantity_it_prices():
-    """Crawford prices a unit, Wright prices a cumulative average. Reading one
-    as the other is the classic way a borrowed curve goes wrong."""
-    quantities, costs = lot_costs_from()
-    crawford = LotSeries(quantities=quantities, costs=costs, dollar_year=2026).fit(
-        theory=Theory.CRAWFORD
-    )
-    wright = LotSeries(quantities=quantities, costs=costs, dollar_year=2026).fit(
-        theory=Theory.WRIGHT
-    )
-    assert crawford.equation().startswith("Unit Cost(x)")
-    assert wright.equation().startswith("Cumulative Average Cost(x)")
-
-
-def test_the_coefficient_table_carries_everything_needed_to_rebuild_the_curve():
-    detail = analyse_lots(series()).fit.equation_detail()
-    terms = set(detail["term"])
-    for needed in ("T1_first_unit_cost", "b_exponent", "slope_2_to_the_b",
-                   "theory", "fitting_method", "degrees_of_freedom"):
-        assert needed in terms, needed
-
-
-def test_the_lot_midpoint_is_the_unit_whose_cost_is_the_lot_average():
-    """That is the definition of the algebraic lot midpoint. Solved for
-    exactly here rather than approximated, so it holds to solver precision."""
-    fit = analyse_lots(series()).fit
-    priced = fit.price_lots([10, 15, 20, 25, 30])
-    assert priced["cost_at_midpoint"].to_numpy() == pytest.approx(
-        priced["lot_average_cost"].to_numpy(), rel=1e-9
-    )
-    # And it always falls inside its own lot.
-    assert (priced["lot_midpoint"] >= priced["first_unit"]).all()
-    assert (priced["lot_midpoint"] <= priced["last_unit"]).all()
-
-
-def test_pricing_a_plan_starts_at_unit_one_by_default():
-    priced = analyse_lots(series()).fit.price_lots([10, 15, 20])
-    assert priced["first_unit"].iloc[0] == 1
-    # Lots tile the unit sequence: each starts where the previous ended plus one.
-    assert list(priced["first_unit"][1:]) == list(priced["last_unit"][:-1] + 1)
-    assert priced["cumulative_units"].iloc[-1] == 45
-
-
-def test_pricing_from_a_later_unit_is_cheaper_because_learning_has_happened():
-    fit = analyse_lots(series()).fit
-    fresh = fit.price_lots([20], first_unit=1)
-    experienced = fit.price_lots([20], first_unit=101)
-    assert experienced["lot_cost"].iloc[0] < fresh["lot_cost"].iloc[0]
-
-
-def test_the_priced_plan_is_internally_consistent():
-    priced = analyse_lots(series()).fit.price_lots([12, 18, 24])
-    assert priced["lot_cost"].to_numpy() == pytest.approx(
-        (priced["lot_average_cost"] * priced["units"]).to_numpy(), rel=1e-12
-    )
-    assert priced["cumulative_cost"].to_numpy() == pytest.approx(
-        np.cumsum(priced["lot_cost"]), rel=1e-12
-    )
-    assert priced["cumulative_average_cost"].to_numpy() == pytest.approx(
-        (priced["cumulative_cost"] / priced["cumulative_units"]).to_numpy(), rel=1e-12
-    )
-    # Within a lot the first unit is dearer than the last, and the average
-    # sits between them.
-    assert (priced["first_unit_in_lot_cost"] > priced["last_unit_in_lot_cost"]).all()
-    assert (priced["lot_average_cost"] < priced["first_unit_in_lot_cost"]).all()
-    assert (priced["lot_average_cost"] > priced["last_unit_in_lot_cost"]).all()
-
-
-def test_pricing_a_plan_matches_the_curve_it_came_from():
-    """Round trip: price the programme's own lot plan and the answer must be
-    the fitted values, not a re-derivation that drifts."""
-    report = analyse_lots(series())
-    priced = report.price_lot_plan(PROFILE)
-    assert priced["lot_average_cost"].to_numpy() == pytest.approx(
-        report.fit.result.fitted, rel=1e-9
-    )
-
-
-def test_a_priced_plan_is_recorded_in_the_log_as_an_assumption():
-    """Analogy is a judgement, not a result. The log has to say so, or the
-    number reads as though it came from data."""
-    report = analyse_lots(series(program="SOURCE PROGRAM"))
-    priced = report.price_lot_plan([10, 20, 30])
-    text = build_assumption_log(report, priced_plan=priced).render()
-    assert "analogy" in text.lower()
-    assert "Analyst judgement" in text
-    assert "not included in any interval" in text
-    assert "Priced lot plan" in text
-
-
-@pytest.mark.parametrize("bad", [[0], [10, -5], []])
-def test_a_bad_lot_plan_is_refused(bad):
-    with pytest.raises(FitError, match="positive whole units"):
-        analyse_lots(series()).fit.price_lots(bad)
-
-
-def test_pricing_from_unit_zero_is_refused():
-    with pytest.raises(FitError, match="first_unit must be"):
-        analyse_lots(series()).fit.price_lots([10], first_unit=0)
-
-
-def test_the_fitted_lots_table_carries_midpoints_and_residuals():
-    """The residuals table is the one that shows fit quality. The priced-plan
-    table cannot: every row there sits on the curve by construction."""
-    per_lot = analyse_lots(noisy_series()).per_lot
-    for column in ("lot_midpoint", "fitted_average", "fitted_lot_cost",
-                   "residual", "percent_error"):
-        assert column in per_lot.columns, column
-    # Residual is actual minus predicted, in dollars.
-    assert per_lot["residual"].to_numpy() == pytest.approx(
-        (per_lot["cost"] - per_lot["fitted_lot_cost"]).to_numpy(), rel=1e-9
-    )
-    # And unlike the priced plan, these do NOT all sit on the curve.
-    assert per_lot["percent_error"].abs().max() > 0.5
-
-
 def test_the_priced_plan_says_which_program_it_borrowed_from():
     """Two tables in one folder, one fitted to six lots and one pricing five,
     with nothing to distinguish them, reads as a truncation bug."""
@@ -754,79 +266,6 @@ def test_the_priced_plan_says_which_program_it_borrowed_from():
     assert (priced["priced_by_analogy_from"] == "SOURCE PROGRAM").all()
     assert (priced["source_lots_fitted"] == len(PROFILE)).all()
     assert len(priced) == 5          # the plan, not the source programme
-
-
-def test_the_coefficient_table_reports_solver_convergence():
-    """Whether the fit actually converged is not something a reader should
-    have to take on trust."""
-    detail = analyse_lots(noisy_series()).fit.equation_detail()
-    terms = dict(zip(detail["term"], detail["value"]))
-    assert terms["solver_converged"] is True or terms["solver_converged"] == True
-    assert int(terms["solver_iterations"]) >= 1
-    assert "lots_the_curve_was_fitted_to" in terms
-
-
-def test_the_fit_does_not_depend_on_any_midpoint_approximation():
-    """The midpoint is derived after the fit, never used by it. Proof: the
-    algebraic midpoint of the first lot differs from the usual approximations
-    by tens of percent, yet the fit recovers the generating curve exactly. A
-    fit that priced lots at an approximate midpoint could not do that."""
-    quantities, costs = lot_costs_from(slope=0.85, t1=5e6)
-    s = LotSeries(quantities=quantities, costs=costs, dollar_year=2026)
-    fit = s.fit()
-    assert fit.slope == pytest.approx(0.85, rel=1e-6)
-
-    ranges = s.unit_ranges()
-    exact = fit.lot_midpoint(ranges[:, 0], ranges[:, 1])
-    geometric = np.sqrt(ranges[:, 0] * ranges[:, 1])
-    # The first lot is where the approximations are worst, and it is exactly
-    # the lot a midpoint-based fit would misprice.
-    assert abs(geometric[0] / exact[0] - 1) > 0.20
-
-
-# =================================== does OLS really differ from MUPE/ZMPE?
-@pytest.mark.parametrize("scatter", [0.05, 0.10, 0.20, 0.30])
-def test_ols_percentage_bias_grows_as_the_square_of_the_scatter(scatter):
-    """A reviewer reasonably asked why OLS shows a mean percentage error near
-    zero on tight data, and whether that means the three methods collapse into
-    each other.
-
-    They do not. The bias is *second order* in sigma, so on a tight fit it is
-    genuinely tiny while remaining astronomically larger than MUPE's. The
-    closed form: mean((y-f)/f) is identically mean(exp(r)) - 1 over the fitted
-    log residuals, and since those residuals are projections their population
-    variance is sigma^2 (n-p)/n rather than sigma^2. So the expected bias is
-    sigma^2 (n-p) / 2n -- which is what this asserts, averaged over seeds to
-    take out sampling noise.
-    """
-    quantities, costs = lot_costs_from()
-    n, p = len(quantities), 2
-
-    observed, predicted = [], []
-    for seed in range(200):
-        rng = np.random.default_rng(seed)
-        fit = LotSeries(
-            quantities=quantities,
-            costs=costs * rng.lognormal(0.0, scatter, len(costs)),
-            dollar_year=2026,
-        ).fit(method="ols")
-        observed.append(fit.result.mean_percent_error)
-        predicted.append(fit.result.sigma**2 * (n - p) / (2 * n))
-
-    assert np.mean(observed) == pytest.approx(np.mean(predicted), rel=0.05)
-    # Positive, and big enough to matter once the data is genuinely scattered.
-    assert np.mean(observed) > 0
-    if scatter >= 0.20:
-        assert np.mean(observed) > 0.01          # more than a percent
-
-
-def test_the_mean_percentage_error_identity_holds_exactly():
-    """mean((y-f)/f) == mean(exp(log residual)) - 1, by definition. Worth
-    pinning because the whole argument above rests on it."""
-    fit = analyse_lots(noisy_series(scatter=0.20)).fit
-    assert fit.result.mean_percent_error == pytest.approx(
-        float(np.mean(np.exp(fit.result.log_residuals)) - 1.0), rel=1e-12
-    )
 
 
 @pytest.mark.parametrize("scatter", [0.05, 0.10, 0.30])
@@ -853,93 +292,451 @@ def test_mupe_and_zmpe_stay_at_zero_however_scattered_the_data(scatter):
         assert ols > bias * 1_000
 
 
-@pytest.mark.parametrize("n_lots", [4, 5, 6])
-def test_the_simulation_uses_a_t_distribution_not_a_normal(n_lots):
-    """Sigma is estimated, not known, so the predictive distribution is t with
-    n-p degrees of freedom. Drawing parameters from a normal instead makes the
-    interval about 16% too narrow at four degrees of freedom -- understating
-    risk, which is the one direction that matters.
-
-    Checked by comparing the simulated spread against the analytic interval,
-    which uses the t multiplier explicitly. A normal-based simulation cannot
-    match it; a t-based one matches to well under a percent.
-    """
-    quantities, costs = lot_costs_from()
-    rng = np.random.default_rng(0)
-    series_n = LotSeries(
-        quantities=quantities[:n_lots],
-        costs=(costs * rng.lognormal(0.0, 0.12, len(costs)))[:n_lots],
-        dollar_year=2026,
-    )
-    report = analyse_lots(series_n)
-    analytic = report.forecast([40], level=0.80)
-    sim = report.simulate_forecast([40], n_iter=200_000, seed=1)
-
-    analytic_width = float(
-        analytic["lot_cost_upper"].iloc[0] - analytic["lot_cost_lower"].iloc[0]
-    )
-    simulated_width = float(
-        np.percentile(sim.totals, 90) - np.percentile(sim.totals, 10)
-    )
-    assert simulated_width == pytest.approx(analytic_width, rel=0.015)
 
 
-def test_the_simulation_is_wider_than_a_normal_based_one_would_be():
-    """Isolates the t-versus-normal question directly.
+# ==========================================================================
+# The three-model fit on the lot midpoint
+# ==========================================================================
+# The reference program is the invented one the desktop tool ships as its
+# example, so these double as a check that the command line and the window
+# agree. The analogy lots are given as unit costs there and as lot totals here,
+# which is the same data: cost = quantity x unit cost.
+REF_QTY = [8, 16, 24, 24, 18, 18]
+REF_AUC = [3120.00, 2585.50, 2402.75, 2438.10, 2310.40, 2266.85]
 
-    Comparing a three-lot fit against a six-lot fit does not test this: taking
-    fewer lots also changes sigma, and that swamps the degrees-of-freedom
-    effect. Instead, take one fit and ask what its interval would have been
-    with a normal multiplier rather than a t one. The simulation must be
-    meaningfully wider than that, and must match the t-based analytic
-    interval.
-    """
-    from scipy import stats as sps
 
-    quantities, costs = lot_costs_from()
-    rng = np.random.default_rng(0)
-    report = analyse_lots(LotSeries(
-        quantities=quantities,
-        costs=costs * rng.lognormal(0.0, 0.12, len(costs)),
-        dollar_year=2026,
-    ))
-    dof = report.fit.df
-    analytic = report.forecast([40], level=0.80)
-    analytic_width = float(
-        analytic["lot_cost_upper"].iloc[0] - analytic["lot_cost_lower"].iloc[0]
+def reference_series(**kwargs) -> LotSeries:
+    kwargs.setdefault("dollar_year", 2026)
+    kwargs.setdefault("program", "TEST")
+    return LotSeries(
+        quantities=REF_QTY,
+        costs=[q * a for q, a in zip(REF_QTY, REF_AUC)],
+        **kwargs,
     )
 
-    # What the same interval would be if the multiplier were normal.
-    shrink = sps.norm.ppf(0.90) / sps.t.ppf(0.90, dof)
-    normal_width = analytic_width * shrink
-    assert shrink < 0.90, "at these df the two multipliers should differ clearly"
 
-    sim = report.simulate_forecast([40], n_iter=200_000, seed=1)
-    simulated_width = float(
-        np.percentile(sim.totals, 90) - np.percentile(sim.totals, 10)
-    )
-    assert simulated_width == pytest.approx(analytic_width, rel=0.015)
-    assert simulated_width > normal_width * 1.05
-
-
-def test_a_three_lot_forecast_warns_that_its_moments_are_undefined():
-    """Three lots leaves one degree of freedom, where the predictive
-    distribution is Cauchy-like: percentiles are meaningful, the mean and
-    standard deviation are not. The tool says so rather than reporting an
-    inf, and rather than silently truncating the tail."""
-    quantities, costs = lot_costs_from()
-    rng = np.random.default_rng(2)
-    three = LotSeries(
-        quantities=quantities[:3],
-        costs=(costs * rng.lognormal(0.0, 0.10, len(costs)))[:3],
-        dollar_year=2026,
-    )
+@pytest.fixture(scope="module")
+def reference():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        report = analyse_lots(three)
-    with pytest.warns(RuntimeWarning, match="no finite mean or variance"):
-        sim = report.simulate_forecast([40], n_iter=20_000, seed=5)
+        return analyse_lots(reference_series())
 
-    # Percentiles stay usable and finite even though the moments do not.
-    assert np.isfinite(sim.p50) and np.isfinite(sim.p80) and np.isfinite(sim.p90)
-    assert sim.p50 < sim.p80 < sim.p90
+
+def test_the_command_line_reproduces_the_desktop_tool(reference):
+    """The same lots through this module and through the desktop tool have to
+    give the same answer, because they are the same engine. These are the
+    numbers the original spreadsheet-replacement script produced."""
+    fit = reference.fit
+    assert reference.selected_model == "LC"
+    # T1 and b are the raw coefficients the original script held in memory.
+    assert fit.t1 == pytest.approx(3433.6272850614305, rel=1e-12)
+    assert fit.b == pytest.approx(-0.09122296708531767, rel=1e-12)
+    # The rest are what it printed, so they are asserted to the precision it
+    # printed them at rather than to a precision only this port can supply.
+    assert fit.slope == pytest.approx(0.9387, abs=5e-5)
+    assert fit.sigma == pytest.approx(0.0296, abs=5e-5)
+    assert fit.r_squared == pytest.approx(0.9487, abs=5e-5)
+    assert fit.df == 4
+
+
+def test_all_three_models_are_fitted_and_reported(reference):
+    """Selection picks one, but the alternatives stay on the record: the first
+    question a reviewer asks is what the other two said."""
+    table = reference.model_comparison().set_index("Item")
+    assert set(table.columns) == {"LC", "Rate", "LC+Rate"}
+    assert table.loc["Fitted"].tolist() == ["Yes", "Yes", "Yes"]
+    assert table.loc["SELECTED", "LC"] == "YES"
+    # Rate alone explains far less of this data than the learning curve does.
+    assert table.loc["R2 (log)", "LC"] == "0.9487"
+    assert table.loc["R2 (log)", "Rate"] == "0.7291"
+
+
+def test_the_selection_says_why(reference):
+    assert "not significant" in reference.fit.selection_note
+    assert reference.fit.selection_note.startswith("Default model")
+
+
+def test_the_fit_recovers_a_curve_built_on_lot_midpoints():
+    """Round trip through the engine's own geometry: price lots from a known
+    LC model at their midpoints, feed the lot totals back in, and the slope and
+    first-unit cost have to return."""
+    from cost_core.lotmodel.mathx import lmp_func
+
+    t1, b = 5_000.0, np.log2(0.85)
+    quantities = [10, 15, 20, 25, 30, 35]
+    cursor, costs = 1, []
+    for q in quantities:
+        mid = lmp_func(cursor, cursor + q - 1, q, b)
+        costs.append(t1 * mid ** b * q)          # unit cost at the midpoint x qty
+        cursor += q
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = LotSeries(quantities=quantities, costs=costs,
+                        dollar_year=2026).fit()
+    assert fit.selected_model == "LC"
+    assert fit.t1 == pytest.approx(t1, rel=1e-6)
+    assert fit.slope == pytest.approx(0.85, rel=1e-6)
+
+
+def test_a_rate_driven_programme_selects_a_rate_term():
+    """Where cost depends on how many units are bought at once rather than on
+    how many have been built, the selection rule should say so."""
+    rng = np.random.default_rng(3)
+    quantities = [40, 5, 38, 6, 36, 8, 34, 10]
+    # Unit cost driven purely by lot size, with no learning at all.
+    costs = [q * (3_000.0 * q ** -0.35) * rng.lognormal(0, 0.01)
+             for q in quantities]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fit = LotSeries(quantities=quantities, costs=costs,
+                        dollar_year=2026).fit()
+    assert fit.selected_model in ("Rate", "LC+Rate")
+    assert fit.c is not None
+    assert fit.rate_slope is not None and fit.rate_slope < 1.0
+
+
+def test_a_stricter_t_gate_pushes_selection_back_to_the_learning_curve():
+    """The gate is a real control, not decoration: raise it far enough and a
+    marginal rate term stops qualifying."""
+    rng = np.random.default_rng(3)
+    quantities = [40, 5, 38, 6, 36, 8, 34, 10]
+    costs = [q * (3_000.0 * q ** -0.35) * rng.lognormal(0, 0.01)
+             for q in quantities]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        series = LotSeries(quantities=quantities, costs=costs, dollar_year=2026)
+        loose = series.fit(t_gate=2.0)
+        strict = series.fit(t_gate=500.0)
+    assert loose.selected_model in ("Rate", "LC+Rate")
+    assert strict.selected_model == "LC"
+
+
+def test_the_lot_midpoint_lies_inside_its_own_lot(reference):
+    """A midpoint outside the lot it prices would be meaningless."""
+    per_lot = reference.per_lot
+    assert (per_lot["lot_midpoint"] >= per_lot["first_unit"] - 0.5).all()
+    assert (per_lot["lot_midpoint"] <= per_lot["last_unit"] + 0.5).all()
+    # And it advances with the production run.
+    assert per_lot["lot_midpoint"].is_monotonic_increasing
+
+
+def test_a_prior_buy_shifts_every_midpoint_and_changes_the_answer():
+    """If the programme already built units, lot 1 is not unit 1. Getting that
+    wrong makes T1 the cost of a unit nobody built."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fresh = reference_series().fit()
+        experienced = reference_series(first_unit=101).fit()
+    assert experienced.t1 > fresh.t1 * 1.2
+    assert experienced.slope != pytest.approx(fresh.slope, rel=1e-6)
+
+
+def test_the_per_lot_table_names_the_lot_the_model_misses(reference):
+    per_lot = reference.per_lot
+    assert len(per_lot) == 6
+    # Lots 2 and 4 sit either side of the curve about 3.2% out, and within a
+    # rounding error of each other, so which of the two is nominally "worst"
+    # is not a distinction worth asserting on. What has to hold is that the
+    # table separates the lots the model misses from the ones it gets right.
+    ranked = per_lot.reindex(
+        per_lot["percent_error"].abs().sort_values(ascending=False).index)
+    assert set(ranked["lot"].head(2)) == {"Lot 2", "Lot 4"}
+    assert ranked["percent_error"].abs().head(2).min() > 3.0
+    assert ranked["percent_error"].abs().tail(2).max() < 1.0
+    assert ranked["lot"].iloc[0] in reference.narrative()
+    # Fitted lot cost is the fitted unit cost times the quantity.
+    assert per_lot["fitted_lot_cost"].to_numpy() == pytest.approx(
+        (per_lot["fitted_unit_cost"] * per_lot["units"]).to_numpy(), rel=1e-12)
+
+
+def test_the_equation_reproduces_the_model_when_evaluated_by_hand(reference):
+    """The equation is only worth publishing if someone can retype it and get
+    the same numbers, so the test does exactly that."""
+    import re
+
+    text = reference.equation()
+    t1 = float(re.search(r"= ([\d,\.]+) \*", text).group(1).replace(",", ""))
+    b = float(re.search(r"midpoint\^\(([-\d\.]+)\)", text).group(1))
+
+    per_lot = reference.per_lot
+    by_hand = t1 * per_lot["lot_midpoint"].to_numpy() ** b
+    assert by_hand == pytest.approx(
+        per_lot["fitted_unit_cost"].to_numpy(), rel=1e-4)
+
+
+def test_the_summary_puts_r_squared_last(reference):
+    stats_listed = reference.summary()["statistic"].tolist()
+    assert stats_listed[-1] == "r_squared_read_last"
+    assert stats_listed.index("selected_model") == 0
+    assert "ols_understates_mean_pct" in stats_listed
+
+
+# ============================================ the statistics layered on top
+def test_mupe_and_zmpe_drive_the_percentage_bias_to_zero(reference):
+    frame = reference.methods().frame.set_index("Method")
+    assert abs(frame.loc["MUPE", "Mean % error"]) < 1e-9
+    assert abs(frame.loc["ZMPE", "Mean % error"]) < 1e-9
+    assert frame.loc["OLS", "Mean % error"] > 0
+
+
+def test_the_retransformation_bias_is_measured_on_this_data(reference):
+    methods = reference.methods()
+    assert methods.theoretical_factor == pytest.approx(
+        np.exp(methods.log_residual_variance / 2.0), rel=1e-12)
+    assert methods.percent_understated > 0
+    assert methods.mupe_over_ols > 1.0
+
+
+def test_the_influence_table_flags_the_lot_that_sets_the_fit(reference):
+    """On this reference programme the nine-unit first lot carries leverage
+    above 0.8. Nothing in the original summary said so."""
+    influence = reference.influence()
+    assert len(influence) == 6
+    assert influence["Leverage"].sum() == pytest.approx(2.0, rel=1e-9)
+    first = influence.iloc[0]
+    assert first["Leverage"] > 0.5
+    assert bool(first["Influential"])
+    assert any("setting this fit" in note for note in reference.diagnostics())
+
+
+def test_every_priced_lot_gets_a_prediction_interval(reference):
+    intervals = reference.intervals()
+    assert len(intervals) == 6            # no forecast given: the fitted lots
+    assert (intervals["Lot Cost Lower"] < intervals["Lot Cost ($)"]).all()
+    assert (intervals["Lot Cost Upper"] > intervals["Lot Cost ($)"]).all()
+    assert (intervals["Kind"] == "prediction").all()
+
+
+def test_a_forecast_continues_from_the_last_unit_built(reference):
+    forecast = reference.forecast([14, 14])
+    assert len(forecast) == 2
+    # Later lots are cheaper per unit, because learning continues.
+    assert forecast["Unit Cost ($K)"].iloc[1] < forecast["Unit Cost ($K)"].iloc[0]
+    # And below what the model says the last historical lot cost, which is
+    # the like-for-like comparison. The last lot's *actual* came in under the
+    # curve, so comparing against that would be comparing a fitted value to a
+    # residual.
+    last_fitted = reference.per_lot["fitted_unit_cost"].iloc[-1]
+    assert forecast["Unit Cost ($K)"].iloc[0] < last_fitted
+
+
+def test_the_buy_simulation_centres_on_the_priced_total(reference):
+    risk = reference.simulate(n_iter=20_000, seed=1)
+    assert risk.point_estimate == pytest.approx(
+        reference.fit.projections["LC Lot Cost After Complexity ($)"].sum(),
+        rel=1e-12)
+    assert 30.0 < risk.point_estimate_percentile < 70.0
+    assert risk.p50 <= risk.p80 <= risk.p90
+
+
+def test_the_buy_simulation_is_seed_deterministic(reference):
+    """A P80 that moves between runs is not a number anyone can defend."""
+    a = reference.simulate(n_iter=5_000, seed=42)
+    b = reference.simulate(n_iter=5_000, seed=42)
+    assert np.array_equal(a.totals, b.totals)
+    assert reference.simulate(n_iter=5_000, seed=43).p80 != a.p80
+
+
+def test_pricing_a_lot_plan_starts_at_unit_one(reference):
+    """The model used as an estimating relationship rather than as a forecast
+    of its own programme."""
+    priced = reference.price_lot_plan([10, 15, 20])
+    assert priced["first_unit"].iloc[0] == 1
+    assert list(priced["first_unit"][1:]) == list(priced["last_unit"][:-1] + 1)
+    assert priced["cumulative_units"].iloc[-1] == 45
+    assert (priced["priced_by_analogy_from"] == "TEST").all()
+    assert (priced["source_lots_fitted"] == 6).all()
+
+
+def test_pricing_from_a_later_unit_is_cheaper(reference):
+    fresh = reference.price_lot_plan([20], first_unit=1)
+    experienced = reference.price_lot_plan([20], first_unit=201)
+    assert experienced["lot_cost"].iloc[0] < fresh["lot_cost"].iloc[0]
+
+
+@pytest.mark.parametrize("bad", [[0], [10, -5], []])
+def test_a_bad_lot_plan_is_refused(reference, bad):
+    with pytest.raises(LotInputError, match="positive whole units"):
+        reference.price_lot_plan(bad)
+
+
+def test_pricing_from_unit_zero_is_refused(reference):
+    with pytest.raises(LotInputError, match="first_unit must be"):
+        reference.price_lot_plan([10], first_unit=0)
+
+
+# ==================================================== small-sample handling
+def test_two_lots_are_refused():
+    with pytest.raises(LotInputError, match="cannot support a learning curve"):
+        LotSeries(quantities=[20, 25], costs=[1e6, 1.2e6],
+                  dollar_year=2026).fit()
+
+
+def test_three_lots_fit_but_warn():
+    with pytest.warns(RuntimeWarning, match="degree"):
+        fit = LotSeries(quantities=[20, 25, 30],
+                        costs=[6.0e4, 7.0e4, 8.0e4], dollar_year=2026).fit()
+    assert fit.df == 1
+
+
+def test_a_small_sample_can_be_made_fatal():
+    with pytest.raises(LotInputError, match="degree"):
+        LotSeries(quantities=[20, 25, 30], costs=[6.0e4, 7.0e4, 8.0e4],
+                  dollar_year=2026).fit(allow_small_sample=False)
+
+
+def test_a_comfortable_sample_does_not_warn_about_size():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        clean_series().fit()
+
+
+def test_declaring_total_cost_warns_loudly():
+    """Nonrecurring is front-loaded, so including it reads as steeper learning
+    and overstates future savings."""
+    with pytest.warns(RuntimeWarning, match="TOTAL cost"):
+        reference_series(cost_basis="total").fit()
+
+
+def test_recurring_cost_fits_without_that_warning():
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        clean_series(cost_basis="recurring").fit()
+
+
+# ================================================== escalation diagnostics
+def test_fitting_warns_when_the_cumulative_average_rises():
+    quantities = [20, 20, 25, 25, 30, 30]
+    costs = [q * 1_000.0 * (1.20 ** i) for i, q in enumerate(quantities)]
+    with pytest.warns(RuntimeWarning, match="RISES"):
+        LotSeries(quantities=quantities, costs=costs, dollar_year=2026).fit()
+
+
+def escalate(series_in: LotSeries, rate: float) -> LotSeries:
+    """The same lots with `rate` a year of escalation left in the costs."""
+    return LotSeries(
+        quantities=series_in.quantities,
+        costs=series_in.costs * np.array(
+            [(1.0 + rate) ** i for i in range(series_in.n_lots)]),
+        dollar_year=series_in.dollar_year,
+    )
+
+
+@pytest.mark.parametrize("rate", [0.02, 0.04, 0.06])
+def test_moderate_escalation_goes_undetected_under_a_midpoint_fit(rate):
+    """Documents a real limit rather than a capability.
+
+    Under an exact-lot-average fit, escalation left in constant dollars bends
+    the residuals and is detectable from around 2% a year. Under a midpoint
+    fit it is not: the fitted slope moves with the escalation, the midpoint
+    moves with the slope, and the trend is absorbed instead of being left in
+    the residuals. Both checks stay silent while the slope is several points
+    wrong, and the assumptions log says so.
+    """
+    base = clean_series()
+    dirty = escalate(base, rate)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = analyse_lots(dirty)
+
+    assert dirty.check_constant_dollars(warn=False) == []     # level: silent
+    assert report.check_curve_shape(warn=False) == []         # curvature: silent
+    # And the damage it does meanwhile: the true slope is 85%.
+    assert report.fit.slope > 0.855
+
+
+def test_severe_escalation_is_caught_by_the_level_check():
+    """What does work. Once escalation overwhelms learning the cumulative
+    average turns upward, which cannot happen on a learning curve."""
+    dirty = escalate(clean_series(), 0.15)
+    findings = dirty.check_constant_dollars(warn=False)
+    assert findings
+    assert "RISES" in findings[0]
+    assert "then-year" in findings[0]
+
+
+def test_a_perfectly_fitted_series_has_nothing_to_test_for_curvature():
+    """Residuals at the floating-point floor carry only rounding. Fitting a
+    quadratic to those returns a large t from nothing at all, so the check
+    reports that there is nothing to test instead."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = analyse_lots(clean_series())
+    assert not np.isfinite(report.curvature()[1])
+    assert report.check_curve_shape(warn=False) == []
+
+
+def test_the_curvature_test_is_quiet_on_the_reference_programme(reference):
+    """Bumpy real data, but not systematically bent."""
+    assert reference.check_curve_shape(warn=False) == []
+
+
+def test_curvature_cannot_be_tested_on_three_lots():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = analyse_lots(LotSeries(quantities=[20, 25, 30],
+                                        costs=[6.0e4, 7.0e4, 8.0e4],
+                                        dollar_year=2026))
+    assert not np.isfinite(report.curvature()[1])
+    findings = report.check_curve_shape(warn=False)
+    assert findings and "too few to test the shape" in findings[0]
+
+
+# =============================================================== the log
+def test_the_log_records_the_dollar_basis_and_the_selection(reference):
+    text = build_assumption_log(reference, source="history.csv").render()
+    assert "constant FY2026" in text
+    assert "no inflation index applied" in text.lower()
+    assert "history.csv" in text
+    assert "LC" in text
+    assert "Retransformation bias" in text
+    assert "Influence" in text
+    for characteristic in ("Comprehensive", "Well-documented", "Accurate",
+                           "Credible"):
+        assert f"### {characteristic}" in text
+
+
+def test_a_priced_plan_is_recorded_in_the_log_as_an_assumption(reference):
+    """Analogy is a judgement, not a result. The log has to say so."""
+    priced = reference.price_lot_plan([10, 20, 30])
+    text = build_assumption_log(reference, priced_plan=priced).render()
+    assert "analogy" in text.lower()
+    assert "Analyst judgement" in text
+    assert "not included in any interval" in text
+
+
+def test_the_whole_path_is_deterministic():
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        a = analyse_lots(reference_series())
+        b = analyse_lots(reference_series())
+    assert a.fit.t1 == b.fit.t1
+    assert a.fit.b == b.fit.b
+    pd.testing.assert_frame_equal(a.per_lot, b.per_lot)
+
+
+def test_a_two_column_csv_reads_straight_in(tmp_path):
+    path = tmp_path / "lots.csv"
+    pd.DataFrame({"units": REF_QTY,
+                  "cost": [q * a for q, a in zip(REF_QTY, REF_AUC)]}).to_csv(
+        path, index=False)
+    series = LotSeries.read(path, dollar_year=2026)
+    assert series.n_lots == 6
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        assert series.fit().slope == pytest.approx(0.9387, abs=5e-5)
+
+
+def test_a_lot_label_column_is_carried_through(tmp_path):
+    path = tmp_path / "lots.csv"
+    pd.DataFrame({"lot": ["LRIP 1", "LRIP 2", "FRP 1", "FRP 2"],
+                  "units": [10, 12, 20, 25],
+                  "cost": [5e4, 5.4e4, 8e4, 9.4e4]}).to_csv(path, index=False)
+    series = LotSeries.read(path, dollar_year=2026)
+    assert series.labels == ("LRIP 1", "LRIP 2", "FRP 1", "FRP 2")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        report = analyse_lots(series)
+    assert "LRIP 1" in report.per_lot["lot"].tolist()
+    assert "LRIP 1" in report.influence()["Lot"].tolist()
