@@ -12,13 +12,11 @@ dependencies = [
     "numpy>=1.26.0",
     "pandas>=2.1.0",
     "matplotlib>=3.8.0",
-    "scipy>=1.11.0"
+    "scipy>=1.11.0",
+    # The desktop lot cost model writes an Excel workbook as its deliverable,
+    # and the lot reader accepts .xlsx, so this is core rather than optional.
+    "openpyxl>=3.1.0"
 ]
-
-[project.optional-dependencies]
-# Only needed to read .xlsx lot files directly; CSV works without it, and
-# LotSeries.read raises a message naming this extra if it is missing.
-excel = ["openpyxl>=3.1"]
 
 [project.scripts]
 ce-core = "cli.ce_core_cli:main"

@@ -67,7 +67,9 @@ Python 3.11 or higher.
 python -m venv .venv && .venv/Scripts/activate && pip install -e .
 ```
 
-Excel input needs one extra: `pip install -e ".[excel]"`. CSV works without it.
+That pulls in pandas, numpy, scipy and openpyxl. Excel input and the
+workbook the desktop tool writes both need openpyxl, so it is installed by
+default rather than as an extra.
 
 ## Quick start
 
@@ -179,7 +181,7 @@ ce-core fit-lots --csv mylots.csv --dollar-year 2026 --forecast "30,40" --out re
 The `lot` column is optional. Common header spellings (`Qty`, `Quantity`,
 `Total Cost`, `Amount`, …) are recognised automatically; anything unusual is
 named with `--units-col` / `--cost-col`. Currency formatting such as
-`$1,200,000` is parsed. `.xlsx` works with `pip install cost_core[excel]`.
+`$1,200,000` is parsed. `.xlsx` works out of the box.
 
 Everything else is derived: lot 1 is units 1–22, lot 2 is units 23–40, and so
 on by running total. That is what turns a flat list of lots into positions on a
