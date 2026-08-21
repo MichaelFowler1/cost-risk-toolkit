@@ -518,6 +518,7 @@ class LotSeries:
         aicc_tie: float = 2.0,
         allow_small_sample: bool = True,
         program: str | None = None,
+        legacy_rate_omission: bool = False,
     ) -> "LotModelFit":
         """Fit LC, Rate and LC+Rate to this history and select between them.
 
@@ -532,6 +533,10 @@ class LotSeries:
             allow_small_sample: If False, refuse rather than warn when there
                 are too few lots to support the model.
             program: Name carried into reports.
+            legacy_rate_omission: Reproduce the original tool, which projected
+                Rate on the lot midpoint and LC+Rate without its rate factor,
+                so its projected costs did not satisfy the equation it
+                printed. Only for reproducing a workbook built by it.
 
         Raises:
             LotInputError: With fewer than three lots, or when the sample is
@@ -587,6 +592,7 @@ class LotSeries:
             "CostUnitScale": 1.0,
             "TotalScale": 1.0,
             "DefaultCF": float(complexity),
+            "LegacyRateOmission": bool(legacy_rate_omission),
         }
 
         projections, ctx = run_lot_cost_model(
@@ -919,6 +925,10 @@ class LotFitReport:
             "FitPriorUnits": self.series.first_unit - 1,
             "FcstPriorUnits": int(first_unit) - 1,
             "CostUnitScale": 1.0, "TotalScale": 1.0, "DefaultCF": float(cf),
+            # Whatever the fit was run under, so the priced plan and the
+            # equation printed beside it cannot come from different formulas.
+            "LegacyRateOmission": bool(
+                self.fit.ctx["cfg"]["LegacyRateOmission"]),
         }
         projections, _ = run_lot_cost_model(
             self.series.to_analogy_frame(), estimate, overrides)
@@ -1105,7 +1115,8 @@ class LotFitReport:
 
 def analyse_lots(series: LotSeries, *, forecast: Iterable[int] | None = None,
                  complexity: float = 1.0, level: float = 0.80,
-                 t_gate: float = 2.0, aicc_tie: float = 2.0) -> LotFitReport:
+                 t_gate: float = 2.0, aicc_tie: float = 2.0,
+                 legacy_rate_omission: bool = False) -> LotFitReport:
     """Fit a lot series and assemble the full diagnostic report.
 
     Args:
@@ -1116,8 +1127,11 @@ def analyse_lots(series: LotSeries, *, forecast: Iterable[int] | None = None,
         level: Coverage for the prediction intervals.
         t_gate: Significance cutoff on the rate coefficient.
         aicc_tie: How much better on AICc Rate must be to beat LC.
+        legacy_rate_omission: Reproduce the original tool's projections, which
+            did not satisfy the equation it printed. See ``LotSeries.fit``.
     """
     fit = series.fit(forecast=forecast, complexity=complexity,
+                     legacy_rate_omission=legacy_rate_omission,
                      t_gate=t_gate, aicc_tie=aicc_tie)
     return LotFitReport(series=series, fit=fit, level=level)
 

@@ -127,7 +127,14 @@ def run_fit_lots(args: argparse.Namespace) -> None:
         report = analyse_lots(
             series, forecast=forecast, complexity=args.complexity,
             level=args.level, t_gate=args.t_gate, aicc_tie=args.aicc_tie,
+            legacy_rate_omission=args.legacy_rate_omission,
         )
+        if args.legacy_rate_omission:
+            print()
+            print("[WARN] --legacy-rate-omission is on. Rate and LC+Rate lots "
+                  "are priced without the rate regressor, so the projected "
+                  "costs will not satisfy the equation printed below and will "
+                  "read high. Only for reproducing a legacy workbook.")
 
         print()
         print(f"--- {series.program} ---")
@@ -338,6 +345,12 @@ def main() -> None:
                              "analogous program that has no history of its own")
     p_lots.add_argument("--price-from-unit", type=int, default=1,
                         help="Unit the priced plan starts at (default 1)")
+    p_lots.add_argument("--legacy-rate-omission", action="store_true",
+                        help="Reproduce the original desktop tool, which "
+                             "priced Rate and LC+Rate lots without the rate "
+                             "regressor. Its projections do not satisfy the "
+                             "equation it prints and read high. Only for "
+                             "reproducing a workbook built by it")
 
     # Subcommand: full-run
     p_run = sub.add_parser(

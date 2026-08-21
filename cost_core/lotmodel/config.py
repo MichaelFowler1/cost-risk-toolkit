@@ -14,7 +14,10 @@ SETTINGS = {
     "EstimateTableName": "EstimateLots",
     "CostUnitScale": 1.0,  # 1 = $K, 1000 = full dollars
     "TotalScale": 1000.0,  # Applied on top of CostUnitScale for totals
-    "ToolMatchProjection": True,  # True = Rate & LC+Rate project on lot midpoint
+    # The original tool projected Rate on the lot midpoint and LC+Rate
+    # without its rate factor, so its projected costs did not satisfy the
+    # equation it printed. Kept only to reproduce a legacy workbook.
+    "LegacyRateOmission": False,
     "DefaultCF": 1.0,
     "FitPriorUnits": 0,
     "FcstPriorUnits": 0,

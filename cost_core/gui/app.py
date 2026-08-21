@@ -210,8 +210,8 @@ class LotCostApp(tk.Tk):
         self.var_fcstprior = tk.StringVar(
             value=str(SETTINGS["FcstPriorUnits"])
         )
-        self.var_toolmatch = tk.BooleanVar(
-            value=SETTINGS["ToolMatchProjection"]
+        self.var_legacyrate = tk.BooleanVar(
+            value=SETTINGS["LegacyRateOmission"]
         )
 
         s_fields = [
@@ -235,8 +235,9 @@ class LotCostApp(tk.Tk):
                 )
         ttk.Checkbutton(
             box2,
-            text="Project Rate & LC+Rate on lot midpoint (tool match)",
-            variable=self.var_toolmatch,
+            text="Legacy: drop the rate term from Rate & LC+Rate "
+                 "projections (matches the original tool, overstates cost)",
+            variable=self.var_legacyrate,
         ).grid(row=len(s_fields), column=0, columnspan=3, sticky="w", padx=8, pady=6)
 
         # -- added statistics ------------------------------------------------
@@ -598,7 +599,7 @@ class LotCostApp(tk.Tk):
             "FcstPriorUnits": num(
                 self.var_fcstprior, "Prior units (forecast)", int
             ),
-            "ToolMatchProjection": bool(self.var_toolmatch.get()),
+            "LegacyRateOmission": bool(self.var_legacyrate.get()),
         }
 
     def _save_workbook(self, path, proj, summ, chart, extras=None) -> str | None:

@@ -207,9 +207,9 @@ like this:
 Unit Cost = 5,897,536.83 * midpoint^(-0.127995)
 ```
 
-If the selected model carries a rate term the equation picks up a `qty^c` factor,
-and you should read [Known issues](#known-issues) before you trust the priced
-output.
+If the selected model carries a rate term the equation picks up a `qty^c`
+factor, and the priced lots carry it too. There's a test for exactly that,
+because for a while they didn't.
 
 `--price-lots` applies the selected model to any buy profile from unit 1,
 producing the learning curve table an analyst would build by hand:
@@ -303,29 +303,6 @@ first unit cost describes a unit nobody built.
 exactly and are refused. Three gives one degree of freedom and an interval too
 wide to support a decision. Five is the practical floor. The tool fits below that
 but says so loudly.
-
-## Known issues
-
-**LC+Rate and Rate projections drop the rate term.** When the selected model
-carries a rate coefficient, the projected unit costs are computed as
-`T1 * midpoint^b` only, without the `qty^c` factor that's in the fitted equation
-printed right above them. On the shipped `example_lots.csv` that overstates the
-back cast of the fitted lots by 36% against a known actual total.
-
-This is inherited behavior. The original desktop tool did it, and the
-`ToolMatchProjection` setting in `cost_core/lotmodel/config.py` reproduces it
-exactly so the golden master test stays honest about what the port does. The
-problem is that it defaults to on and only the GUI can turn it off, so a command
-line user gets it silently.
-
-LC only fits aren't affected, since there's no rate term to drop. Everything
-downstream of the projections table inherits it though: forecasts, prediction
-intervals, the Monte Carlo, `price_lot_plan`, and the Excel workbook. The per lot
-fitted values and the influence diagnostics are computed from the design matrix,
-so those stay correct, which is why the tool visibly disagrees with itself.
-
-Until this is settled, treat Rate and LC+Rate projections as suspect and check
-them against the printed equation by hand.
 
 ## Usage guide
 
@@ -460,6 +437,30 @@ unit theory and fitted as a Wright curve returns R² of about 0.996 with a
 demonstrably wrong forecast. Standard error is in dollars and CV is a proportion.
 Both are arguable. R² is reported, but last.
 
+### Projections have to satisfy the equation
+
+The original desktop tool priced its Rate lots on the lot midpoint, which isn't
+the variable that model regresses on, and priced LC+Rate without the rate factor
+at all. So it printed an equation and then printed lot costs that didn't satisfy
+it. On `example_lots.csv` that overstates a back cast of the fitted lots by 36%
+against a known total, while the residual columns from the same run showed the
+model tracking those lots to about 1%. One run, two formulas.
+
+Dropping the term isn't a modeling choice you could defend. It evaluates the fit
+at a lot quantity of one unit while keeping the learning position of the real
+lot, and because the rate exponent is negative it only ever biases upward.
+
+The corrected behavior is the default. `LegacyRateOmission` reproduces the old
+numbers for anyone who has to match a legacy workbook, and the command line has
+`--legacy-rate-omission` for it, which prints a warning when you use it. Passing
+the old setting name raises instead of being ignored, because a caller who asked
+for legacy behavior and quietly got something else is worse off than one who
+gets an error.
+
+The guard is a test that retypes the printed equation and evaluates it against
+the printed projections, for all three models. That test is why this is a
+paragraph about a fix rather than a known issue.
+
 ### Wright and Crawford are different theories
 
 Wright's cumulative average form says the *average* cost of the first x units
@@ -545,6 +546,11 @@ asserting that both escalation checks stay silent at 2%, 4% and 6% a year under 
 midpoint fit, while the fitted slope drifts several points off the truth. A
 second test confirms the level check does catch 15%. Documenting where a
 diagnostic stops working matters more than showing where it works.
+
+**The projections satisfy the equation the tool prints.** Retyped by hand for
+all three models and evaluated against the projected costs, to the cent the
+column is rounded to. Flipping the legacy switch back on fails five of these,
+which is how I know they'd have caught the original defect.
 
 **Bad input is refused, not absorbed.** Zero degrees of freedom, a missing base
 year, two lots, fractional units, unmatched WBS names, non positive costs in a

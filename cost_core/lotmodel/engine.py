@@ -34,6 +34,15 @@ def run_lot_cost_model(
 ) -> tuple[pd.DataFrame, dict]:
     cfg = SETTINGS.copy()
     if config_overrides:
+        if "ToolMatchProjection" in config_overrides:
+            raise ValueError(
+                "ToolMatchProjection has been replaced by LegacyRateOmission, "
+                "which has the opposite sense and defaults to False. It "
+                "projected Rate on the lot midpoint and LC+Rate without its "
+                "rate factor, so the projected costs did not satisfy the "
+                "fitted equation. Pass LegacyRateOmission=True only to "
+                "reproduce a workbook built by the original tool."
+            )
         cfg.update(config_overrides)
 
     if analogy_df.empty:
@@ -381,7 +390,10 @@ def run_lot_cost_model(
         )
     ]
     if pd.notna(t1_rt):
-        if cfg["ToolMatchProjection"]:
+        # The rate model regresses on lot quantity, so it projects on lot
+        # quantity. The legacy branch substituted the lot midpoint, which is
+        # a different variable entirely.
+        if cfg["LegacyRateOmission"]:
             res_df["RT_UnitCost"] = (
                 t1_rt
                 * (res_df["RT_LMP"] ** b_rt)
@@ -415,9 +427,12 @@ def run_lot_cost_model(
         )
     ]
     if pd.notna(t1_br):
+        # Dropping this factor evaluates the fit at a lot quantity of one
+        # unit while keeping the learning position of the real lot, which is
+        # not a rate anyone chose to hold it at. It only ever biases upward.
         rate_factor = (
             1.0
-            if cfg["ToolMatchProjection"]
+            if cfg["LegacyRateOmission"]
             else (res_df["Qty"] ** c_br)
         )
         res_df["LCR_UnitCost"] = (

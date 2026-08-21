@@ -188,6 +188,119 @@ def test_column_names_are_matched_case_insensitively():
     assert ctx["t1_lc"] == pytest.approx(3433.6272851, rel=1e-9)
 
 
+# ============================ the projections have to satisfy the equation
+def equation_unit_costs(projections: pd.DataFrame, ctx: dict, model: str):
+    """Re-evaluate the fitted equation by hand for every projected lot.
+
+    Midpoints are recomputed with ``lmp_func`` rather than read from the
+    projections table, because that column is rounded to four decimals for
+    display and this comparison is meant to be exact.
+    """
+    qty = projections["Lot Quantity"].to_numpy(dtype=float)
+    first = projections["First Unit in Lot"].to_numpy(dtype=float)
+    last = projections["Last Unit in Lot"].to_numpy(dtype=float)
+    if model == "LC":
+        b = ctx["b_lc"]
+        mid = np.array([lmp_func(f, l, q, b) for f, l, q in zip(first, last, qty)])
+        return ctx["t1_lc"] * mid ** b
+    if model == "Rate":
+        return ctx["t1_rt"] * qty ** ctx["b_rt"]
+    b = ctx["b_br"]
+    mid = np.array([lmp_func(f, l, q, b) for f, l, q in zip(first, last, qty)])
+    return ctx["t1_br"] * mid ** b * qty ** ctx["c_br"]
+
+
+@pytest.mark.parametrize("model", ["LC", "Rate", "LC+Rate"])
+def test_the_projections_satisfy_the_equation_the_tool_prints(run, model):
+    """The defect this exists to prevent.
+
+    The engine used to project Rate on the lot midpoint, which is not the
+    variable that model regresses on, and LC+Rate without its rate factor at
+    all. Both came across from the original tool. The result was one run
+    reporting two different formulas: the residual columns showed the model
+    tracking its own lots to about 1% while the projections built from the
+    same coefficients were tens of percent away.
+
+    Tolerance is the cent the column is rounded to, not a judgement call.
+    """
+    projections, ctx, _ = run
+    printed = projections[f"{model} Unit Cost ($K)"].to_numpy(dtype=float)
+    assert printed == pytest.approx(
+        equation_unit_costs(projections, ctx, model), abs=0.01)
+
+
+@pytest.mark.parametrize("model", ["LC", "Rate", "LC+Rate"])
+def test_the_lot_cost_columns_follow_from_the_same_equation(run, model):
+    """The rest of the chain, so a corrected unit cost cannot be undone by the
+    columns built from it. Everything is checked back to the equation rather
+    than to the unit cost column, which is rounded to the cent for display."""
+    projections, ctx, _ = run
+    qty = projections["Lot Quantity"].to_numpy(dtype=float)
+    cf = projections["Complexity Factor"].to_numpy(dtype=float)
+    unit = equation_unit_costs(projections, ctx, model)
+
+    before = unit * qty * SETTINGS["TotalScale"]
+    assert projections[f"{model} Lot Cost Before Complexity ($)"].to_numpy(
+        dtype=float) == pytest.approx(before, abs=0.01)
+    assert projections[f"{model} Lot Cost After Complexity ($)"].to_numpy(
+        dtype=float) == pytest.approx(before * cf, abs=0.01)
+
+
+def test_a_back_cast_of_the_fitted_lots_recovers_their_actual_total(run):
+    """Price the analogy lots as though they were the estimate. The answer is
+    known, so the projection has nowhere to hide: it has to land on the total
+    that was fitted, within the scatter the fit reports."""
+    _, ctx, summary = run
+    model = selected_model_name(summary)
+    back = ANALOGY[["Lot", "Lot FY", "Qty"]].copy()
+    back["Complexity"] = 1.0
+    projections, _ = run_lot_cost_model(ANALOGY, back, {})
+    total = (projections[f"{model} Unit Cost ($K)"]
+             * projections["Lot Quantity"]).sum()
+    actual = float((ANALOGY["Qty"] * ANALOGY["AUC ($K)"]).sum())
+    assert total == pytest.approx(actual, rel=0.01)
+
+
+def test_the_legacy_switch_still_reproduces_the_original_tool(run):
+    """Kept so a legacy workbook can be reproduced on request, and so the gap
+    between the two is a measured number rather than a claim."""
+    reference, ctx, _ = run
+    legacy, _ = run_lot_cost_model(ANALOGY, ESTIMATE, {"LegacyRateOmission": True})
+
+    qty = reference["Lot Quantity"].to_numpy(dtype=float)
+    first = reference["First Unit in Lot"].to_numpy(dtype=float)
+    last = reference["Last Unit in Lot"].to_numpy(dtype=float)
+
+    def midpoints(b):
+        return np.array([lmp_func(f, l, q, b)
+                         for f, l, q in zip(first, last, qty)])
+
+    # LC has no rate term, so it is untouched either way.
+    assert legacy["LC Unit Cost ($K)"].to_numpy(dtype=float) == pytest.approx(
+        reference["LC Unit Cost ($K)"].to_numpy(dtype=float), rel=1e-12)
+
+    # Legacy LC+Rate is the fitted equation with its rate factor deleted.
+    assert legacy["LC+Rate Unit Cost ($K)"].to_numpy(dtype=float) == pytest.approx(
+        ctx["t1_br"] * midpoints(ctx["b_br"]) ** ctx["b_br"], abs=0.01)
+
+    # Legacy Rate substitutes the lot midpoint for the lot quantity, which is
+    # the variable that model was actually regressed on.
+    assert legacy["Rate Unit Cost ($K)"].to_numpy(dtype=float) == pytest.approx(
+        ctx["t1_rt"] * midpoints(ctx["b_rt"]) ** ctx["b_rt"], abs=0.01)
+
+    # The LC+Rate omission overstates, always, never understates: the rate
+    # exponent is negative and lot quantities are greater than one.
+    assert (legacy["LC+Rate Unit Cost ($K)"].to_numpy(dtype=float)
+            > reference["LC+Rate Unit Cost ($K)"].to_numpy(dtype=float)).all()
+
+
+def test_the_old_setting_name_is_refused_rather_than_ignored():
+    """Silently dropping an unknown key would leave a caller who asked for the
+    legacy behaviour getting the corrected one without being told."""
+    with pytest.raises(ValueError, match="LegacyRateOmission"):
+        run_lot_cost_model(ANALOGY, ESTIMATE, {"ToolMatchProjection": True})
+
+
 # ======================================== added statistics: unbiased refits
 def test_mupe_and_zmpe_drive_the_mean_percentage_error_to_zero(run):
     """The reason they exist. OLS in log space leaves a positive bias; these
