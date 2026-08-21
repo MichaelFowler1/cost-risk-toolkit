@@ -34,3 +34,4 @@ dist/
 # output from real cost data should never be committed by accident.
 results/
 artifacts/
+results*/
