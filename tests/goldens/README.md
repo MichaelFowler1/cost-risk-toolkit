@@ -86,28 +86,76 @@ turns 2 red.
 
 ## What each later step may change
 
-**Step 2** (three lot models onto `cost_core.fitting`) may move only what
-`COMPARE_POLICY.expected_to_move_beyond_rtol_in_step_2` already names:
+**Step 2** (three lot models onto `cost_core.fitting`) landed on 2026-09-07.
+What it moved is written out in
+`COMPARE_POLICY.expected_to_move_beyond_rtol_in_step_2`, which carries the
+measured size of each move and the reasoning, and
+`golden_support.OVERRIDES` / `golden_support._EXCLUDE_STEP2` are built from
+that entry so the policy and the test cannot disagree. In summary:
 
-* the MUPE and ZMPE rows of `compare_fitting_methods` (about 1e-8 on the
-  coefficients, 2e-9 to 6e-9 on the error statistics). The OLS row,
+* the MUPE and ZMPE rows of every `compare_fitting_methods` frame, including
+  the `Fit_Methods` sheet and the CLI `fit_methods.csv`, once the private
+  `_fit_mupe` / `_fit_zmpe` gave way to `fitting.fit_all_methods`. Measured
+  maxima 1.5e-6 relative on `b (learning)`, 3.3e-7 on `c (rate)`, 1.6e-7 on
+  `T1`, 3.3e-7 on `MAPE`, 5.9e-9 on `SEE (log)` and 6.9e-10 absolute on
+  `Mean % error`, taken on both supported lanes, which agree on every figure
+  to four digits. Each allowance is the smallest
+  power of ten that clears its own measurement by at least three times, which
+  keeps every one of them well under the four significant figures the table
+  prints; the policy's `_how_the_allowances_are_sized` works that rule through
+  column by column, `_measured_maxima` carries the measurements and
+  `_sizes_the_prototype_proposed` says which of the step-2 brief's provisional
+  sizes measurement overturned and why. The OLS row,
   `log_residual_variance`, `theoretical_factor`, `smearing_factor`,
   `mupe_over_ols`, `zmpe_over_ols` and `percent_understated` stay inside 1e-9;
-* the `Fit_Methods` sheet in `enrich_run_*.sheets`, for the same reason;
-* `enrich_run_*.warnings_raised`, which may gain the `fitting.fit` df<3 warning
-  text on the four- and five-lot cases.
+* `derived_stats` `Bias`, which is a near-zero quantity and needs an absolute
+  allowance rather than the general 1e-12. Measured maximum 4.06e-12 across
+  nine leaves, allowed 1e-10;
+* `DFFITS` where the fit has fewer than two degrees of freedom. It is now
+  reported as 0.0, because the leave-one-out residual scale it divides by does
+  not exist there and the published values (4.4e5 to 2.1e6, against a
+  conventional flag of about 1) were amplified rounding error. The change is in
+  `cost_core/cer/diagnostics.py`, which is the CER package's shared
+  `compute_diagnostics`, so it reaches every caller at fewer than two degrees
+  of freedom and not only the lot engine; the 13 golden leaves it moves happen
+  all to be lot fits;
+* the two exact-fit lots fixtures, `clean_series` and `midpoint_curve_recovery`,
+  whose costs are the model evaluated exactly. Their residual scale is at the
+  floating-point floor, so `F`, the standard errors, `AICc`, the t-statistics
+  and the residuals are all ratios of rounding errors and are carved out. What
+  is **not** carved out is which model the tool selects: the t-statistic that
+  decides it was crossing the 2.0 gate on both fixtures, and rather than hide
+  that behind an exclusion, `summary.py` now declines to form a t out of a
+  residual scale that is not there. Both fixtures select `LC` as they always
+  did, and their selected model, printed equation, midpoints, unit costs, lot
+  costs, intervals and risk draws are all still compared under the general
+  rule. The one printed cell that changed is `t (rate coefficient)`, from
+  `0.93` and `0.11` to `n/a`;
+* the CLI `csv_text` and `sha256` byte-identity checks, which carry the last
+  digit of every coefficient. The numbers behind them are still compared,
+  through `csv_contents`, at rtol 1e-9 -- and a `csv_contents` cell that is
+  text on both sides but spells a number is now compared as a number, which it
+  was not before;
+* the two `| MUPE |` and `| ZMPE |` rows of the markdown assumption logs, which
+  print the same table. Every other line of those documents is still compared
+  byte for byte.
 
-Nothing else. `golden_support.OVERRIDES` is the hook for the first two: it maps
-a path glob to the rtol that **numeric** leaf may move by, and it is empty today
-on purpose. Widening it is how step 2 records the two numeric moves, in one
-place, reviewably.
+Two of those are changes of behaviour rather than tolerance decisions, and both
+are recorded in `COMPARE_POLICY.expected_to_move_beyond_rtol_in_step_2.
+also_changed_in_step_2`: `DFFITS` below two degrees of freedom, and the rate
+t-statistic on a fit with no residual scale. Both are narrow. `DFFITS` is
+zeroed only below two degrees of freedom, which reaches 13 golden leaves, all
+listed by case in the policy. The t-statistic is withheld only when the residual
+scale is under 1e-10 of the fitted values: instrumenting every lot fit the suite
+performs finds 17,953 of them, and that ratio is either at or below 1.1e-14 (14
+fits, every one inside the two exact-fit fixtures) or at or above 2.6e-4. The
+threshold sits in an empty band, four orders of magnitude above everything it
+catches and six below everything it does not.
 
-It is not the hook for the third. `warnings_raised` is a list of strings, and a
-list that gains an entry is a structural mismatch -- no rtol can absorb it, and
-setting an override on that path does nothing. Step 2 has to record that one in
-the comparator itself: add the path to `golden_support._EXCLUDE_STEP2` with the
-reason, or allow the one extra string explicitly. Whichever it is, it is a code
-change with a diff to review, which is the right weight for it.
+Nothing else moved. `enrich_run_*.warnings_raised` did not gain the
+`fitting.fit` df<3 warning after all: `models.suppress_low_df` drops it, because
+the engine has never warned at three or four lots and a refactor is not the
+place to start.
 
 **Step 3** (raw-draw handoff) rebaselines the WBS `program_level_percentiles`
 block and the risk sheets of the programme workbook. It must not move
@@ -158,6 +206,38 @@ recovers `|t|` and bisecting `AiccTie` recovers the AICc gap.
 `golden_support.py`'s "summary.py's own arithmetic" section is the long
 version.
 
+## Rebaselined goldens
+
+Exactly one golden has been rebaselined since capture. Everything else in this
+directory is the 2026-09-06 capture, byte for byte.
+
+**2026-09-07, step 2, `engine_app_example_tol_1e-14.json.gz`, LC+Rate only.**
+That case runs the engine with `Tol` tightened to 1e-14. Under the old solver
+the midpoint loop never got inside it: the normal equations settled into a limit
+cycle at 1.16e-14, just above the tolerance, so the loop ran out its 100
+iterations and reported a fit that had not converged. The accurate solver
+converges monotonically and stops at iteration 10 with a delta of 2.05e-15, and
+the coefficient it reports agrees with the old one to 1.07e-12. The old `False`
+was a statement about the solver, not about the fit, so it was corrected rather
+than carved out. Eleven leaves, all of them the same fact written in different
+places:
+
+| field | old | new |
+| --- | --- | --- |
+| `iteration_detail.mdl_lcr.Iter` | 100 | 10 |
+| `iteration_detail.mdl_lcr.Delta` | 1.1601830607332886e-14 | 2.0539125955565396e-15 |
+| `iteration_detail.mdl_lcr.Converged` | false | true |
+| `ctx.mdl_lcr.Converged` | false | true |
+| `fit_status` | `LC ok; Rate ok; LC+Rate NOT CONVERGED` | `LC ok; Rate ok; LC+Rate ok` |
+| `projections.records[0..5]["Fit Status"]` (6 rows) | `LC ok; Rate ok; LC+Rate NOT CONVERGED` | `LC ok; Rate ok; LC+Rate ok` |
+
+The `Fit Status` column is `engine.py` writing the same `fit_status` string on
+to every projected row, so the six rows are not six decisions. Nothing else in
+the file changed, and no other golden changed at all. The file was rewritten
+with `json.dumps(indent=1, allow_nan=False)` and
+`gzip.compress(compresslevel=9, mtime=0)`, which reproduces every untouched
+golden byte for byte.
+
 ## Two known, documented gaps
 
 * **One golden predates one row.** `lots_cost_core.json` was captured off
@@ -170,8 +250,12 @@ version.
   legacy goldens carry different text because of it. The only Items the
   comparator ever skips are `Tool version` and `Run timestamp`, which
   `split_summary` has already stripped from both sides.
-* **CSV bytes are only asserted on the capture lane.** The CLI writes its CSVs
-  at full repr precision, so their sha256 carries the last bit of a double, and
-  numpy 2.0.2 and numpy 2.4.4 disagree in the sixteenth digit of `exp()`. Off
-  the captured numpy/pandas the test drops `sha256` and `csv_text` (saying so)
-  and compares the same numbers through the parsed frames at rtol 1e-9.
+* **CSV bytes are no longer asserted.** The CLI writes its CSVs at full repr
+  precision, so their sha256 carries the last bit of a double. That was always
+  lane-dependent -- numpy 2.0.2 and numpy 2.4.4 disagree in the sixteenth digit
+  of `exp()`, so off the capture lane the test already dropped `sha256` and
+  `csv_text` -- and step 2 moves the same digits on every lane, because the
+  coefficients themselves moved in the thirteenth. Both are excluded now. The
+  numbers are compared through the parsed frames at rtol 1e-9, which is the
+  tolerance that means something; the sha256 of the matplotlib PNG was never
+  compared for the same kind of reason.

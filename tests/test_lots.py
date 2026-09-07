@@ -374,7 +374,14 @@ def test_the_fit_recovers_a_curve_built_on_lot_midpoints():
         warnings.simplefilter("ignore")
         fit = LotSeries(quantities=quantities, costs=costs,
                         dollar_year=2026).fit()
+    # LC, and it stays LC however accurately the fit is solved. These costs are
+    # the model evaluated exactly, so the residual scale is at the
+    # floating-point floor and the rate t-statistic would be a ratio of two
+    # rounding errors landing on either side of the 2.0 gate depending on the
+    # last bit. summary.py refuses to form that ratio, which is what makes this
+    # assertion a statement about the data rather than about the solver.
     assert fit.selected_model == "LC"
+    assert fit.c is None
     assert fit.t1 == pytest.approx(t1, rel=1e-6)
     assert fit.slope == pytest.approx(0.85, rel=1e-6)
 

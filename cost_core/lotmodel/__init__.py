@@ -31,8 +31,7 @@ from __future__ import annotations
 from cost_core.lotmodel.chartdata import generate_fit_chart_data
 from cost_core.lotmodel.config import SETTINGS
 from cost_core.lotmodel.engine import LEGACY_KEY, run_lot_cost_model
-from cost_core.lotmodel.mathx import (find_col, lmp_func, ols_fit, solve_model,
-                                      to_num, track_units)
+from cost_core.lotmodel.mathx import find_col, lmp_func, to_num, track_units
 from cost_core.lotmodel.provenance import provenance
 from cost_core.lotmodel.summary import generate_analyst_summary
 from cost_core.reporting.lot_workbook import save_complete_excel_workbook
@@ -44,11 +43,9 @@ __all__ = [
     "generate_analyst_summary",
     "generate_fit_chart_data",
     "lmp_func",
-    "ols_fit",
     "provenance",
     "run_lot_cost_model",
     "save_complete_excel_workbook",
-    "solve_model",
     "to_num",
     "track_units",
 ]

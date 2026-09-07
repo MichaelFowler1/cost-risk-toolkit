@@ -18,8 +18,16 @@ normal -- and the correction matters at that size. Where AICc disagrees with
 the significance gate the summary says so rather than hiding it, because the
 disagreement is exactly what a reviewer needs to see.
 
-Ported from the original script; the one change is that the provenance rows
-can be supplied by the caller instead of being built here.
+The gate in step 1 needs a residual spread to measure the coefficient against.
+A synthetic series priced straight off the curve has none: the fit passes
+through every point, the residual scale is at the floating-point floor and the
+t-statistic is a ratio of rounding errors. The t is reported as not available
+there rather than as that ratio, which leaves LC as the default. This is the
+convention cost_core.cer.diagnostics already applies to leverage and influence.
+
+Ported from the original script; the changes are that the provenance rows can
+be supplied by the caller instead of being built here, and the exact-fit gate
+above.
 """
 
 from __future__ import annotations
@@ -97,6 +105,22 @@ def generate_analyst_summary(
             else None
         )
 
+        # A series priced straight off the curve reproduces itself exactly, so
+        # its residual scale sits at the floating-point floor and every
+        # standard error built from that scale is a rounding error rather than
+        # a spread. The rate t-statistic is then the ratio of two such numbers,
+        # and which side of the gate it lands on is decided by the last bit:
+        # the same data fitted by two solvers that agree to twelve digits, and
+        # that price every lot identically, would report different models.
+        # cost_core.cer.diagnostics already refuses to divide by a residual
+        # scale that is not there; the same test is applied here so that a
+        # coefficient is only called significant when there is a spread to
+        # measure it against. The threshold is not a close call: across every
+        # lot fit the test suite performs, this ratio is either below 1.1e-14
+        # or above 2.6e-4, with nothing in between.
+        fitted_scale = float(np.max(np.abs(m["Fitted"]))) if len(m["Fitted"]) else 0.0
+        exact_fit = see is not None and see <= 1e-10 * max(fitted_scale, 1.0)
+
         sec = (
             see * np.sqrt(m["InvDiag"][rate_idx])
             if (rate_idx is not None and see is not None)
@@ -104,7 +128,7 @@ def generate_analyst_summary(
         )
         tc = (
             (m["Beta"][rate_idx] / sec)
-            if (sec is not None and sec >= 1e-15)
+            if (sec is not None and sec >= 1e-15 and not exact_fit)
             else None
         )
 

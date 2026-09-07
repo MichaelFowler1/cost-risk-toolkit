@@ -26,9 +26,11 @@ import pytest
 from cost_core.lotmodel import (SETTINGS, EnrichmentError, compare_fitting_methods,
                                 enrich_run, generate_analyst_summary,
                                 generate_fit_chart_data, influence_diagnostics,
-                                lmp_func, ols_fit, projection_intervals,
+                                lmp_func, projection_intervals,
                                 run_lot_cost_model, selected_model_name,
                                 simulate_buy, track_units)
+from cost_core.lotmodel import models
+from cost_core.lotmodel.models import ols_via_fitting
 
 ANALOGY = pd.DataFrame({
     "Lot": [1, 2, 3, 4, 5, 6],
@@ -69,6 +71,58 @@ def test_the_engine_selects_the_learning_curve_on_the_reference_program(run):
     assert summary_value(summary, "SELECTED", "LC") == "YES"
     assert summary_value(summary, "SELECTED", "Rate").strip() == ""
     assert summary_value(summary, "SELECTED", "LC+Rate").strip() == ""
+
+
+def test_the_rate_t_is_withheld_when_there_is_no_residual_scale_to_form_it(run):
+    """Costs priced straight off the curve leave no scatter, and a t-statistic
+    needs scatter to be a statement about anything.
+
+    On such a series the fit reproduces every point, so the residual scale sits
+    at the floating-point floor and the rate coefficient and its standard error
+    are both rounding errors. Their ratio comes out near 14 here, well past the
+    2.0 gate, and it would decide which model the tool recommends on the last
+    bit of the solve rather than on the data. summary.py applies the test
+    cost_core.cer.diagnostics already applies before dividing by a residual
+    scale -- sigma at or below 1e-10 of the fitted values -- and reports the t
+    as not available instead, which leaves LC selected.
+
+    The second half of this test is as much the point as the first. The rule
+    has to be inert on data that has a residual scale, so the reference
+    programme is checked to still form and print its t; and the pure Rate model
+    on the synthetic series, which does not reproduce it exactly, keeps its own
+    t as well. The threshold sits in an empty band: across every lot fit this
+    suite performs the ratio is either at or below 1.1e-14 or at or above
+    2.6e-4, so nothing is within six orders of magnitude of it either way.
+    """
+    qty = np.array([10, 15, 20, 25, 30, 35])
+    t1, b = 900.0, np.log2(0.85)
+    spans = track_units(qty, 0)
+    midpoints = np.array([lmp_func(s["S"], s["E"], q, b)
+                          for s, q in zip(spans, qty)])
+    analogy = pd.DataFrame({
+        "Lot": range(1, 7),
+        "Lot FY": range(2018, 2024),
+        "Qty": qty,
+        "AUC ($K)": t1 * midpoints ** b,
+    })
+    estimate = pd.DataFrame({"Lot": [1], "Lot FY": [2030], "Qty": [12],
+                             "Complexity": [1.0]})
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _, exact_ctx = run_lot_cost_model(analogy, estimate, {})
+        exact = generate_analyst_summary(exact_ctx, RUN_INFO)
+
+    # The model is fitted and reported; it is only the significance test that
+    # declines to run, so this is not the singular guard by another name.
+    assert exact_ctx["mdl_lcr"] is not None
+    assert summary_value(exact, "t (rate coefficient)", "LC+Rate") == "n/a"
+    assert selected_model_name(exact) == "LC"
+    # The pure Rate model does not reproduce this series, so it has a residual
+    # scale and keeps its t.
+    assert summary_value(exact, "t (rate coefficient)", "Rate") != "n/a"
+
+    _, _, summary = run
+    assert summary_value(summary, "t (rate coefficient)", "LC+Rate") == "-0.90"
 
 
 def test_the_fitted_coefficients_are_unchanged(run):
@@ -149,8 +203,10 @@ def test_ols_matches_the_normal_equations():
     rng = np.random.default_rng(0)
     x = np.linspace(1.0, 4.0, 12)
     y = 2.0 + 0.7 * x + rng.normal(0, 0.05, 12)
-    fit = ols_fit([x], y)
     design = np.column_stack([np.ones(12), x])
+    # The models fit the response in levels and take their own logarithm, so
+    # the log-space response the normal equations solve for is exp()d going in.
+    fit = ols_via_fitting("LC", design, np.exp(y), SETTINGS["SingularTol"])
     beta = np.linalg.lstsq(design, y, rcond=None)[0]
     assert np.asarray(fit["Beta"]) == pytest.approx(beta, rel=1e-10)
     assert fit["DF"] == 10
@@ -160,7 +216,68 @@ def test_a_singular_design_is_refused_rather_than_inverted():
     """Two identical predictors have no unique solution. Returning None beats
     returning whatever a pseudo-inverse happens to pick."""
     x = np.linspace(1.0, 4.0, 8)
-    assert ols_fit([x, x], 2.0 + 0.5 * x) is None
+    design = np.column_stack([np.ones(8), x, x])
+    y = np.exp(2.0 + 0.5 * x)
+    assert ols_via_fitting("LC+Rate", design, y, SETTINGS["SingularTol"]) is None
+
+
+
+def test_a_design_with_no_spare_observations_reports_its_own_emptiness():
+    """n == p leaves nothing to estimate a spread from.
+
+    The engine refuses fewer than three costed lots long before this, so no run
+    reaches it, but the fit-space dict is the contract the summary reads and it
+    has to say "no degrees of freedom" rather than raise. The shared estimator
+    refuses such a fit outright, so the wrapper answers for it.
+    """
+    x = np.array([1.0, 2.0])
+    y = np.array([10.0, 20.0])
+    fit = models.ols_via_fitting("LC", np.column_stack([np.ones_like(x), x]),
+                                 y, 1e-12)
+    assert fit is not None
+    assert fit["DF"] == 0
+    assert fit["N"] == 2 and fit["K"] == 2
+    assert np.isnan(fit["SEy"])
+    assert all(np.isnan(se) for se in fit["SE"])
+
+def test_a_near_constant_column_is_refused_at_the_shipped_tolerance():
+    """A column that is constant to twelve decimal places carries nothing the
+    intercept does not already carry, and the design is refused.
+
+    SingularTol ships at 1e-12 and any caller can override it, so it is worth
+    pinning that the guard does its job where the tool actually runs.
+    models.is_singular's docstring says what happens to a caller who loosens it
+    below about 1e-16, where the scaled determinant stops being a number at
+    all, and why neither this solver nor the one it replaced returns anything
+    worth having past that point.
+    """
+    near_constant = np.full(6, 2.5) + 1e-12 * np.array([1.0, -1.0, 2.0, -2.0, 3.0, -3.0])
+    design = np.column_stack([np.ones(6), near_constant])
+    assert models.is_singular(design, SETTINGS["SingularTol"]) is True
+    y = np.exp(1.0 + 0.3 * near_constant)
+    assert ols_via_fitting("LC", design, y, SETTINGS["SingularTol"]) is None
+
+
+def test_a_design_with_no_spare_observations_still_reports():
+    """n == p keeps the old contract: NaN where a variance is needed, not a
+    refusal. cost_core.fitting declines to qualify an interpolating fit, and
+    swapping that in for the engine's older behaviour would be a change of
+    substance inside a refactor. The engine cannot build such a design -- it
+    needs three lots for LC and four for LC+Rate -- so this is the only thing
+    that exercises the branch.
+    """
+    x = np.array([1.0, 2.0, 3.0])
+    design = np.column_stack([np.ones(3), x, x ** 2])
+    y_log = np.array([0.5, 0.9, 1.6])
+    fit = ols_via_fitting("LC+Rate", design, np.exp(y_log), SETTINGS["SingularTol"])
+    assert fit is not None
+    assert fit["N"] == 3 and fit["K"] == 3 and fit["DF"] == 0
+    # It interpolates, so the fitted values are the data and SSE is zero.
+    assert fit["Fitted"] == pytest.approx(y_log, abs=1e-12)
+    assert fit["SSE"] == pytest.approx(0.0, abs=1e-24)
+    # Nothing that needs a residual variance is reported.
+    assert all(pd.isna(v) for v in fit["SE"])
+    assert pd.isna(fit["SEy"])
 
 
 # ================================================ engine input validation
@@ -380,10 +497,10 @@ def test_cooks_distance_matches_a_leave_one_out_refit(run):
     """The closed form is exact, so it is checked against the thing it is a
     closed form for: drop each lot, refit, measure how far the fitted surface
     moved."""
-    from cost_core.lotmodel.enrich import _design
+    from cost_core.lotmodel.enrich import fit_on_design
 
     _, ctx, _ = run
-    design, y, _ = _design(ctx, "LC")
+    _, design, y = fit_on_design(ctx, "LC")
     n, p = design.shape
     beta = np.linalg.lstsq(design, y, rcond=None)[0]
     fitted = design @ beta

@@ -578,11 +578,124 @@
   ],
   "not_affected_by_step_3": "element_standalone_simulate_buy (per-element simulate_buy at 8000/11/0.30), simulated_run_point_total, and every engine_*.json simulate/risk block stay step-2-and-later goldens"
  },
- "expected_to_move_beyond_rtol_in_step_2": [
-  "compare_fitting_methods frames, MUPE and ZMPE rows (~1e-8 on coefficients, 2e-9 to 6e-9 on Mean % error/MAPE/SEE) when the private _fit_mupe/_fit_zmpe are replaced by fitting.fit; the OLS row, log_residual_variance, theoretical_factor, smearing_factor, mupe_over_ols, zmpe_over_ols stay within 1e-9",
-  "Fit_Methods sheet in enrich_run_*.sheets for the same reason",
-  "enrich_run_*.warnings_raised may gain the fitting.fit df<3 RuntimeWarning text for 4-5 lot cases"
- ],
+ "expected_to_move_beyond_rtol_in_step_2": {
+  "_what": "the MUPE and ZMPE rows of every compare_fitting_methods frame, once the private _fit_mupe / _fit_zmpe in enrich.py are replaced by cost_core.fitting.fit_all_methods. tests/golden_support.py builds its OVERRIDES table from this entry, so the two cannot disagree about the size of the carve-out",
+  "_why": "the two estimators are iterative and they stop on different rules. fitting's MUPE stops on its inner least-squares step and enrich's stopped on the parameter step; fitting's ZMPE seeds Nelder-Mead from the MUPE solution and enrich's seeded it from OLS. Neither is more nearly right than the other, they are different fixed points of the same objective, so the gap does not close by tightening a tolerance",
+  "_measured_not_guessed": "measured on the whole golden corpus (36 engine cases, the lots family, the two WBS programmes and the three CLI runs) by re-running the comparator with the carve-out switched off and recording every leaf that then disagrees. _measured_maxima below is that measurement, so a later step can re-run it and see whether the corpus still moves by what this entry says it does. It was taken on both supported lanes, python 3.14 with numpy 2.4.4 and pandas 3.0.3 and python 3.9 with numpy 2.0.2 and pandas 2.3.3, and the two agree to four digits on every figure. The step-2 prototype had measured the 36 engine cases alone and sized the coefficients at 1e-6 relative and Mean % error at 1e-11 absolute; one of those two sizes survived the full measurement and the other did not, and _sizes_the_prototype_proposed says which and why. The ZMPE row was never reproducible better than about 1e-7 even against itself from seed perturbation alone, which is why the coefficient allowance is 1e-6 and not 1e-8",
+  "_how_the_allowances_are_sized": "pulled from two directions. From below, an allowance has to admit the largest move measured with room to spare, or a rerun on another BLAS or numpy build lands on the line. From above, it has to stay under the resolution the number is published at, which for this table is four significant figures (AssumptionLog.table's ',.4g' float format, cost_core/reporting/assumptions.py:86), or a move an analyst could read passes unseen. The rule the two directions come out to is one line: the smallest power of ten that clears the measured maximum by at least three times. Column by column that is T1 1e-6 over 1.582e-7 (6.3x), c (rate) 1e-6 over 3.295e-7 (3.0x), MAPE 1e-6 over 3.319e-7 (3.0x), SEE (log) 1e-7 over 5.924e-9 (16.9x), Mean % error 1e-8 over 6.905e-10 (14.5x), the b (learning) atol 1e-7 over the 5.347e-9 the one leaf that needs it moves (18.7x) and derived_stats Bias 1e-10 over 4.058e-12 (24.6x). MAPE and c (rate) sit at the three-times floor because the next power of ten up would put the allowance at the fourth significant figure itself and buy headroom by giving up the ability to see anything. Most allowances are two orders of magnitude below what is printed; the b atol is one. b (learning) is also the one column whose relative allowance does not carry its column on its own, which _atol_on_the_exponents says out loud rather than leaving to be discovered. Every number the sizing rests on is in _measured_maxima",
+  "_sizes_the_prototype_proposed": "the step-2 prototype proposed 1e-6 relative on T1, the exponents and MAPE, 1e-8 relative on SEE (log) and 1e-11 absolute on Mean % error. The first survived measurement unchanged. The other two are recorded here because a later step reading the step-2 brief would otherwise find them and take the shipped numbers for a carve-out widened without measurement. Mean % error at 1e-11 does not admit the corpus at all, and what it fails on is not the lots family but the engine cases the prototype itself had in front of it: the MUPE row moves 6.905e-10 on engine rate_driven_8lots and 1.008e-11 on engine app_example_maxiter_2, because the golden value there is a cancelling sum of order 1e-16 and the new one is the same sum computed by a different estimator. The prototype had sized that column from the coefficients rather than from the column itself. SEE (log) does fit under 1e-8, at 1.69x, which is tighter than every other column here and tighter than the three-times floor, so it is sized at 1e-7 by the same rule as the rest rather than left as the one column with no room to rerun on another BLAS",
+  "_measured_maxima": {
+   "_note": "the largest move each carved-out column actually makes, re-measured after the exact-fit gate went into summary.py and on both supported lanes, which agree on every figure here to four digits. leaves_needing_atol counts the leaves whose relative move exceeds the rtol, which is the only thing an absolute allowance has to cover; atol_needed is the largest absolute move among those. A column with none does not carry an atol. Two entries record a rel far above one: Mean % error and derived_stats Bias are cancelling sums whose golden value sits at the floating-point floor, so the relative move on them is arithmetic about nothing and only the absolute one is sized",
+   "T1 ($K)": {"rel": 1.582e-07, "leaves_needing_atol": 0},
+   "b (learning)": {"rel": 1.474e-06, "abs": 3.078e-07, "leaves_needing_atol": 1, "atol_needed": 5.347e-09},
+   "c (rate)": {"rel": 3.295e-07, "abs": 3.315e-07, "leaves_needing_atol": 0},
+   "MAPE": {"rel": 3.319e-07, "abs": 1.931e-09, "leaves_needing_atol": 0},
+   "SEE (log)": {"rel": 5.924e-09, "abs": 4.797e-10, "leaves_needing_atol": 0},
+   "Mean % error": {"rel": 1.658e+06, "abs": 6.905e-10, "leaves_needing_atol": 233, "atol_needed": 6.905e-10},
+   "derived_stats Bias": {"rel": 0.9998, "abs": 4.058e-12, "leaves_needing_atol": 9, "atol_needed": 4.058e-12}
+  },
+  "frames": [
+   "*/compare_fitting_methods/ok/frame",
+   "*/methods/ok/frame",
+   "*/methods/frame",
+   "*/sheets/Fit_Methods",
+   "*/csv_contents/fit_methods.csv"
+  ],
+  "rows": {
+   "MUPE": 1,
+   "ZMPE": 2
+  },
+  "columns": {
+   "T1 ($K)": {
+    "rtol": 1e-06
+   },
+   "b (learning)": {
+    "rtol": 1e-06,
+    "atol": 1e-07
+   },
+   "c (rate)": {
+    "rtol": 1e-06
+   },
+   "MAPE": {
+    "rtol": 1e-06
+   },
+   "SEE (log)": {
+    "rtol": 1e-07
+   },
+   "Mean % error": {
+    "atol": 1e-08
+   }
+  },
+  "seeded_risk_draws": "the seeded simulate_buy totals are NOT bit-identical to the goldens and cannot be, which is worth writing down because it is easy to ask for the wrong thing here. A draw is beta + L z with z from a seeded generator: the generator, the Cholesky and the arithmetic are unchanged, so z is bit-identical, but beta moved in the 13th digit and so the totals move with it, by up to 9.4e-11 relative (four_lots LC+Rate std). That is inside the general rtol 1e-9 and no allowance is taken for it. The property that IS bit-identity, and that was checked: feeding ede4a29's own beta, cov and sigma into the new simulate_buy reproduces the old totals exactly on all 102 fits in the corpus, and the 33 pure Rate fits, whose design does not depend on b and whose beta therefore did not move, reproduce the golden totals exactly as they stand. Step 3 should ask for that property, not for bit-identical totals",
+  "unchanged_at_the_general_rule": "everything else in those blocks stays at rtol 1e-9 / atol 1e-12: the OLS row of the same frames, log_residual_variance, theoretical_factor, smearing_factor, percent_understated, mupe_over_ols and zmpe_over_ols. A move in any of those is a real regression, because they are computed from the OLS fit that the engine itself reports",
+  "also_changed_in_step_2": {
+   "DFFITS": "cost_core/cer/diagnostics.py now reports DFFITS as 0.0 when the fit has fewer than two degrees of freedom. It is a change to the CER package's shared compute_diagnostics and so reaches every caller at that many degrees of freedom, not only the lot engine. The leave-one-out residual scale is 0/0 there, so the published value was a ratio of rounding errors: perturbing the design by 1e-13 flips it by order one while every other diagnostic stays put. Thirteen golden leaves are affected, all of them in df == 1 fits; dffits_below_two_df.affected lists them by case, counted by switching the allowance off and running the suite. They are accepted as 0.0 by that rule rather than rebaselined, which keeps the old values on the record. DFFITS is listed in authority_1e-9, which is why the change is noted here",
+   "engine_app_example_tol_1e-14": "the LC+Rate iteration_detail Iter and Delta, ctx.mdl_lcr.Converged and fit_status of that one case were rebaselined; see tests/goldens/README.md for the old and new values and why the old one was an artefact of solver error",
+   "rate_t_on_an_exact_fit": "cost_core/lotmodel/summary.py now reports the rate t-statistic as not available when the fit's residual scale is at the floating-point floor, so model selection cannot turn on the ratio of two rounding errors. The test is sigma <= 1e-10 * max(|fitted|) on the fitting scale, which is the test cost_core/cer/diagnostics.py already applies before dividing by that scale. It is not a close call anywhere: instrumenting all 17953 lot fits the test suite performs, the ratio is either at or below 1.1e-14 (14 fits, every one of them inside the two exact-fit lots fixtures) or at or above 2.6e-4, so nothing in the corpus is within six orders of magnitude of the threshold in either direction. It changes one printed cell in each of the two fixtures, t (rate coefficient), from 0.93 and 0.11 to n/a, and it is what keeps them selecting LC. The selection note beside it still reads 'Rate coefficient not significant (|t| < 2.0)', which is the wording the golden already carried and the reason it is not on any exclusion list; on an exact fit the more exact sentence would be that there was no scale to test against, but that is a change to a published string and it is not this step's to make. tests/test_lotmodel.py::test_the_rate_t_is_withheld_when_there_is_no_residual_scale_to_form_it pins both halves of the rule, the withholding on a series priced off the curve and the t still being formed on data that has a residual scale. See exact_fit_fixtures._what_it_does_not_cover"
+  },
+  "_atol_on_the_exponents": "b (learning) carries an absolute allowance as well as a relative one because a learning exponent can sit at nearly zero on a flat series, where a relative comparison of two numbers that are both nearly nothing says nothing. Exactly one leaf in the corpus is like that, and it is the only leaf anywhere whose relative move exceeds its rtol: the ZMPE exponent of the reference series escalated back to flat at 4% is 0.0036265630 against 0.0036265683, which is 1.5e-6 relative and 5.3e-9 absolute. 1e-7 admits it with nineteen times to spare and is still ten times below the last of the four significant figures that exponent prints to. c (rate) carried an absolute allowance as well and no longer does: no leaf in the corpus needs one, and an allowance nothing takes is an allowance nobody has measured",
+  "derived_stats_Bias": {
+   "_why": "derived_stats Bias is the mean percentage error of the OLS retransformation, which is a number of order 1e-5 built out of cancelling residuals. tolerance.why_atol already names it as a leaf that cannot be compared relatively, so the general 1e-12 does not apply to it. Nine leaves move, by at most 4.06e-12 absolute, the largest on engine_app_example_fit_prior_10 LC+Rate. 1e-10 admits that with twenty-four times to spare and is still six orders of magnitude below the +0.00% the summary prints Bias to. Everything else in derived_stats stays at the general rule",
+   "paths": [
+    "*/derived_stats/*/Bias"
+   ],
+   "atol": 1e-10
+  },
+  "dffits_below_two_df": {
+   "_what": "cost_core/cer/diagnostics.py now reports DFFITS as 0.0 when the fit has fewer than two degrees of freedom, and the goldens carry the old value there",
+   "_where_the_change_lives": "compute_diagnostics is the CER package's own public entry point, not a lot-model path, so the rule reaches every caller that hands it a fit with fewer than two degrees of freedom and not only the lot engine. The 13 affected leaves below are all lot fits, but that is a statement about what the goldens contain rather than about the scope of the change, and it is written down here so the next reader does not have to infer the blast radius from the list",
+   "_why": "DFFITS divides by the leave-one-out residual scale, and at one degree of freedom dropping the one spare observation leaves nothing to estimate a scale from. Numerator and denominator are both at the floating-point floor and the quotient is whatever the last bits happen to say: the golden values are 4.4e5 to 2.1e6, against a conventional flag of about 1. Perturbing the design by 1e-13 flips them by order one with the formula untouched, so they were never a statement about the fit. Reported as zero instead",
+   "column": "DFFITS",
+   "accept_new": 0.0,
+   "golden_abs_at_least": 1000.0,
+   "_scope": "the allowance is only ever taken when the new value is exactly zero and the golden is larger than 1000, which no real DFFITS is. A DFFITS that merely moved would still fail",
+   "affected": "13 leaves, counted by switching the allowance off and running the suite: engine_three_lots (3, LC on 3 lots and 2 parameters), engine_four_lots (3, LC+Rate on 4 lots and 3 parameters), engine_runfile_qty_only_4lot (3, LC on 4 lots) and lots_cost_core (4, three in the labelled_csv report and one in the three_lots report). Each engine case contributes the same lot three times, once through influence_diagnostics and once through each of the two enrich_run sheets. No CLI leaf is affected: all three test_cli_fit_lots cases pass with the allowance switched off"
+  },
+  "exact_fit_fixtures": {
+   "_what": "two lots fixtures are built by evaluating the learning curve exactly at each lot midpoint and feeding the result back in, so the fit passes through every point and the residual scale is at the floating-point floor: sigma is about 1e-14 of the fitted values",
+   "_why": "everything derived from that residual scale is a ratio of rounding errors. The goldens record F = 1.8e26, t = 1.2e14 and the rate coefficient at 1.3e-12 with a standard error of the same size. The accurate estimator makes the residuals smaller still, which moves those ratios by whole factors: F goes from 1.8e26 to 3.8e26, AICc from -354.25 to -358.71, and the largest of six residuals that are all at the floating-point floor changes which lot it belongs to. None of it is a statement about the fit",
+   "_what_it_does_not_cover": "which model the tool selects. Before the gate went into summary.py this carve-out was also hiding the rate t-statistic crossing the 2.0 threshold on these two fixtures, and with it selected_model, the printed equation, df, n_params, the selection note and the analyst narrative. Hiding a change in which model the tool recommends behind a comparator exclusion is not a tolerance decision, so the code was changed instead: cost_core/lotmodel/summary.py now reports the rate t as not available when the residual scale is at the floating-point floor, the same test cost_core/cer/diagnostics.py already applies before dividing by that scale. Both fixtures select LC as they always did, and selected_model, selection_note, equation, equation_detail, df, n_params, c, rate_slope, the report summary values, the influence leverages and the methods table's model are all compared here at the general rule",
+   "blocks": [
+    "^/clean_series(?=/)",
+    "^/midpoint_curve_recovery(?=/)"
+   ],
+   "leaves": [
+    "/ctx/mdl_(lc|rt|lcr)/(F|SEy|SE\\[\\d+\\])$",
+    "/derived_stats/(LC|Rate|LC\\+Rate)/(AICc|SEE|MAPE|se_rate|t_rate|t_all\\[\\d+\\])$",
+    "/derived_stats/dAICc/(LC|Rate|LC\\+Rate)$",
+    "/(model_comparison|summary)/\\[Item=(AICc|dAICc|t \\(rate coefficient\\))\\]/(LC|Rate|LC\\+Rate)$",
+    "/projections/records\\[\\d+\\]/(LC|Rate|LC\\+Rate) F$",
+    "/per_lot/ok/records\\[\\d+\\]/residual$",
+    "/narrative/ok$"
+   ],
+   "_leaves_note": "the list is the measurement, not a guess: it is exactly the leaves that still disagree when the exclusion is switched off and the suite is run. Every one of them is F, a standard error, an AICc, a t-statistic or a residual, all of them built from a sigma of about 1e-14 relative. The narrative is on the list because its last sentence names the lot with the largest departure, and all six departures are zero to eleven decimals, so which one is largest is decided by the last bit; the number it prints is -0.0% either way",
+   "still_compared": "everything the analyst is actually given: the selected model and its equation, the lot midpoints, unit costs, lot costs, projections, intervals and the risk draws all stay under the general rule in these fixtures and none of them moved",
+   "_blocks_note": "anchored with a lookahead so the block name has to be a whole path segment: clean_series_escalated_* is a different fixture, is not an exact fit, and is not carved out"
+  },
+  "printed_mupe_zmpe_rows": {
+   "_what": "the markdown assumption log prints the same fit-method table, so its MUPE and ZMPE rows carry the carve-out above at four significant figures",
+   "texts": [
+    "/assumption_logs/[^/]+/text$",
+    "/assumptions_md/text_without_generated_line$"
+   ],
+   "mask_lines": [
+    "^\\| (MUPE|ZMPE) \\|"
+   ],
+   "hashes": [
+    "/assumption_logs/[^/]+/sha256$"
+   ],
+   "_scope": "the two table rows are dropped from both sides and every other line of the document is still compared byte for byte; the sha256 beside it hashes the unmasked text and is therefore not compared. The only lines that moved are those two, in all four documents"
+  },
+  "full_repr_csv_bytes": {
+   "_what": "the CLI writes its CSVs at full repr precision, so their bytes carry the last digit of every coefficient. Step 2 moves the coefficients in the 13th digit, which changes those bytes and their sha256",
+   "_why": "byte identity was already documented as lane-dependent (captured_under: numpy 2.0.2 and 2.4.4 disagree in the 16th digit of exp()). A solver change moves the same digits. The numbers are still compared, through csv_contents, at the policy's rtol 1e-9, which is the tolerance that means something",
+   "paths": [
+    "^/csv_text($|/)",
+    "^/sha256($|/)"
+   ],
+   "numeric_strings": "a csv_contents cell that is a string on both sides and parses as a finite float on both sides is compared as a number under the general rule rather than as text. Without that the CSV columns pandas leaves as object dtype (a value column holding both names and numbers) would be compared byte for byte and the 1e-9 this policy promises for csv_contents would never be applied"
+  }
+ },
  "workbooks": {
   "resolution": "every numeric xlsx cell is written rounded by the engine (2 dp costs, 4 dp midpoints; Risk_Summary values are formatted strings), so compare_workbooks.py --rtol 1e-9 has an effective resolution of about 0.005/|value|. The JSON goldens (ctx, midpoints.forecast_unrounded, enrich, derived_stats) are the only 1e-9 authority; the workbook check guards layout, sheet/chart structure and the rounded values",
   "wbs_<program>.xlsx": "risk variant: Program_SCurve, Program_Tornado and the risk rows/columns of Program_Summary and Program_Elements change in step 3; regress wbs_<program>_plain.xlsx and wbs_<program>_plain_nosens.xlsx instead (compare_workbooks.py --skip-sheets Program_SCurve,Program_Tornado for the risk one)",

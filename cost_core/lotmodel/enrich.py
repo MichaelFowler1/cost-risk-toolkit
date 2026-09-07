@@ -46,6 +46,11 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
+from cost_core import fitting
+from cost_core.cer.diagnostics import compute_diagnostics
+from cost_core.fitting import FitResult
+from cost_core.lotmodel import models
+from cost_core.lotmodel.config import SETTINGS
 from cost_core.lotmodel.mathx import lmp_func
 
 logger = logging.getLogger(__name__)
@@ -115,65 +120,49 @@ def _design(ctx: dict, model_name: str) -> tuple[np.ndarray, np.ndarray, float]:
     return np.column_stack(columns), y, float(b) if b is not None else float("nan")
 
 
+def fit_on_design(ctx: dict, model_name: str) -> tuple[FitResult, np.ndarray, np.ndarray]:
+    """Fit the named model on the design :func:`_design` rebuilds.
+
+    Everything in this module that needs the engine's own fit -- its
+    covariance, its sigma or its residuals -- goes through here, so the added
+    statistics are computed by the same estimator as the estimate itself.
+    :func:`compare_fitting_methods` is the exception, and only because it needs
+    three fits rather than one; it takes them from
+    :func:`cost_core.fitting.fit_all_methods` on the same design.
+
+    The fit is taken on the design rebuilt from ``ctx`` rather than handed down
+    from the engine on purpose. The two are not quite the same matrix: the
+    engine's last fit used the slope its loop had reached, and ``ctx`` carries
+    the slope that fit reported, which differ by the convergence delta. On a
+    converged run that is around 1e-13 and invisible; on a run truncated by
+    ``MaxIter`` it is not, and the published intervals were computed from
+    ``ctx``. Rebuilding keeps them the intervals that were published.
+
+    Raises:
+        EnrichmentError: If the named model was not fitted for this run, or if
+            the design rebuilt for it is singular. The engine would already
+            have dropped such a model, so reaching the second case means the
+            run and the context disagree.
+        cost_core.fitting.FitError: If the fit itself fails, which for a design
+            the engine accepted means a numerical failure rather than a bad
+            request. It is left to propagate rather than dressed up as an
+            enrichment problem, because it is not one.
+    """
+    design, y_log, _ = _design(ctx, model_name)
+    cfg = ctx.get("cfg") or SETTINGS
+    result = models.fit_frozen(model_name, design,
+                               np.asarray(ctx["fit_c"], dtype=float),
+                               cfg.get("SingularTol", SETTINGS["SingularTol"]))
+    if result is None:
+        raise EnrichmentError(
+            f"The {model_name} design for this run is singular, so its "
+            f"statistics cannot be computed.")
+    return result, design, y_log
+
+
 # --------------------------------------------------------------------------
 # unbiased refits
 # --------------------------------------------------------------------------
-def _fit_mupe(design: np.ndarray, y_log: np.ndarray, max_iter: int = 200,
-              tol: float = 1e-13) -> np.ndarray:
-    """Minimum-unbiased-percentage-error fit by iteratively reweighted least
-    squares, on the same regressors the engine used.
-
-    Weights are ``1/f_prev``; at the fixed point the normal equation for the
-    multiplicative scale collapses to ``sum((y - f)/f) = 0``, which is what
-    "unbiased percentage error" means.
-    """
-    observed = np.exp(y_log)
-    beta = np.linalg.lstsq(design, y_log, rcond=None)[0]
-    for _ in range(max_iter):
-        fitted = np.exp(design @ beta)
-        w = 1.0 / np.maximum(fitted, 1e-300)
-        # Weighted least squares on the level scale, linearised about the
-        # current fit: the model is exp(X beta), so d f / d beta = f * X.
-        jac = fitted[:, None] * design
-        resid = observed - fitted
-        step, *_ = np.linalg.lstsq(jac * w[:, None], resid * w, rcond=None)
-        beta = beta + step
-        if np.max(np.abs(step)) < tol:
-            break
-    return beta
-
-
-def _fit_zmpe(design: np.ndarray, y_log: np.ndarray) -> np.ndarray:
-    """Zero-percentage-bias minimum-percentage-error fit.
-
-    Minimises the sum of squared percentage errors subject to the mean
-    percentage error being zero. The intercept is a pure multiplicative scale,
-    so the constraint is solved for it in closed form -- ``exp(b0) = mean(y/g)``
-    -- which makes the zero-bias property exact rather than converged-to, and
-    leaves only the slopes to optimise.
-    """
-    from scipy import optimize
-
-    observed = np.exp(y_log)
-    rest = design[:, 1:]
-
-    def complete(slopes: np.ndarray) -> np.ndarray:
-        g = np.exp(rest @ slopes) if rest.size else np.ones_like(observed)
-        return np.concatenate([[np.log(np.mean(observed / g))], slopes])
-
-    def objective(slopes: np.ndarray) -> float:
-        f = np.exp(design @ complete(slopes))
-        return float(np.sum(((observed - f) / f) ** 2))
-
-    seed = np.linalg.lstsq(design, y_log, rcond=None)[0][1:]
-    if seed.size == 0:
-        return complete(seed)
-    sol = optimize.minimize(objective, seed, method="Nelder-Mead",
-                            options={"xatol": 1e-12, "fatol": 1e-14,
-                                     "maxiter": 20000})
-    return complete(sol.x)
-
-
 @dataclass(frozen=True)
 class MethodComparison:
     """OLS against MUPE and ZMPE on the selected model's own regressors."""
@@ -196,6 +185,17 @@ class MethodComparison:
 def compare_fitting_methods(ctx: dict, model_name: str) -> MethodComparison:
     """Refit the selected model by MUPE and ZMPE and measure the OLS bias.
 
+    All three refits come from :func:`cost_core.fitting.fit_all_methods` on the
+    model's own regressors, so the comparison is between three estimators and
+    not between three implementations.
+
+    The columns are this table's own and not
+    :func:`cost_core.fitting.compare_methods`'s: in particular ``SEE (log)`` is
+    the log-scale standard error for every row, because the point of the table
+    is to put the three methods on one scale. ``compare_methods`` reports each
+    method's sigma on the scale it minimised on, which for MUPE and ZMPE is the
+    percentage scale, and the three numbers would then not be comparable.
+
     Raises:
         EnrichmentError: If the model was not fitted.
     """
@@ -203,12 +203,13 @@ def compare_fitting_methods(ctx: dict, model_name: str) -> MethodComparison:
     observed = np.exp(y_log)
     n, p = design.shape
 
-    beta_ols = np.linalg.lstsq(design, y_log, rcond=None)[0]
-    beta_mupe = _fit_mupe(design, y_log)
-    beta_zmpe = _fit_zmpe(design, y_log)
+    spec = models.lot_spec(model_name)
+    with models.suppress_low_df():
+        refits = fitting.fit_all_methods(spec, design, observed)
 
     rows, fits = [], {}
-    for label, beta in (("OLS", beta_ols), ("MUPE", beta_mupe), ("ZMPE", beta_zmpe)):
+    for label, key in (("OLS", "ols"), ("MUPE", "mupe"), ("ZMPE", "zmpe")):
+        beta = np.asarray(refits[key].theta, dtype=float)
         fitted = np.exp(design @ beta)
         fits[label] = fitted
         pct = (observed - fitted) / fitted
@@ -248,37 +249,22 @@ def influence_diagnostics(ctx: dict, model_name: str,
     statistic still looks healthy. Leverage says which lot is unusual in the
     predictors; Cook's distance says which one is actually moving the fit.
 
+    The three quantities come from :func:`cost_core.cer.diagnostics.compute_diagnostics`,
+    which computes them on the scale the fit minimised on. They are read off
+    the arrays rather than off ``Diagnostics.to_frame()``, because that frame
+    is sorted by influence and this one is in lot order.
+
     The conventional flags are ``2p/n`` for leverage and ``4/n`` for Cook's
     distance. They are flags, not verdicts -- the largest or smallest lot in a
     sample has high leverage by construction, and dropping it would usually be
     indefensible.
     """
-    design, y_log, _ = _design(ctx, model_name)
+    result, design, _ = fit_on_design(ctx, model_name)
     n, p = design.shape
-    beta = np.linalg.lstsq(design, y_log, rcond=None)[0]
-    resid = y_log - design @ beta
-    dof = max(n - p, 1)
-    sigma = float(np.sqrt(np.sum(resid ** 2) / dof))
 
-    gram_inv = np.linalg.pinv(design.T @ design)
-    leverage = np.clip(np.einsum("ij,jk,ik->i", design, gram_inv, design), 0.0, 1.0)
-    one_minus_h = np.maximum(1.0 - leverage, 1e-12)
-
-    if sigma <= 1e-12 * max(float(np.max(np.abs(y_log))), 1.0):
-        standardised = np.zeros_like(resid)
-        cooks = np.zeros_like(resid)
-        dffits = np.zeros_like(resid)
-    else:
-        standardised = resid / (sigma * np.sqrt(one_minus_h))
-        cooks = (standardised ** 2 / p) * (leverage / one_minus_h)
-        s_minus = np.sqrt(np.maximum(
-            (dof * sigma ** 2 - resid ** 2 / one_minus_h) / max(dof - 1, 1), 0.0))
-        with np.errstate(divide="ignore", invalid="ignore"):
-            dffits = np.where(
-                s_minus > 0,
-                resid / (s_minus * np.sqrt(one_minus_h))
-                * np.sqrt(leverage / one_minus_h), 0.0)
-        dffits = np.nan_to_num(dffits)
+    diag = compute_diagnostics(result, labels)
+    fitted = np.asarray(result.fitted, dtype=float)
+    observed = np.asarray(result.observed, dtype=float)
 
     if labels is None:
         labels = [f"Analogy lot {i + 1}" for i in range(n)]
@@ -288,13 +274,13 @@ def influence_diagnostics(ctx: dict, model_name: str,
         "Lot": labels,
         "Qty": np.asarray(ctx["fit_q"], dtype=float),
         "Actual ($K)": np.asarray(ctx["fit_c"], dtype=float),
-        "Fitted ($K)": np.exp(design @ beta),
-        "% error": (np.exp(y_log) - np.exp(design @ beta)) / np.exp(design @ beta) * 100.0,
-        "Leverage": leverage,
-        "Cook's D": cooks,
-        "DFFITS": dffits,
-        "High leverage": leverage > lev_flag,
-        "Influential": cooks > cook_flag,
+        "Fitted ($K)": fitted,
+        "% error": (observed - fitted) / fitted * 100.0,
+        "Leverage": diag.leverage,
+        "Cook's D": diag.cooks_distance,
+        "DFFITS": diag.dffits,
+        "High leverage": diag.leverage > lev_flag,
+        "Influential": diag.cooks_distance > cook_flag,
     })
 
 
@@ -320,9 +306,10 @@ def projection_intervals(ctx: dict, projections: pd.DataFrame, model_name: str,
     if not 0.0 < level < 1.0:
         raise EnrichmentError(f"level must be between 0 and 1; got {level}.")
 
-    design, y_log, b = _design(ctx, model_name)
+    design, _, _ = _design(ctx, model_name)
     n, p = design.shape
     dof = n - p
+    # Checked before the fit, for the same reason as in simulate_buy below.
     if dof <= 0:
         raise EnrichmentError(
             f"The {model_name} model has {n} analogy lots and {p} parameters, "
@@ -330,10 +317,7 @@ def projection_intervals(ctx: dict, projections: pd.DataFrame, model_name: str,
             f"estimable."
         )
 
-    beta = np.linalg.lstsq(design, y_log, rcond=None)[0]
-    resid = y_log - design @ beta
-    sigma = float(np.sqrt(np.sum(resid ** 2) / dof))
-    gram_inv = np.linalg.pinv(design.T @ design)
+    result, _, _ = fit_on_design(ctx, model_name)
 
     prefix = {"LC": "LC", "Rate": "Rate", "LC+Rate": "LC+Rate"}[model_name]
     mid_col = f"{prefix} Lot Midpoint (unit no.)"
@@ -346,18 +330,32 @@ def projection_intervals(ctx: dict, projections: pd.DataFrame, model_name: str,
                 f"like output from this engine."
             )
 
-    rows = []
-    tcrit = float(stats.t.ppf(1.0 - (1.0 - level) / 2.0, dof))
+    # The forecast design row is built from the projections table's own
+    # midpoint, which the engine has already rounded to four decimal places.
+    # That rounded number is the published one, so the interval has to be the
+    # interval around it.
+    x_rows = []
     for _, r in projections.iterrows():
         x = [1.0]
         if model_name in ("LC", "LC+Rate"):
             x.append(np.log(float(r[mid_col])))
         if model_name in ("Rate", "LC+Rate"):
             x.append(np.log(float(r["Lot Quantity"])))
-        x = np.asarray(x, dtype=float)
+        x_rows.append(x)
+    x_new = np.asarray(x_rows, dtype=float)
 
-        var_mean = float(x @ gram_inv @ x) * sigma ** 2
-        se_pred = float(np.sqrt(var_mean + sigma ** 2))
+    # Only the standard error is taken from the library. The centre stays the
+    # projections table's own two-decimal cost, so the interval brackets the
+    # number that was published rather than a freshly recomputed one that
+    # would disagree with it in the second decimal.
+    se_frame = fitting.predict_with_interval(result, x_new, level=level,
+                                             kind="prediction")
+    se_all = se_frame["se"].to_numpy(dtype=float)
+
+    rows = []
+    tcrit = float(stats.t.ppf(1.0 - (1.0 - level) / 2.0, dof))
+    for i, (_, r) in enumerate(projections.iterrows()):
+        se_pred = float(se_all[i])
         unit = float(r[unit_col])
         lot_cost = float(r[cost_col])
         lo, hi = np.exp(-tcrit * se_pred), np.exp(tcrit * se_pred)
@@ -489,18 +487,21 @@ def simulate_buy(ctx: dict, projections: pd.DataFrame, model_name: str,
         raise EnrichmentError(
             f"Need at least 2 iterations to form a distribution; got {n_iter}.")
 
-    design, y_log, _ = _design(ctx, model_name)
+    design, _, _ = _design(ctx, model_name)
     n, p = design.shape
     dof = n - p
+    # Checked before the fit, not after: fitting.fit refuses a design with no
+    # residual degrees of freedom, and the refusal an analyst should see here
+    # is this one.
     if dof <= 0:
         raise EnrichmentError(
             f"The {model_name} model leaves no residual degrees of freedom, so "
             f"no risk distribution can be formed.")
 
-    beta = np.linalg.lstsq(design, y_log, rcond=None)[0]
-    resid = y_log - design @ beta
-    sigma = float(np.sqrt(np.sum(resid ** 2) / dof))
-    cov = np.linalg.pinv(design.T @ design) * sigma ** 2
+    result, _, _ = fit_on_design(ctx, model_name)
+    beta = np.asarray(result.theta, dtype=float)
+    cov = np.asarray(result.cov, dtype=float)
+    sigma = float(result.sigma)
 
     prefix = model_name
     mid_col = f"{prefix} Lot Midpoint (unit no.)"

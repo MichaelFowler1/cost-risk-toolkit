@@ -67,10 +67,16 @@ CLI_SHA_SKIP = {"buy_s_curve.png": "matplotlib PNG bytes are renderer-version de
 #: written at full repr precision, so their exact bytes carry the last bit of a
 #: double: numpy 2.0.2 and numpy 2.4.4 disagree in the 16th digit of exp() and
 #: the prediction-interval CSV then hashes differently although every number in
-#: it agrees to 1e-16. Byte identity is therefore asserted on the capture lane
-#: only; off it, csv_text and sha256 are dropped and the same numbers are
+#: it agrees to 1e-16. Byte identity was therefore asserted on the capture lane
+#: only; off it, csv_text and sha256 are dropped here and the same numbers are
 #: compared through csv_contents (parsed with float_precision='round_trip') at
 #: the policy's rtol 1e-9, which is the tolerance that actually matters.
+#:
+#: Since step 2 the comparator drops both on every lane as well (COMPARE_POLICY
+#: expected_to_move_beyond_rtol_in_step_2.full_repr_csv_bytes): moving the
+#: engine on to one estimator moved the coefficients in the 13th digit, which
+#: is the same digit a numpy version moves. This lane test stays because it
+#: says which lane the run is on.
 _CAPTURED = POLICY["captured_under"]
 CAPTURE_LANE = (np.__version__ == _CAPTURED["numpy"] and pd.__version__ == _CAPTURED["pandas"])
 CLI_BYTES_SKIP_REASON = (

@@ -23,8 +23,9 @@ import numpy as np
 import pandas as pd
 
 from cost_core.lotmodel.config import SETTINGS
-from cost_core.lotmodel.mathx import (find_col, lmp_func, ols_fit, solve_model,
-                                      to_num, track_units)
+from cost_core.lotmodel.mathx import (find_col, lmp_func, to_num,
+                                      track_units)
+from cost_core.lotmodel.models import solve_lot_model, solve_rate_model
 
 #: The setting LegacyRateOmission replaced. Passing it is an error rather than
 #: a no-op, because it used to default to the behaviour that is now off.
@@ -266,8 +267,9 @@ def run_lot_cost_model(
     fcst_se = track_units(fcst_q, cfg["FcstPriorUnits"])
 
     # Model Fitting
+    # Only the spread of ln(lot quantity) is needed here; the models take the
+    # costs on the level scale and take their own logarithms.
     ln_r = np.log(fit_q)
-    ln_y = np.log(fit_c)
     rate_sd = (
         np.std(ln_r, ddof=1) if len(ln_r) > 1 else np.nan
     )
@@ -284,16 +286,19 @@ def run_lot_cost_model(
 
     rate_ok = rate_why == ""
 
-    mdl_lc = solve_model(
+    mdl_lc = solve_lot_model(
         fit_q, fit_c, fit_se, use_rate=False, cfg=cfg
     )
+    # The costs go in on the level scale: the model spec's log link takes the
+    # logarithm, so the fit and the engine agree about which side of it they
+    # are on.
     mdl_rt = (
-        ols_fit([ln_r], ln_y, cfg["SingularTol"])
+        solve_rate_model(fit_q, fit_c, cfg)
         if rate_ok
         else None
     )
     mdl_lcr = (
-        solve_model(
+        solve_lot_model(
             fit_q, fit_c, fit_se, use_rate=True, cfg=cfg
         )
         if rate_ok

@@ -22,7 +22,9 @@ closed form, and the tests check it against an actual leave-one-out refit,
 because the closed form is exact and there is no reason to accept an
 approximation of something verifiable.
 
-**DFFITS** is the same idea scaled to a single fitted value.
+**DFFITS** is the same idea scaled to a single fitted value. It needs a
+leave-one-out residual scale, which does not exist below two degrees of
+freedom, so it is reported as zero there.
 
 The conventional thresholds (``2p/n`` for leverage, ``4/n`` for Cook's D) are
 flags, not verdicts. A high-leverage program is often the most informative one
@@ -193,7 +195,14 @@ def compute_diagnostics(
         cooks = (standardized**2 / p) * (leverage / one_minus_h)
 
     # DFFITS uses the leave-one-out sigma, which is available in closed form.
-    if degenerate:
+    # At one degree of freedom that closed form is 0/0: dropping the single
+    # spare observation leaves nothing to estimate a residual scale from, so
+    # the numerator and the denominator are both at the floating-point floor
+    # and their ratio is whatever the last bits happen to say. Perturbing the
+    # design by 1e-13 flips those values by order one while every other
+    # diagnostic stays put. There is no information in the ratio, so it is
+    # reported as zero rather than as an amplified rounding error.
+    if degenerate or result.df < 2:
         dffits = np.zeros_like(residuals)
     else:
         with np.errstate(divide="ignore", invalid="ignore"):

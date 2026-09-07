@@ -851,11 +851,10 @@ class LotFitReport:
         chart sheet, which rounds to cents for display. Rounding is invisible
         in a report and quite visible to a residual diagnostic.
         """
-        from cost_core.lotmodel.enrich import _design
+        from cost_core.lotmodel.enrich import fit_on_design
 
-        design, y_log, _ = _design(self.fit.ctx, self.selected_model)
-        beta = np.linalg.lstsq(design, y_log, rcond=None)[0]
-        return design, y_log, np.exp(design @ beta)
+        result, design, y_log = fit_on_design(self.fit.ctx, self.selected_model)
+        return design, y_log, np.asarray(result.fitted, dtype=float)
 
     # ------------------------------------------------------- added statistics
     def methods(self):

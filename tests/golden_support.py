@@ -798,6 +798,11 @@ def capture_engine(mod, analogy, estimate, overrides, run_info):
     data = {
         "inputs": {"analogy": analogy, "estimate": estimate, "overrides": overrides, "run_info": run_info},
         "ctx": ctx_json,
+        # The _note below still names solve_model, which step 2 deleted; the
+        # loop is models.solve_lot_model now. The string is left alone because
+        # /iteration_detail/_note is compared exactly for the three
+        # ITERATION_GOLDEN_CASES, and rewriting a golden to correct a name
+        # would be a rebaseline for a spelling.
         "iteration_detail": {"_note": "Iter/Delta of the midpoint fixed-point loop (solve_model); excluded from "
                                       "the 1e-9 regression except for the maxiter_*/tol_* cases, which pin the "
                                       "bookkeeping itself (see COMPARE_POLICY.json)", **iteration_detail},
@@ -2026,16 +2031,101 @@ def check_summary_precision(ctx: dict, policy: dict) -> list:
 #: Where the copied policy lives once tests/goldens exists.
 POLICY_PATH = Path(__file__).resolve().parent / "goldens" / "COMPARE_POLICY.json"
 
-#: Step 2 will need a looser rtol on the leaves COMPARE_POLICY's
-#: expected_to_move_beyond_rtol_in_step_2 already names: the MUPE and ZMPE rows
-#: of compare_fitting_methods (about 1e-8 on coefficients, 2e-9 to 6e-9 on the
-#: error statistics) and the Fit_Methods sheet that carries them. Map a path
-#: glob to the rtol it may move by, e.g.
-#:
-#:     OVERRIDES["*/compare_fitting_methods/ok/frame/records[1]/*"] = 1e-7
-#:
-#: Empty today on purpose: nothing in this commit is allowed to move.
-OVERRIDES: dict = {}
+
+def _build_overrides(path=None) -> dict:
+    """The step-2 carve-out, expanded from COMPARE_POLICY into path globs.
+
+    The policy names the frames, the two rows and the per-column tolerance;
+    this turns that into one entry per leaf so the comparator can look a path
+    up. Building it here rather than writing the globs out by hand is what
+    stops the policy and the test drifting apart: change the number in the
+    policy and this table changes with it.
+
+    A value is ``{"rtol": ...}``, ``{"atol": ...}`` or both; whichever is
+    absent keeps the general rule's. Every leaf not named here is still
+    compared at rtol 1e-9, including the OLS row of the same frames.
+
+    Note the ``[[]`` in the generated globs: :mod:`fnmatch` reads a bare ``[``
+    as the start of a character class, so ``records[1]`` as a pattern would
+    match the string ``records1`` and never the path ``records[1]``.
+    """
+    entry = _step2_carve_out(path)
+    out = {}
+    for frame in entry["frames"]:
+        for index in entry["rows"].values():
+            for column, tol in entry["columns"].items():
+                out[f"{frame}/records[[]{index}]/{column}"] = dict(tol)
+    bias = entry["derived_stats_Bias"]
+    for glob in bias["paths"]:
+        out[glob] = {"atol": bias["atol"]}
+    return out
+
+
+def _step2_carve_out(path=None) -> dict:
+    """COMPARE_POLICY's step-2 entry, which every carve-out below is read from."""
+    return json.loads(Path(path or POLICY_PATH).read_text(encoding="utf-8"))[
+        "expected_to_move_beyond_rtol_in_step_2"]
+
+
+def _build_exclusions() -> list:
+    """The step-2 exclusions the policy spells out, as (pattern, why) pairs.
+
+    Three kinds. The exact-fit fixtures build their data by evaluating the
+    curve at each lot midpoint, so the fit passes through every point and every
+    statistic derived from the residual scale -- F, the standard errors, AICc,
+    the t-statistics, the residuals -- is a ratio of rounding errors. The CLI
+    writes its CSVs at full repr precision, so their bytes carry the last digit
+    of every coefficient and a solver change moves them, exactly as a numpy
+    version change already did. And the sha256 beside each assumption log
+    hashes the unmasked document, whose MUPE and ZMPE rows are masked out of
+    the text comparison by _MASKED_LINES, so the hash cannot be compared while
+    the text it hashes is not.
+
+    What each one gives up, said plainly rather than implied. The fixtures keep
+    every number an analyst acts on: the selected model, the printed equation,
+    the lot midpoints, unit costs, projections, intervals and risk draws are
+    all still compared under the general rule. Model selection is not carved
+    out at all, because summary.py stopped forming a t-statistic out of a
+    residual scale that is not there. What is given up is the goodness-of-fit
+    statistics on data with no scatter to measure them against, and the closing
+    sentence of the narrative, which names which of six residuals that are all
+    zero to eleven decimals is the largest. The CSV bytes give up byte identity
+    and keep the numbers, which are still compared through csv_contents at rtol
+    1e-9. The assumption-log hashes give up nothing that the masked text is not
+    already compared on, line by line.
+    """
+    entry = _step2_carve_out()
+    out = []
+    fixtures = entry["exact_fit_fixtures"]
+    for block in fixtures["blocks"]:
+        for leaf in fixtures["leaves"]:
+            out.append((block + ".*" + leaf,
+                        "exact-fit fixture: the residual scale is at the floating-point floor, so this "
+                        "leaf is a ratio of rounding errors (COMPARE_POLICY "
+                        "expected_to_move_beyond_rtol_in_step_2.exact_fit_fixtures)"))
+    for pat in entry["full_repr_csv_bytes"]["paths"]:
+        out.append((pat,
+                    "full-repr CSV bytes carry the last digit of every coefficient; the numbers are "
+                    "compared through csv_contents at rtol 1e-9 (COMPARE_POLICY "
+                    "expected_to_move_beyond_rtol_in_step_2.full_repr_csv_bytes)"))
+    for pat in entry["printed_mupe_zmpe_rows"]["hashes"]:
+        out.append((pat,
+                    "hashes the unmasked assumption log, whose MUPE and ZMPE rows move with the "
+                    "carve-out (COMPARE_POLICY "
+                    "expected_to_move_beyond_rtol_in_step_2.printed_mupe_zmpe_rows)"))
+    return out
+
+
+#: The leaves step 2 is allowed to move, and by how much. Read from
+#: COMPARE_POLICY.expected_to_move_beyond_rtol_in_step_2, which carries the
+#: measured sizes and the reasoning: the MUPE and ZMPE rows of every
+#: compare_fitting_methods frame move when the private _fit_mupe / _fit_zmpe
+#: are replaced by cost_core.fitting.fit_all_methods, because the two
+#: estimators stop on different rules, and derived_stats Bias, which is a
+#: near-zero quantity that needs an absolute allowance rather than the
+#: general one. Nothing else is given a tolerance of its own; what is
+#: dropped from the comparison entirely is in _build_exclusions.
+OVERRIDES: dict = _build_overrides()
 
 #: The three cases whose iteration bookkeeping IS golden -- they exist to pin
 #: the loop counter itself (COMPARE_POLICY exclude_from_step2, second item).
@@ -2054,6 +2144,28 @@ _EXCLUDE_STEP2 = [
     (r"(^|/)capture_warnings($|/|\[)", "capture_warnings is informational"),
     (r"(^|/)stdout_lines($|\[)", "cli stdout_lines are informational and carry pandas' own frame rendering"),
 ]
+# The step-2 carve-outs the policy spells out, appended so they are visible in
+# the same list as everything else the comparator skips.
+_EXCLUDE_STEP2 += _build_exclusions()
+
+#: DFFITS at fewer than two degrees of freedom: {"column", "accept_new",
+#: "golden_abs_at_least"} from the policy. The allowance is only taken when the
+#: new value is exactly the accepted one and the golden is larger than a DFFITS
+#: can meaningfully be, so a DFFITS that merely moved still fails.
+_DFFITS_RULE = _step2_carve_out()["dffits_below_two_df"]
+
+#: Text leaves whose MUPE and ZMPE table rows move with the carve-out, and the
+#: lines to drop from both sides before comparing the rest byte for byte.
+_MASKED_TEXTS = [re.compile(p) for p in _step2_carve_out()["printed_mupe_zmpe_rows"]["texts"]]
+_MASKED_LINES = [re.compile(p) for p in _step2_carve_out()["printed_mupe_zmpe_rows"]["mask_lines"]]
+
+
+def _mask_printed_rows(text: str) -> str:
+    """Drop the carved-out table rows from an assumption log."""
+    return "\n".join(line for line in text.splitlines()
+                     if not any(p.search(line) for p in _MASKED_LINES))
+
+
 _EXCLUDE_AFTER_STEP3 = [
     (r"(^|/)program_level_percentiles($|/)",
      "step 3 replaces the lognormal handoff with raw draws and rebaselines the programme-level risk "
@@ -2281,6 +2393,31 @@ def _num(x):
     return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
+def _as_number(x):
+    """``x`` as a float when it is a string spelling one, else ``x`` unchanged."""
+    if isinstance(x, str):
+        try:
+            v = float(x)
+        except ValueError:
+            return x
+        return v if math.isfinite(v) else x
+    return x
+
+
+def _dffits_zeroed(column, golden, new) -> bool:
+    """True where DFFITS went to zero because the fit has fewer than two df.
+
+    See COMPARE_POLICY expected_to_move_beyond_rtol_in_step_2.dffits_below_two_df.
+    Deliberately narrow: the new value has to be exactly zero and the golden
+    has to be larger than any DFFITS can meaningfully be, so a DFFITS that
+    merely moved is still a failure.
+    """
+    if column != _DFFITS_RULE["column"] or not (_num(golden) and _num(new)):
+        return False
+    return (float(new) == float(_DFFITS_RULE["accept_new"])
+            and abs(float(golden)) >= float(_DFFITS_RULE["golden_abs_at_least"]))
+
+
 def _grid_slack(a: float, b: float) -> float:
     """The representation allowance the rounded and sum limits need.
 
@@ -2305,10 +2442,15 @@ def _grid_slack(a: float, b: float) -> float:
     return 4.0 * math.ulp(v)
 
 
-def _override_rtol(path: str):
-    for glob, rtol in OVERRIDES.items():
+def _override_tol(path: str):
+    """The carve-out for ``path``, as ``{"rtol": ..., "atol": ...}`` or None.
+
+    A bare number is read as an rtol, which is how the hook was first
+    documented.
+    """
+    for glob, tol in OVERRIDES.items():
         if fnmatch.fnmatch(path, glob):
-            return glob, float(rtol)
+            return glob, ({"rtol": float(tol)} if _num(tol) else dict(tol))
     return None, None
 
 
@@ -2349,9 +2491,11 @@ def _numeric_leaf(path, g, n, w, *, frame_path=None, column=None, rec_index=None
     # a real regression" forbids. So when either rule fires the limit is
     # absolute, and only then.
     absolute = False
-    glob, orv = _override_rtol(path)
-    if orv is not None:
-        rtol, rule = orv, f"OVERRIDES[{glob!r}]"
+    glob, override = _override_tol(path)
+    if override is not None:
+        rtol = float(override.get("rtol", rtol))
+        atol = float(override.get("atol", atol))
+        rule = f"OVERRIDES[{glob!r}]"
     else:
         atol_sum = None
         if column is not None:
@@ -2405,10 +2549,18 @@ def _compare_records(path, gr, nr, w, frame_path, frame, index):
         g, n = gr[key], nr[key]
         if g in MISSING_TOKENS and n in MISSING_TOKENS:
             continue
+        if _dffits_zeroed(key, g, n):
+            continue
+        if not (_num(g) and _num(n)) and "/csv_contents/" in frame_path:
+            # A CSV column holding both names and numbers comes back from
+            # read_csv as text, and comparing that text byte for byte is not
+            # what the policy says csv_contents means. Where both sides parse
+            # as a number, compare them as numbers.
+            g, n = _as_number(g), _as_number(n)
         if _num(g) and _num(n):
             _numeric_leaf(p, g, n, w, frame_path=frame_path, column=key, rec_index=index, frame=frame)
         elif g != n:
-            w.add(p, g, n, "exact (frame cell)")
+            w.add(p, gr[key], nr[key], "exact (frame cell)")
 
 
 def _compare_frame(path, gf, nf, w):
@@ -2488,6 +2640,11 @@ def _walk(path, g, n, w):
         return
     if type(g) is not type(n) and not (g is None and n is None):
         w.add(path, _short(g), _short(n), "structural: type differs")
+        return
+    if isinstance(g, str) and isinstance(n, str) and any(p.search(path) for p in _MASKED_TEXTS):
+        if _mask_printed_rows(g) != _mask_printed_rows(n):
+            w.add(path, _short(g), _short(n),
+                  "exact, with the carved-out MUPE and ZMPE table rows masked out of both sides")
         return
     if g != n:
         w.add(path, _short(g), _short(n), "exact")
