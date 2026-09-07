@@ -9,13 +9,11 @@ intervals, and writes down every assumption it made along the way. It also
 carries a full synthetic CSDR/SRDR pipeline, parametric CERs, and correlated
 Monte Carlo risk analysis.
 
-**Want a window instead of a terminal?** The desktop lot cost model takes
-analogy lots and estimate lots, fits three competing models, and writes an Excel
-workbook:
-
-```bash
-ce-core gui
-```
+**Want a window instead of a terminal?** The desktop lot cost model lives in
+its own repository, [lot-cost-model](https://github.com/MichaelFowler1/lot-cost-model).
+It is the tkinter front end for the engine in this library: paste analogy lots
+and estimate lots from Excel, fit three competing models, roll several WBS
+elements into one programme, and write the Excel workbook.
 
 **Fit a curve to your own lot data in one command:**
 
@@ -52,9 +50,9 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 
 | Module | Purpose |
 | --- | --- |
-| `cost_core.lotmodel` | **The desktop tool.** Analogy lots in, estimate lots out. Fits LC / Rate / LC+Rate, selects on significance with an AICc tiebreak, writes the Excel workbook |
-| `cost_core.gui` | The tkinter front end for it. Paste from Excel, five tabs |
-| `cost_core.lots` | **Your own data.** Units and cost per lot, in CSV or Excel. Runs the same three model engine as the desktop tool, then layers the statistics on top |
+| `cost_core.lotmodel` | **The lot cost engine.** Analogy lots in, estimate lots out. Fits LC / Rate / LC+Rate, selects on significance with an AICc tiebreak, and layers refits, influence, prediction intervals and buy risk on top. The desktop tool in lot-cost-model is a window onto it |
+| `cost_core.program` | **WBS roll-up.** Several elements, fitted, factor or amount, priced against one lot schedule and correlated into a programme estimate |
+| `cost_core.lots` | **Your own data.** Units and cost per lot, in CSV or Excel. Runs the same three model engine, then layers the statistics on top |
 | `cost_core.synth` | Seeded synthetic CSDR/SRDR generator: DD 1921, DD 1921-1, DD 1921-2, Cost and Hour Report (FlexFile), Quantity Data Report, SRDR (DD 2630), with realistic pathologies to clean |
 | `cost_core.ingest` | ETL to one normalized long table: WBS crosswalk, base year normalization, resubmission dedup, loud validation gates, row level provenance |
 | `cost_core.fitting` | Shared estimator: OLS, MUPE and ZMPE, with delta method prediction and confidence intervals |
@@ -71,9 +69,9 @@ Python 3.11 or higher.
 python -m venv .venv && .venv/Scripts/activate && pip install -e .
 ```
 
-That pulls in pandas, numpy, scipy and openpyxl. Excel input and the workbook
-the desktop tool writes both need openpyxl, so it's installed by default rather
-than as an extra.
+That pulls in pandas, numpy, scipy, matplotlib and openpyxl. Excel input and the
+workbooks the lot engine writes both need openpyxl, so it's installed by default
+rather than as an extra.
 
 ## Quick start
 
@@ -113,15 +111,19 @@ artifacts/
 
 The same seed reproduces the run exactly.
 
-## The desktop lot cost model
+## The lot cost engine
 
-```bash
-ce-core gui
+The engine the desktop tool runs is `cost_core.lotmodel`. Historical **analogy
+lots** (fiscal year, quantity, unit cost) are the history; **estimate lots**
+(fiscal year, quantity, complexity factor) are the buy being priced.
+
+```python
+from cost_core.lotmodel import run_lot_cost_model, generate_analyst_summary, enrich_run
+
+projections, ctx = run_lot_cost_model(analogy_df, estimate_df)
+summary = generate_analyst_summary(ctx, {"Program": "TEST"})
+extras = enrich_run(ctx, projections, summary)
 ```
-
-Five tabs. Enter historical **analogy lots** (fiscal year, quantity, unit cost)
-and forecast **estimate lots** (fiscal year, quantity, complexity factor), paste
-straight from Excel with Ctrl+V, and press Run Model.
 
 Three models get fitted to the analogy lots, and every estimate lot is priced
 under all three, so the projections carry the models the tool *didn't* pick
@@ -140,10 +142,10 @@ the summary says so instead of hiding it. Because the lot midpoint depends on
 the slope you're fitting, the fit iterates to a fixed point. That's the Goal Seek
 the original workbook did by hand.
 
-### What the fifth tab adds
+### What the statistics layer adds
 
 The estimate itself is untouched by any of this. A golden master test fails if a
-single coefficient moves. What the Statistics tab reports is how much confidence
+single coefficient moves. What `enrich_run` reports is how much confidence
 those numbers can carry.
 
 **Retransformation bias.** The fit is OLS on `ln(cost)`, then exponentiated back.
@@ -154,7 +156,7 @@ argued about.
 
 **Influence.** Six analogy lots is a normal sample here, and at that size one lot
 can set the slope while every summary statistic still looks healthy. Leverage and
-Cook's distance name it. On the example data the tool ships with, analogy lot 1
+Cook's distance name it. On the reference programme in the tests, analogy lot 1
 carries leverage 0.77 and Cook's D 4.00.
 
 **Prediction intervals** on every projected lot. For a *new* lot, carrying the
@@ -165,10 +167,10 @@ known.
 and where the point estimate falls on it. Residuals across lots are correlated at
 0.30 by default, for the same reason WBS elements are.
 
-Four extra sheets get appended to the workbook (`Fit_Methods`, `Influence`,
-`Prediction_Intervals`, `Buy_Risk`) after the original three are written, so an
-analyst who wants only the original three still gets exactly those. Switch the
-whole layer off in tab 3 and the tool behaves the way it always did.
+`enrich_run` returns the four tables (`Fit_Methods`, `Influence`,
+`Prediction_Intervals`, `Buy_Risk`) as frames. The desktop tool writes the risk
+ones into its workbook after the original three sheets, so an analyst who wants
+only the original three still gets exactly those.
 
 ## Fitting a curve to your own lot data
 
@@ -263,8 +265,8 @@ Rate      ln(unit cost) = ln(T1) + c*ln(lot quantity)
 LC+Rate   both terms together
 ```
 
-This is the same engine the desktop tool runs, so `ce-core fit-lots` and
-`ce-core gui` give the same answer for the same lots. All three models get fitted
+This is the same engine the desktop tool runs, so `ce-core fit-lots` and the
+lot-cost-model window give the same answer for the same lots. All three models get fitted
 and all three price every lot, so the alternatives stay on the record. Because
 the midpoint depends on the slope you're fitting, the fit iterates to a fixed
 point.
@@ -487,13 +489,15 @@ a reliable estimate.
 cost_core/
   fitting.py          shared OLS / MUPE / ZMPE estimator and intervals
   lots.py             your own lot data: units and cost per lot
+  lotmodel/           the lot cost engine: LC / Rate / LC+Rate on lot midpoints, summary, enrichment
+  program/            WBS roll-up of several elements into one programme
   learning_curve.py   Wright and Crawford theories, rate breaks
   monte_carlo.py      correlated risk simulation
   data_io.py          CSV and SQLite loading
   synth/              synthetic CSDR/SRDR generator
   ingest/             crosswalk, inflation, normalization pipeline
   cer/                parametric CERs and diagnostics
-  reporting/          charts, assumptions log, end to end run
+  reporting/          charts, assumptions log, the Excel workbooks, end to end run
 cli/                  the ce-core command line interface
 tests/                property tests, see below
 ```
