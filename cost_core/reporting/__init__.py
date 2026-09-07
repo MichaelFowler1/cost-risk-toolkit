@@ -14,11 +14,9 @@ can be traced back to the row it came from:
   seed.
 """
 
-from cost_core.reporting.assumptions import AssumptionLog
-from cost_core.reporting.charts import (plot_cer_diagnostics,
-                                        plot_learning_curve, plot_s_curve,
-                                        plot_summary_table, plot_tornado)
-from cost_core.reporting.pipeline import DEMO_RISKS, RunResult, run_full_analysis
+from __future__ import annotations
+
+import importlib
 
 __all__ = [
     "AssumptionLog",
@@ -31,3 +29,34 @@ __all__ = [
     "plot_tornado",
     "run_full_analysis",
 ]
+
+# The workbook writers live in this package too and must import without
+# matplotlib, so the chart and pipeline names load lazily (PEP 562) on first
+# access rather than when the package is imported.
+_LAZY = {
+    "AssumptionLog": ".assumptions",
+    "plot_cer_diagnostics": ".charts",
+    "plot_learning_curve": ".charts",
+    "plot_s_curve": ".charts",
+    "plot_summary_table": ".charts",
+    "plot_tornado": ".charts",
+    "DEMO_RISKS": ".pipeline",
+    "RunResult": ".pipeline",
+    "run_full_analysis": ".pipeline",
+}
+
+
+def __getattr__(name: str):
+    try:
+        module = _LAZY[name]
+    except KeyError:
+        raise AttributeError(
+            f"module {__name__!r} has no attribute {name!r}"
+        ) from None
+    value = getattr(importlib.import_module(module, __name__), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))

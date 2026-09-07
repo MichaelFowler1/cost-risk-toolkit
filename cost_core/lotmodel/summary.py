@@ -18,7 +18,8 @@ normal -- and the correction matters at that size. Where AICc disagrees with
 the significance gate the summary says so rather than hiding it, because the
 disagreement is exactly what a reviewer needs to see.
 
-Ported unchanged from the original script.
+Ported from the original script; the one change is that the provenance rows
+can be supplied by the caller instead of being built here.
 """
 
 from __future__ import annotations
@@ -26,12 +27,15 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from cost_core.lotmodel.config import SETTINGS
 from cost_core.lotmodel.mathx import lmp_func
+from cost_core.lotmodel.provenance import provenance as build_provenance
 
 
 def generate_analyst_summary(
-    models_context: dict, run_info: dict | None = None
+    models_context: dict,
+    run_info: dict | None = None,
+    *,
+    provenance: dict | None = None,
 ) -> pd.DataFrame:
     ctx = models_context
     cfg = ctx["cfg"]
@@ -368,7 +372,12 @@ def generate_analyst_summary(
         r5("Run ID", run_id, "", "", ""),
         r5("Program", program, "", "", ""),
         r5("Run label", run_label, "", "", ""),
-        r5("Tool version", cfg["ToolVersion"], "", "", ""),
+        *[
+            r5(item, value, "", "", "")
+            for item, value in (
+                provenance if provenance is not None else build_provenance(cfg)
+            ).items()
+        ],
         r5("Cost basis", cost_basis_txt, "", "", ""),
         r5("Source table", cfg["AnalogyTableName"], "", "", ""),
         r5("Analogy lots in fit", str(n_keep), "", "", ""),
@@ -514,5 +523,3 @@ def generate_analyst_summary(
     ]
 
     return pd.DataFrame(rows)
-
-

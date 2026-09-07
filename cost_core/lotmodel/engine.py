@@ -26,6 +26,10 @@ from cost_core.lotmodel.config import SETTINGS
 from cost_core.lotmodel.mathx import (find_col, lmp_func, ols_fit, solve_model,
                                       to_num, track_units)
 
+#: The setting LegacyRateOmission replaced. Passing it is an error rather than
+#: a no-op, because it used to default to the behaviour that is now off.
+LEGACY_KEY = "ToolMatchProjection"
+
 
 def run_lot_cost_model(
     analogy_df: pd.DataFrame,
@@ -34,14 +38,15 @@ def run_lot_cost_model(
 ) -> tuple[pd.DataFrame, dict]:
     cfg = SETTINGS.copy()
     if config_overrides:
-        if "ToolMatchProjection" in config_overrides:
+        if LEGACY_KEY in config_overrides:
+            # Silently honouring the new default would hand a caller who asked
+            # for legacy behaviour a different set of numbers without saying so.
             raise ValueError(
-                "ToolMatchProjection has been replaced by LegacyRateOmission, "
-                "which has the opposite sense and defaults to False. It "
-                "projected Rate on the lot midpoint and LC+Rate without its "
-                "rate factor, so the projected costs did not satisfy the "
-                "fitted equation. Pass LegacyRateOmission=True only to "
-                "reproduce a workbook built by the original tool."
+                f"'{LEGACY_KEY}' was replaced by 'LegacyRateOmission'.\n\n"
+                f"{LEGACY_KEY}=True is now LegacyRateOmission=True, and "
+                f"{LEGACY_KEY}=False is now LegacyRateOmission=False. The "
+                "default changed: projections now satisfy the fitted equation, "
+                "which lowers any estimate where Rate or LC+Rate was selected."
             )
         cfg.update(config_overrides)
 
@@ -390,10 +395,10 @@ def run_lot_cost_model(
         )
     ]
     if pd.notna(t1_rt):
-        # The rate model regresses on lot quantity, so it projects on lot
-        # quantity. The legacy branch substituted the lot midpoint, which is
-        # a different variable entirely.
         if cfg["LegacyRateOmission"]:
+            # Wrong on purpose: the Rate model was fitted against lot
+            # quantity, so projecting on the midpoint evaluates it at a
+            # different variable than it was fitted on.
             res_df["RT_UnitCost"] = (
                 t1_rt
                 * (res_df["RT_LMP"] ** b_rt)
@@ -427,9 +432,9 @@ def run_lot_cost_model(
         )
     ]
     if pd.notna(t1_br):
-        # Dropping this factor evaluates the fit at a lot quantity of one
-        # unit while keeping the learning position of the real lot, which is
-        # not a rate anyone chose to hold it at. It only ever biases upward.
+        # Dropping qty**c evaluates the fit at a lot quantity of one unit
+        # while keeping the real lot's learning position, which is not a
+        # production rate anybody chose to hold it at.
         rate_factor = (
             1.0
             if cfg["LegacyRateOmission"]
@@ -657,5 +662,3 @@ def run_lot_cost_model(
     }
 
     return projections_df, models_context
-
-

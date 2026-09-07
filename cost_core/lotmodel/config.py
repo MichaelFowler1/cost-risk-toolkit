@@ -14,9 +14,12 @@ SETTINGS = {
     "EstimateTableName": "EstimateLots",
     "CostUnitScale": 1.0,  # 1 = $K, 1000 = full dollars
     "TotalScale": 1000.0,  # Applied on top of CostUnitScale for totals
-    # The original tool projected Rate on the lot midpoint and LC+Rate
-    # without its rate factor, so its projected costs did not satisfy the
-    # equation it printed. Kept only to reproduce a legacy workbook.
+    # Reproduce a defect kept only for reconciling against legacy workbooks.
+    # When True, the Rate model projects on the lot midpoint although it was
+    # fitted against lot quantity, and the LC+Rate model drops its qty**c term
+    # entirely. Both make projections that do not satisfy the equation the tool
+    # prints, and because the rate exponent is negative the error is always
+    # upward. Leave this False. See LEGACY_KEY in engine.py.
     "LegacyRateOmission": False,
     "DefaultCF": 1.0,
     "FitPriorUnits": 0,
@@ -28,11 +31,9 @@ SETTINGS = {
     "SingularTol": 1e-12,
     "TGate": 2.0,
     "AiccTie": 2.0,
-    "ToolVersion": "2.0-dev",
+    "ToolVersion": None,  # filled from TOOL_VERSION; see provenance()
     "DefaultRunID": "R001",
     "DefaultProgram": "TEST",
     "DefaultRunLabel": "unlabeled run",
     "BaseYear": "",
 }
-
-
