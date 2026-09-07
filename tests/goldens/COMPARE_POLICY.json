@@ -1,0 +1,607 @@
+{
+ "_purpose": "what the step-2 regression test (new engine vs these goldens) compares and at what tolerance",
+ "captured_under": {
+  "python": "3.14.5",
+  "numpy": "2.4.4",
+  "pandas": "3.0.3",
+  "note": "manifest.json carries the full interpreter string, openpyxl and scipy versions and the git revisions of both repos; goldens are LF-terminated JSON"
+ },
+ "tolerance": {
+  "rtol": 1e-09,
+  "atol": 1e-12,
+  "rule": "numeric leaf passes when |new-golden| <= atol + rtol*max(|new|,|golden|)",
+  "why_atol": "leaves that are zero up to rounding (compare_fitting_methods 'Mean % error' for MUPE/ZMPE rows ~1e-16, 'Bias', cfg.SingularTol) cannot be compared relatively"
+ },
+ "authority_1e-9": {
+  "rule": "these leaves are never rounded by the engine; they are compared at rtol 1e-9 (+ atol 1e-12) and are the authority whenever a rounded or derived leaf moves",
+  "leaves": [
+   "engine_*.json / engine_*.lib.json ctx: t1_lc, t1_rt, t1_br, b_lc, b_rt, b_br, c_br, rate_sd, fit_c, fit_q, fit_se, n_keep, n_unit, rate_ok, rate_why, mdl_lc / mdl_rt / mdl_lcr Beta, SE, Fitted, SSE, InvDiag, R2, AdjR2, SEy, F, DF, SSreg, SSresid, N, K, Converged (Iter / Delta live in iteration_detail); ctx.cfg exact",
+   "derived_stats (sst_log and per model SEE, R2, AdjR2, CV, MAPE, Bias, AICc, t_rate, se_rate, t_all, dAICc)",
+   "midpoints.analogy_midpoints_<model> and midpoints.forecast_unrounded.<model> midpoint / unit_cost / lot_cost_before / lot_cost_after (recomputed with the module's own lmp_func; rounding them to 4 / 2 dp reproduces the projections columns exactly)",
+   "intervals 'SE (log)' and 'Level' in every interval frame",
+   "enrich.<model>.influence_diagnostics and wbs influence_table: 'Actual ($K)', 'Fitted ($K)', '% error', 'Leverage', \"Cook's D\", 'DFFITS'",
+   "enrich.<model>.compare_fitting_methods: OLS row, log_residual_variance, theoretical_factor, smearing_factor, mupe_over_ols, zmpe_over_ols, percent_understated (MUPE / ZMPE rows: see expected_to_move_beyond_rtol_in_step_2)",
+   "lots_cost_core.json fit.t1 / b / c / slope / rate_slope / sigma / cv / r_squared / ctx / derived_stats / equation_detail numbers; per_lot fitted_unit_cost / fitted_lot_cost / residual / percent_error (LotFitReport._fitted rebuilds them from ctx at full precision, lots.py:847-858, NOT from the 4-dp lot_midpoint column); learning_curve_compare_methods.*.fits (theta, cov, sigma, fitted, mean_percent_error, standard_error, cv, r_squared)",
+   "wbs_*.json elements[].ctx and elements[].derived_stats (also inside overrides.* and wbs_extra_programs)",
+   "cli_fit_lots.json csv_contents (the CSVs are written at full repr precision, parsed round_trip) and csv_text / sha256",
+   "error_paths.json texts and app_run_file.json fields (exact equality)"
+  ]
+ },
+ "rounded_leaves": {
+  "rule": "for the columns listed in atol_by_column (dp = decimals the engine rounds to): a leaf passes when |new-golden| <= half_unit + rtol*|golden| (= 0.5*10^-dp, the rounding half-width) if the NEW side is the unrounded value, and when |new-golden| <= one_unit * (1 + 1e-6) + atol (= 10^-dp) if both sides are rounded, because a value within 1e-9 of a half-unit boundary flips by exactly one unit in the last place. A leaf that moves by more than one unit is a real regression. Sums of rounded leaves (sums_of_rounded) get n_terms * one_unit. The unrounded counterparts in authority_1e-9 stay under the 1e-9 rule and decide a flip",
+  "atol_by_column": {
+   "engine projections (also wbs elements[].projections of fitted elements and lots fit.projections; lot_cost_model.py:731-808 / engine.py:459-547)": {
+    "Complexity Factor": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC Lot Midpoint (unit no.)": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "Rate Lot Midpoint (unit no.)": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate Lot Midpoint (unit no.)": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC Unit Cost ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate Unit Cost ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate Unit Cost ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC Lot Cost Before Complexity ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate Lot Cost Before Complexity ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate Lot Cost Before Complexity ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC Lot Cost After Complexity ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate Lot Cost After Complexity ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate Lot Cost After Complexity ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC T1 First Unit Cost ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate T1 First Unit Cost ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate T1 First Unit Cost ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC Intercept Coeff": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "Rate Intercept Coeff": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate Intercept Coeff": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC Intercept SE": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "Rate Intercept SE": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate Intercept SE": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC Learning Coeff": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC Learning SE": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC Learning Slope (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate Coeff": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "Rate SE": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "Rate Slope (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate Learning Coeff": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate Learning SE": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate Learning Slope (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate Rate Coeff": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate Rate SE": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate Rate Slope (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC R2 (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate R2 (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate R2 (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC Adj R2 (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate Adj R2 (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate Adj R2 (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC SEy": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "Rate SEy": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate SEy": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC F": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate F": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate F": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC SSreg": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "Rate SSreg": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate SSreg": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC SSresid": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "Rate SSresid": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate SSresid": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    }
+   },
+   "engine fit_chart_data (also lots fit.chart; lot_cost_model.py:1450-1530)": {
+    "Actual AUC ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC Lot Midpoint": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC Estimated AUC ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC Residual ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC Residual (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate Estimated AUC ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate Residual ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Rate Residual (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate Lot Midpoint": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "LC+Rate Estimated AUC ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate Residual ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "LC+Rate Residual (%)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    }
+   },
+   "intervals: engine enrich.<model>.projection_intervals_<level>, enrich.enrich_run_*.sheets.Prediction_Intervals, risk_run_risk.intervals, risk_variants.*.intervals, test_lotmodel_fixtures.one_lot_iloc3.projection_intervals_0.80, lots intervals / intervals_0.50 / intervals_0.95 / forecast.* (enrich.py:361-373)": {
+    "Unit Cost ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Lot Cost ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    }
+   },
+   "risk_run_risk.intervals / risk_variants.*.intervals extra columns carried from the projections (risk.py:183-185)": {
+    "Complexity Factor": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    }
+   },
+   "risk_run_risk / risk_variants.* / test_workbook_fixture.risk scalars copied off the projections by risk.py _stat (:107-112: 'T1 First Unit Cost ($K)', 'Learning Slope (%)', 'SEy')": {
+    "t1": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "slope": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "sigma": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    }
+   },
+   "risk_run_risk.scurve / risk_variants.*.scurve / test_workbook_fixture.risk.scurve (risk.py:101)": {
+    "Buy Total ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    }
+   },
+   "wbs deterministic.by_lot and overrides.*.ok.by_lot (wbs.py:596-597)": {
+    "<element>": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Program Total ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    }
+   },
+   "wbs elements[].projections stub of factor / amount elements (wbs.py:460)": {
+    "Cost ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    }
+   },
+   "wbs element_summary and program_level_percentiles.element_summary_with_risk (wbs.py:820-848; 'T1 ($K)' is the 2-dp projections column)": {
+    "Cost Before Risk ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Share of Program": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "P80 With Risk ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "T1 ($K)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    }
+   },
+   "wbs by_fiscal_year (wbs.py:1364-1376)": {
+    "<element>": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Total ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Cumulative ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Share of Program": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    }
+   },
+   "wbs buy_profile_sensitivity and buy_profile_sensitivity_variants.* (wbs.py:1303-1321)": {
+    "Program Total ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Cost per Unit ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "Change vs Baseline": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "Unit Cost vs Baseline": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    }
+   },
+   "wbs program_level_percentiles.scurve (wbs.py:799; step-3 rebaselined as well)": {
+    "Program Total ($)": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    }
+   },
+   "lots price_lot_plan.* (lots.py:933-947: the projections columns renamed; cumulative_cost is the cumsum of the 2-dp lot_cost)": {
+    "lot_midpoint": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    },
+    "unit_cost": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "lot_cost": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    },
+    "cumulative_cost": {
+     "dp": 2,
+     "half_unit": 0.005,
+     "one_unit": 0.01
+    }
+   },
+   "lots fit.lot_midpoints and per_lot (lots.py:763-768, 837: the 4-dp chart column)": {
+    "lot_midpoint": {
+     "dp": 4,
+     "half_unit": 5e-05,
+     "one_unit": 0.0001
+    }
+   }
+  },
+  "sums_of_rounded": [
+   "engine projections_column_sums[<rounded column>]: n_rows units of that column",
+   "wbs elements[].total and elements[].by_lot of fitted elements (wbs.py:506-519 sum the 2-dp '<model> Lot Cost After Complexity ($)' column), deterministic.total, simulated_run_point_total, overrides.*.ok.total and .elements[].total (wbs.py:614), wbs_extra_programs programs.*.deterministic.*: n_terms x 0.01",
+   "risk_run_risk.total_point / risk_variants.*.total_point (risk.py:199, sum of the 2-dp 'Lot Cost ($)'): n_lots x 0.01",
+   "enrich simulate_buy point_estimate (enrich.py:520, 558: sum of the 2-dp lot costs) in every simulate_buy block, enrich_run_*.risk, test_lotmodel_fixtures.*, element_standalone_simulate_buy, lots simulate.*: n_lots x 0.01",
+   "lots price_lot_plan cumulative_cost (lots.py:947): k x 0.01",
+   "wbs by_fiscal_year 'Total ($)' / 'Cumulative ($)' (sums of 2-dp values, re-rounded): n_terms x 0.01"
+  ],
+  "derived_from_rounded": {
+   "rule": "compared at rtol 1e-9 (they are deterministic and seeded). When one fails, the step-2 comparator must find a one-unit flip in the base leaf named here, and the derived leaf must have moved by the same FACTOR (products) or the same ABSOLUTE amount (sums) as that base; any other move is a real regression. These are therefore not authority leaves: the authority for what they encode is authority_1e-9 (ctx / derived_stats / midpoints.forecast_unrounded / 'SE (log)')",
+   "intervals 'Unit Cost Lower' / 'Unit Cost Upper'": "rounded 'Unit Cost ($K)' x exp(-/+ t*'SE (log)') (enrich.py:361-373)",
+   "intervals 'Lot Cost Lower' / 'Lot Cost Upper'": "rounded 'Lot Cost ($)' x exp(-/+ t*'SE (log)')",
+   "risk_run_risk.total_lower / total_upper (and risk_variants.*, test_workbook_fixture.risk)": "sums of the above (risk.py:200-201)",
+   "simulate_buy totals_first_10 / totals_sum / percentiles / mean / std / cv / per_lot_mean / point_estimate_percentile / summary (engine enrich.<model>.simulate_buy_*, enrich_run_*.risk, test_lotmodel_fixtures.*, lots simulate.*)": "rounded lot costs x seeded lognormal draws (enrich.py:507-558)",
+   "risk_run_risk / risk_variants.* / test_workbook_fixture.risk p50 / p80 / p90 / sim_mean / sim_std / sim_cv / point_percentile / reserve_to_p80 / scurve 'Buy Total ($)'": "the same draws (risk.py:230-257); the S-curve is additionally rounded to 2 dp",
+   "wbs element_standalone_simulate_buy.*, program_level_percentiles (p50 / p80 / p90 / mean / std / cv / point_percentile / scurve / tornado / element_in_program_totals / *_with_risk)": "the same draws on the elements' 2-dp lot costs (program_level_percentiles is also step-3 rebaselined)",
+   "wbs factor / amount elements' by_lot and total": "factor x the rounded bases (wbs.py:452) / the amounts as given (wbs.py:433)",
+   "test_workbook_fixture.scurve_markers E2_cost / G2_cost / money_short_*": "the P50 / P80 of the same draws"
+  },
+  "formatted_strings": "summary/model_comparison/Risk_Summary/program_summary values are formatted strings (lot_cost_model.py:1136-1250, risk.py:255-300, wbs.py:853-916) compared for exact equality; a last-printed-digit flip is judged against derived_stats, not failed outright"
+ },
+ "encoding": {
+  "null": "Python None",
+  "\"nan\"": "float NaN",
+  "\"NA\"": "pandas NA",
+  "\"NaT\"": "pandas NaT",
+  "\"inf\"/\"-inf\"": "infinities"
+ },
+ "missing_values_in_frames": {
+  "rule": "inside DataFrame record leaves (the 'records' lists), null, \"nan\" and \"NA\" are all a missing value and compare equal; inside ctx scalars and every other leaf None-vs-NaN is a real regression and is reported",
+  "why": "captured on pandas 3.0.3, where text columns carry dtype 'str' and a missing text value comes back from .tolist() as float nan -> \"nan\" (golden dtypes show 'Lot': 'str'); verified on the scratch Python 3.9 venv with pandas 2.3.3 / numpy 2.0.2 that the same frame is object dtype and a None stays None -> null, and that a pandas 'string' column yields pd.NA -> \"NA\""
+ },
+ "exclude_from_step2": {
+  "_note": "minimal and permanent (they apply to step 2 and every later step): nothing the engine computes is excluded; every item is provenance, a loop counter, a documented app/lib config difference, or a path / informational field",
+  "items": [
+   "provenance rows 'Tool version' and 'Run timestamp' (already stripped into provenance.nongolden.json)",
+   "engine_*.json: iteration_detail (Iter/Delta of the midpoint loop; Converged stays in ctx) EXCEPT for cases app_example_maxiter_1, app_example_maxiter_2, app_example_tol_1e-14 where Iter, Delta, Converged and fit_status are golden",
+   "engine_*.json: ctx.cfg.ToolVersion (app None vs lib '2.0-dev'); *.dtypes blocks are informational",
+   "engine_*.json: ctx.cfg is the settings dict (inputs, e.g. SingularTol 1e-12, Tol 1e-9): compare it for exact equality, not with the atol rule, so a changed default is caught",
+   "cli_fit_lots.json: 'Source:' in assumptions_md and cmd[--csv] are relative to the library root by design; stdout_lines are informational; assumptions_md text is compared (timestamp already stripped)",
+   "wbs_*.json: elements[].iteration_detail (same rule as engine)",
+   "manifest.json, provenance.nongolden.json (not goldens)",
+   "app_run_file.json: saved_at and tool_version are already stripped; output_path is masked",
+   "error_paths.json: compare the error TEXT for the substring each test asserts (listed in the test line references); the full text is pinned so a rewording is visible, not so it is forbidden",
+   "capture_warnings / *.warnings lists: informational (expected_to_move_beyond_rtol_in_step_2 names the one that may change)"
+  ]
+ },
+ "exclude_after_step3": {
+  "_note": "step 2 (swapping the engine onto fitting.fit) must NOT move these; they are step-2 goldens at rtol 1e-9 (seeded: roll_up n_iter 8000 seed 11, tests/test_wbs.py:223, :650). Step 3 (raw-draw handoff replacing the lognormal spec) changes them on purpose and rebaselines them",
+  "wbs_<program>.json": [
+   "program_level_percentiles: p50, p80, p90, mean, std, cv, point_percentile, independence_understates_sd_by, variance_ratio_analytic, p80_understatement, reserve_understatement, scurve, tornado, element_in_program_totals (the in-program element percentiles), element_summary_with_risk, program_summary_with_risk, notes, warnings"
+  ],
+  "wbs_<program>.xlsx": [
+   "Program_SCurve",
+   "Program_Tornado",
+   "the risk rows/columns of Program_Summary and Program_Elements (compare_workbooks.py --skip-sheets cannot skip rows; use the _plain / _plain_nosens variants for step 3)"
+  ],
+  "not_affected_by_step_3": "element_standalone_simulate_buy (per-element simulate_buy at 8000/11/0.30), simulated_run_point_total, and every engine_*.json simulate/risk block stay step-2-and-later goldens"
+ },
+ "expected_to_move_beyond_rtol_in_step_2": [
+  "compare_fitting_methods frames, MUPE and ZMPE rows (~1e-8 on coefficients, 2e-9 to 6e-9 on Mean % error/MAPE/SEE) when the private _fit_mupe/_fit_zmpe are replaced by fitting.fit; the OLS row, log_residual_variance, theoretical_factor, smearing_factor, mupe_over_ols, zmpe_over_ols stay within 1e-9",
+  "Fit_Methods sheet in enrich_run_*.sheets for the same reason",
+  "enrich_run_*.warnings_raised may gain the fitting.fit df<3 RuntimeWarning text for 4-5 lot cases"
+ ],
+ "workbooks": {
+  "resolution": "every numeric xlsx cell is written rounded by the engine (2 dp costs, 4 dp midpoints; Risk_Summary values are formatted strings), so compare_workbooks.py --rtol 1e-9 has an effective resolution of about 0.005/|value|. The JSON goldens (ctx, midpoints.forecast_unrounded, enrich, derived_stats) are the only 1e-9 authority; the workbook check guards layout, sheet/chart structure and the rounded values",
+  "wbs_<program>.xlsx": "risk variant: Program_SCurve, Program_Tornado and the risk rows/columns of Program_Summary and Program_Elements change in step 3; regress wbs_<program>_plain.xlsx and wbs_<program>_plain_nosens.xlsx instead (compare_workbooks.py --skip-sheets Program_SCurve,Program_Tornado for the risk one)",
+  "engine_<case>_app_risk.xlsx": "risk sheets are seeded (n_iter 20000, seed 11, rho 0.30; the GUI defaults); tests/test_workbook.py:48-50 writes n_iter 4000 seed 11 instead: that is engine_app_example_app_risk_n4000.xlsx"
+ },
+ "wbs_program_workbook_sensitivity": "wbs_<program>.xlsx and _plain.xlsx carry Buy_Sensitivity from buy_profile_sensitivity; the GUI passes sensitivity_result=None unless the analyst ran it first (lot_cost_model.py:3134-3136): that is _plain_nosens.xlsx",
+ "compare_workbooks_py": {
+  "ignored_rows": "cells whose value, row label or column header matches: run timestamp, tool version, 'Generated ...', saved_at, git rev/revision, and 'Enriched by' (Risk_Summary B2 is the static 'cost_core (cost-risk-toolkit)' today, risk.py:274; ignored so a 1.0.0 version stamp in that row does not fail the workbook check)",
+  "charts": "--charts compares, per workbook, the chart count, the one-cell anchors (col,row) of every drawing, and per chart the series count, axis <delete val> flags and dLbls count; the regexes are namespace-agnostic because openpyxl 3.1.5 writes chart/drawing parts in the default namespace without c:/xdr: prefixes. compare_workbooks.py --selftest checks the signature is live (engine_*_app_risk.xlsx: 5 charts, 5 anchors, series > 0); check_determinism.py runs that self-test on every workbook with the expected chart count",
+  "expected_chart_counts": {
+   "engine_<case>_app_risk.xlsx": 5,
+   "engine_<case>_app_plain.xlsx": 3,
+   "engine_<case>_lib.xlsx": 3,
+   "wbs_<program>.xlsx": 4,
+   "wbs_<program>_plain.xlsx": 2,
+   "wbs_<program>_plain_nosens.xlsx": 1,
+   "engine_app_example_app_risk_n4000.xlsx": 5,
+   "engine_app_example_app_plain_test_workbook.xlsx": 3
+  }
+ },
+ "test_workbook_fixture": "workbooks/engine_app_example_app_risk_n4000.xlsx is tests/test_workbook.py:46-58 exactly (summary run_info {'Program': 'TEST'}, RiskOptions(n_iter=4000, seed=11), level 0.80, rho 0.30) and _app_plain_test_workbook.xlsx is :30-37; the Risk_SCurve marker names (D1/F1) and their costs (E2/G2) are also in engine_app_example.json test_workbook_fixture"
+}

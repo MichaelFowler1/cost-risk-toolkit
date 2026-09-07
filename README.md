@@ -509,9 +509,11 @@ pip install -r requirements.txt pytest
 pytest tests/ -q
 ```
 
-496 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
-against closed form answers rather than against recorded output. The strongest
-ones:
+726 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
+against closed form answers rather than against recorded output, with one
+deliberate exception: tests/goldens pins what the lot engine produced on 6
+September 2026, so a refactor that moves a number has to say so. The
+strongest ones:
 
 **Our OLS *is* the textbook OLS.** The generic estimator reproduces
 `scipy.stats.linregress` and the normal equations to machine precision, and the
