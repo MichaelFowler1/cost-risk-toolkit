@@ -60,9 +60,9 @@ the 48 tests: seeding the midpoint solver differently turns 40 red, nudging
 turns 35 red, `2 * kp` -> `2.00001 * kp` in AICc turns 34 red, and the two
 statistics that reach no golden at better than two decimal places -- MAPE and
 mean bias -- turn the two `test_summary_precision` cases red at the same
-1 + 1e-6. And at `GOLDEN_STAGE = 3`, where the programme-level percentiles stop
-being golden, moving `monte_carlo.DEFAULT_CORRELATION` from 0.25 to 0.26 still
-turns 2 red.
+1 + 1e-6. And even at `GOLDEN_STAGE = 3`, where the programme-level percentiles
+would stop being golden, moving `monte_carlo.DEFAULT_CORRELATION` from 0.25 to
+0.26 still turns 2 red.
 
 ## The stage switch
 
@@ -74,15 +74,20 @@ turns 2 red.
   fixed-point loop) is excluded, *except* for `app_example_maxiter_1`,
   `app_example_maxiter_2` and `app_example_tol_1e-14`, which exist to pin the
   bookkeeping itself and keep it golden.
-* **Stage 3** additionally applies `exclude_after_step3`: the WBS
-  `program_level_percentiles` block, which step 3 changes on purpose when the
-  lognormal handoff becomes a raw-draw handoff. Step 3 sets `GOLDEN_STAGE = 3`
-  and rebaselines that block. The three roll-up knobs inside it -- `n_iter`,
-  `seed` and `correlation` -- are asserted directly in `test_wbs_program`,
-  outside the policy walk, so they stay golden at stage 3 as well. They are
-  inputs, not results: `correlation` is `monte_carlo.DEFAULT_CORRELATION`, and
-  changing that default must not be able to move numbers with nothing going
-  red.
+* **Stage 3** would additionally apply `exclude_after_step3`, and applies
+  nothing, because that list is empty. It was going to hold the WBS
+  `program_level_percentiles` block, which step 3 moved on purpose when the
+  lognormal handoff became a raw-draw handoff. Step 3 rebaselined that block
+  and left `GOLDEN_STAGE = 2` instead, so the block is still compared leaf by
+  leaf and nothing in this directory is unpinned;
+  `COMPARE_POLICY.exclude_after_step3` is now the record of what was
+  rebaselined and by how much. The stage-3 branch stays in the walk so a later
+  step has somewhere to put an exclusion it can justify. The three roll-up
+  knobs inside the block -- `n_iter`, `seed` and `correlation` -- are asserted
+  directly in `test_wbs_program`, outside the policy walk, so they would stay
+  golden even at stage 3. They are inputs, not results: `correlation` is
+  `monte_carlo.DEFAULT_CORRELATION`, and changing that default must not be
+  able to move numbers with nothing going red.
 
 ## What each later step may change
 
@@ -157,10 +162,13 @@ Nothing else moved. `enrich_run_*.warnings_raised` did not gain the
 the engine has never warned at three or four lots and a refactor is not the
 place to start.
 
-**Step 3** (raw-draw handoff) rebaselines the WBS `program_level_percentiles`
-block and the risk sheets of the programme workbook. It must not move
-`element_standalone_simulate_buy`, `simulated_run_point_total`, or any
-`simulate`/risk block in the engine goldens -- those stay step-2 goldens.
+**Step 3** (raw-draw handoff) landed on 2026-09-07. It rebaselined the WBS
+`program_level_percentiles` block of the two programmes that have one, and
+moved the risk sheets of the programme workbook with it. It moved nothing else:
+`element_standalone_simulate_buy`, `simulated_run_point_total` and every
+`simulate`/risk block in the engine goldens are byte-identical, which is the
+point -- the element draws did not change, only what the programme roll-up does
+with them. "Rebaselined goldens" below has the numbers.
 
 ## Tolerances, in one paragraph
 
@@ -208,8 +216,8 @@ version.
 
 ## Rebaselined goldens
 
-Exactly one golden has been rebaselined since capture. Everything else in this
-directory is the 2026-09-06 capture, byte for byte.
+Three goldens have been rebaselined since capture, in two steps. Everything
+else in this directory is the 2026-09-06 capture, byte for byte.
 
 **2026-09-07, step 2, `engine_app_example_tol_1e-14.json.gz`, LC+Rate only.**
 That case runs the engine with `Tol` tightened to 1e-14. Under the old solver
@@ -237,6 +245,76 @@ the file changed, and no other golden changed at all. The file was rewritten
 with `json.dumps(indent=1, allow_nan=False)` and
 `gzip.compress(compresslevel=9, mtime=0)`, which reproduces every untouched
 golden byte for byte.
+
+**2026-09-07, step 3, `wbs_TEST_PROGRAM.json.gz` and `wbs_FULL_WBS.json.gz`,
+`program_level_percentiles` only.** Each fitted element used to reach the risk
+model as a two-parameter lognormal fitted to its own simulated buy totals,
+because `RiskModel` took distributions and not draws. An element total is a sum
+of correlated lognormal lot costs and is not itself lognormal, so that summary
+never reproduced it: measured at the 99 percentile levels, 0 of 99 agreed and
+the worst level was 0.79% to 1.23% out. The element's draws now go into the
+copula unchanged, and because the draw count equals the programme's iteration
+count the column comes back a permutation of them, so all 99 levels agree
+exactly. That identity is what `test_program.py::TestDistributionHandoff`
+asserts, with `==` rather than a tolerance.
+
+The programme percentiles therefore fall through the working range and rise in
+the far tail, because the lognormal was too fat in the shoulder and too thin at
+the extreme. Both programmes, before and after:
+
+| figure | TEST_PROGRAM | | FULL_WBS | |
+| --- | --- | --- | --- | --- |
+| | before -> after | change | before -> after | change |
+| P50 | 197,359,861.00 -> 197,248,653.81 | -0.056% | 235,806,082.37 -> 235,679,973.43 | -0.054% |
+| P80 | 199,334,505.70 -> 198,764,987.35 | -0.286% | 238,045,329.47 -> 237,399,495.65 | -0.271% |
+| P90 | 200,431,772.55 -> 199,833,437.80 | -0.299% | 239,289,630.07 -> 238,611,118.46 | -0.284% |
+| P99 | 202,989,641.04 -> 204,171,353.96 | +0.582% | 242,190,252.94 -> 243,530,315.40 | +0.553% |
+| mean | 197,367,931.16 -> 197,350,332.99 | -0.009% | 235,815,233.94 -> 235,795,277.61 | -0.009% |
+| std | 2,361,702.58 -> 2,337,709.99 | -1.016% | 2,678,170.73 -> 2,650,963.13 | -1.016% |
+| cv | 0.011966 -> 0.011845 | -1.007% | 0.011357 -> 0.011243 | -1.008% |
+| point estimate at | P46.39 -> P47.96 | +1.58 pts | P46.39 -> P47.96 | +1.58 pts |
+| reserve to P80 | 2,168,821.67 -> 1,599,303.32 | -26.3% | 2,459,443.78 -> 1,813,609.96 | -26.3% |
+| `independence_understates_sd_by` | 1.208202 -> 1.170682 | -3.11% | same | same |
+| `variance_ratio_analytic` | 1.461729 -> 1.460931 | -0.055% | same | same |
+| `p80_understatement` | 0.001665 -> 0.001000 | -40.0% | same | same |
+| `reserve_understatement` | 0.153046 -> 0.124241 | -18.8% | same | same |
+
+The four independence figures are identical across the two programmes because
+`correlation_impact` runs on the fitted elements alone, and both programmes
+carry the same three; `FULL_WBS`'s factor and amount elements are derived from
+that draw rather than sampled.
+
+The standard deviation falls 1.02% although the element variances rise about
+4%. A Gaussian copula attenuates a heavier-tailed marginal more, so the
+achieved Pearson correlation between the three fitted elements drops from a
+mean of 0.262 to 0.216 while Spearman does not move: pair by pair, 0.279,
+0.241 and 0.267 become 0.225, 0.189 and 0.235. Variance rose, covariance fell
+further, and the total narrowed. That is also why the measured
+`independence_understates_sd_by` falls further than the closed-form
+`variance_ratio_analytic`, which is computed from the marginal variances and
+the requested correlation rather than from the sample.
+`test_the_sampler_agrees_with_the_algebra_on_correlation` still holds the two
+together at 5%. On the standard deviation scale that assertion compares, the
+disagreement went from 0.07% to 3.14%, so 1.86 of the 5 percentage points
+allowed are left where 4.93 were left before; its comment says so.
+
+162 leaves moved in `wbs_TEST_PROGRAM` and 186 in `wbs_FULL_WBS`, every one of
+them inside `program_level_percentiles` and one of each being the block's own
+`_note`. Those are the comparator's counts. A plain byte-for-byte diff of
+`wbs_FULL_WBS` finds 188, because two further leaves moved in the last bit
+only and the comparator's tolerance for that column absorbs them:
+`tornado/records[3]/variance_share` (Systems Engineering) went
+0.07054673721340389 -> 0.07054673721340388 and `records[4]` (Program
+Management) went 0.04761904761904761 -> 0.04761904761904762, one unit in the
+last place each, 2e-16 and 3e-16 relative. `COMPARE_POLICY.exclude_after_step3`
+records the same thing. Nothing outside that block moved by either count,
+checked by running the comparator over a fresh capture against the old file
+before writing anything, and confirmed by the raw diff.
+`wbs_extra_programs.json.gz` has no such block -- its programmes are captured
+with `simulate=False` -- and was not regenerated. Both files were rewritten
+through the same path as step 2's, `json.dumps(indent=1, allow_nan=False)` then
+`gzip` at level 9 with `mtime=0`, which was proved to reproduce all 42 goldens
+byte for byte before either was opened for writing.
 
 ## Two known, documented gaps
 

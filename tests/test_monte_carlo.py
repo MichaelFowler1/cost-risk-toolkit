@@ -5,6 +5,9 @@ front of anyone, so determinism under a fixed seed is the first thing checked
 here. The rest pins the statistics against distributions whose true values we
 know in closed form.
 """
+
+from __future__ import annotations
+
 import numpy as np
 import pytest
 
@@ -157,6 +160,295 @@ def test_a_fixed_distribution_carries_no_uncertainty():
     dist = make_distribution({"type": "fixed", "value": 42.0})
     assert dist.mean() == pytest.approx(42.0)
     assert dist.var() == pytest.approx(0.0)
+
+
+# --------------------------------------------------- the empirical marginal
+def empirical_draws(n=8_000, seed=0):
+    """Something emphatically not a two-parameter family: a sum of correlated
+    lognormals, which is what a WBS element's buy total is."""
+    rng = np.random.default_rng(seed)
+    z = rng.standard_normal((n, 6)) @ np.linalg.cholesky(
+        uniform_correlation(6, 0.30)
+    ).T
+    return (np.exp(2.0 + 0.25 * z) * np.arange(1, 7)).sum(axis=1)
+
+
+def test_an_empirical_marginal_returns_its_draws_at_the_plotting_positions():
+    """The property everything else here rests on. np.interp on the Hazen
+    positions returns the knot bit for bit, so a sampler that asks for the
+    rank positions of n draws gets those n draws back."""
+    draws = empirical_draws()
+    dist = make_distribution({"type": "empirical", "draws": draws})
+    positions = (np.arange(dist.n_draws) + 0.5) / dist.n_draws
+    assert np.array_equal(dist.positions, positions)
+    assert np.array_equal(dist.ppf(positions), np.sort(draws))
+
+
+def test_an_empirical_marginal_reports_its_own_moments():
+    draws = empirical_draws()
+    dist = make_distribution({"type": "empirical", "draws": draws})
+    # ddof 0 on var() and std(): .var() means the variance of the
+    # distribution, as it does for every scipy marginal. The ddof-1 sample
+    # figure is RiskSimulationResult.std, which is a different question.
+    assert dist.mean() == pytest.approx(float(np.mean(draws)), rel=1e-12)
+    assert dist.var() == pytest.approx(float(np.var(draws, ddof=0)), rel=1e-12)
+    assert dist.std() == pytest.approx(float(np.std(draws, ddof=0)), rel=1e-12)
+    assert dist.median() == pytest.approx(float(np.median(draws)), rel=1e-12)
+    assert dist.n_draws == draws.size
+    assert np.array_equal(dist.draws, np.sort(draws))
+
+
+def test_an_empirical_quantile_never_leaves_the_observed_range():
+    """Interpolation, not extrapolation: a quantile asked for past the data
+    returns the most extreme thing that was actually drawn."""
+    draws = empirical_draws()
+    dist = make_distribution({"type": "empirical", "draws": draws})
+    assert dist.ppf(0.0) == draws.min()
+    assert dist.ppf(1.0) == draws.max()
+    q = np.linspace(0.0, 1.0, 5_000)
+    assert (dist.ppf(q) >= draws.min()).all()
+    assert (dist.ppf(q) <= draws.max()).all()
+
+
+@pytest.mark.parametrize("method", ["gaussian_copula", "iman_conover"])
+def test_an_element_column_is_a_permutation_of_its_draws(method):
+    """The identity the empirical marginal exists for, on both samplers.
+
+    At a matching draw count the sampler returns the draws reordered, so every
+    percentile of the column equals the same percentile of the draws exactly.
+    Both paths have to be checked: they route through _marginal_column at
+    different points, and iman_conover reorders afterwards as well.
+    """
+    draws = empirical_draws()
+    elements = [
+        CostElement(
+            f"E{i}", {"type": "empirical", "draws": draws}, float(draws.mean())
+        )
+        for i in range(3)
+    ]
+    model = RiskModel(elements=elements, correlation=uniform_correlation(3, 0.30))
+    result = simulate_risk_model(model, draws.size, seed=1, method=method)
+    levels = np.arange(1, 100)
+    for i in range(3):
+        column = result.element_samples[:, i]
+        assert np.array_equal(np.sort(column), np.sort(draws))
+        assert np.array_equal(
+            np.percentile(column, levels), np.percentile(draws, levels)
+        )
+
+
+def test_rank_mapping_does_not_move_the_rank_correlation():
+    """Replacing the copula's uniforms by their own rank positions changes
+    every value and no ordering, so Spearman is untouched.
+
+    The comparison has to be against the thing the map replaces, not against
+    the requested correlation. A copula asked for 0.40 lands near 0.40 with
+    the map or without it, so an assertion of that shape stays green even if
+    ``_marginal_column`` stops mapping. Here the same uniforms are pushed
+    through ``_marginal_column`` and through ``dist.ppf`` directly, and the
+    two columns are compared to each other.
+
+    One wrinkle, measured rather than waved away. ``ppf`` clamps below its
+    first plotting position, so an unmapped column carries a tie wherever two
+    uniforms land under ``0.5 / n``: 3 of these 16,000 do, making one tied
+    pair in the second column. That clamp is the only place the relabelling
+    is not strictly monotone. On the rows where nothing clamped the two
+    Spearman coefficients are bit-identical; across the full columns they
+    differ by about 9e-9. Pearson does move, 0.4016 to 0.4004 here, which is
+    the copula's known behaviour against a heavier-tailed marginal rather
+    than a new defect.
+    """
+    from scipy import stats as st
+
+    from cost_core.monte_carlo import _marginal_column
+
+    draws = empirical_draws()
+    n = draws.size
+    dist = make_distribution({"type": "empirical", "draws": draws})
+
+    # Correlated uniforms in the shape a Gaussian copula hands to a marginal.
+    rng = np.random.default_rng(2)
+    z = rng.standard_normal((n, 2)) @ np.linalg.cholesky(
+        uniform_correlation(2, 0.40)
+    ).T
+    u = np.clip(st.norm.cdf(z), 1e-12, 1.0 - 1e-12)
+
+    mapped = np.column_stack([_marginal_column(dist, u[:, i], n) for i in range(2)])
+    plain = np.column_stack([dist.ppf(u[:, i]) for i in range(2)])
+
+    # The map has to have done something, or everything below is vacuous.
+    # This is the assertion that fails if the rank branch is ever bypassed.
+    assert not np.array_equal(mapped, plain)
+    for i in range(2):
+        assert np.array_equal(np.sort(mapped[:, i]), np.sort(draws))
+    assert not np.array_equal(np.sort(plain[:, 0]), np.sort(draws))
+
+    # Same ordering, everywhere the quantile function did not clamp.
+    interior = np.all(
+        (u > dist.positions[0]) & (u < dist.positions[-1]), axis=1
+    )
+    assert interior.sum() == n - 3
+    for i in range(2):
+        assert np.array_equal(
+            np.argsort(np.argsort(mapped[interior, i])),
+            np.argsort(np.argsort(plain[interior, i])),
+        )
+    assert (
+        st.spearmanr(mapped[interior, 0], mapped[interior, 1]).statistic
+        == st.spearmanr(plain[interior, 0], plain[interior, 1]).statistic
+    )
+    # And on the whole column, where the one clamped tie lives.
+    assert st.spearmanr(mapped[:, 0], mapped[:, 1]).statistic == pytest.approx(
+        st.spearmanr(plain[:, 0], plain[:, 1]).statistic, abs=1e-7
+    )
+
+
+def test_a_draw_count_that_does_not_match_interpolates_instead():
+    """Half the iterations is not an error, it is just no longer exact. The
+    quantile function still lands inside the observed range, and the
+    exactness is a cliff rather than a slope: it is gone at any count but
+    the matching one."""
+    draws = empirical_draws()
+    elements = [
+        CostElement("E", {"type": "empirical", "draws": draws}, float(draws.mean()))
+    ]
+    model = RiskModel(elements=elements, correlation=np.eye(1))
+    result = simulate_risk_model(model, draws.size // 2, seed=3)
+    column = result.element_samples[:, 0]
+    assert column.size == draws.size // 2
+    assert column.min() >= draws.min()
+    assert column.max() <= draws.max()
+    assert float(np.percentile(column, 80)) == pytest.approx(
+        float(np.percentile(draws, 80)), rel=0.01
+    )
+
+
+def test_a_non_empirical_marginal_has_no_draw_count_to_trip_on():
+    """The rank-mapping branch is keyed on n_draws, which only the empirical
+    marginal carries, so it is invisible to every other type."""
+    for spec in (NORMAL, TRIANGLE, PERT, {"type": "uniform", "low": 5.0, "high": 30.0},
+                 {"type": "fixed", "value": 5.0},
+                 {"type": "lognormal", "mean": np.log(80.0), "sigma": 0.25}):
+        assert not hasattr(make_distribution(spec), "n_draws")
+
+
+#: A seeded simulation of a purely analytic model, frozen at the bytes it
+#: produced before the empirical marginal existed. _marginal_column sits on
+#: the path every marginal takes, so this is the guard that a later edit to it
+#: cannot leak into the analytic ones: a lognormal marginal must still be
+#: sampled at the copula's own uniforms, in the order the generator produced
+#: them. Both samplers and two iteration counts, because iman_conover consumes
+#: the generator differently and the rank branch is keyed on the count.
+#: Verified identical on both supported lanes (numpy 2.0.2 / Python 3.9 and
+#: numpy 2.4 / Python 3.14).
+ANALYTIC_REFERENCE = {
+    "gaussian_copula|8000|11": (
+        "a98b9aed7fdec825a732570f6e664ac02196b0f2a448a833409665cea96b3628",
+        "77a5e0627efa2aca7455730dfba2991c0d186a014f65b891795bac61d8e74c92",
+    ),
+    "gaussian_copula|20000|3": (
+        "42088df4e0a941fae2f1a4f76bf02cf80de816f34023f789887cfc7246b4c0bb",
+        "044fd6873c91fbe78e066daae01c0b143e54bc95cd868e9edb06302e0650cdaf",
+    ),
+    "iman_conover|8000|11": (
+        "e931574889a94b65f5193c8cb5fdf51628a7644e22761780cd2e862204451ab8",
+        "2b239729d156f30ffa9bd163500d95fc053dbea407c4b78797cde0bd678f6870",
+    ),
+    "iman_conover|20000|3": (
+        "cd259251a5654508071edc4d664b8186e4ecd2cd097079ff62abde12d3aab970",
+        "0de07890abfa1273b0acac9484397eabc0537aa9a6c070b13a1642f44787da9e",
+    ),
+}
+
+
+def lognormal_reference_model():
+    """Six correlated lognormal elements. Nothing empirical anywhere."""
+    return RiskModel(
+        elements=[
+            CostElement(
+                f"E{i}",
+                {"type": "lognormal", "mean": np.log(100e6 + 7e6 * i),
+                 "sigma": 0.18 + 0.01 * i},
+                100e6 + 7e6 * i,
+            )
+            for i in range(6)
+        ],
+        correlation=uniform_correlation(6, 0.30),
+        name="lognormal6",
+    )
+
+
+@pytest.mark.parametrize("key", sorted(ANALYTIC_REFERENCE))
+def test_an_analytic_model_still_reproduces_its_frozen_draws(key):
+    import hashlib
+
+    method, n_iter, seed = key.split("|")
+    result = simulate_risk_model(
+        lognormal_reference_model(), int(n_iter), int(seed), method=method
+    )
+    got = (
+        hashlib.sha256(result.totals.tobytes()).hexdigest(),
+        hashlib.sha256(result.element_samples.tobytes()).hexdigest(),
+    )
+    assert got == ANALYTIC_REFERENCE[key], (
+        f"{key}: the analytic marginals moved. If _marginal_column or the "
+        f"order the generator is consumed in was changed, that is the cause."
+    )
+
+
+#: The same guard for the mixed model, held at the percentiles rather than at
+#: the bytes. scipy's beta ppf, which the PERT marginal uses, disagrees in the
+#: last place between the two supported lanes, so the mixed model's bytes are
+#: not lane-independent and cannot be hashed; p50, p80 and p90 are identical
+#: on both. Measured, not assumed: the hashes differ on all four cases and
+#: these three floats differ on none.
+MIXED_REFERENCE = {
+    "gaussian_copula|8000|11": (294.57672676810444, 328.0700631199419, 347.0785011899158),
+    "gaussian_copula|20000|3": (294.7338199844397, 328.20635526396904, 347.0210751964346),
+    "iman_conover|8000|11": (295.2108016231532, 328.4769144656502, 347.84652802616654),
+    "iman_conover|20000|3": (294.94426916745704, 329.1604227408918, 348.12955234694647),
+}
+
+
+@pytest.mark.parametrize("key", sorted(MIXED_REFERENCE))
+def test_a_mixed_analytic_model_still_reproduces_its_frozen_percentiles(key):
+    method, n_iter, seed = key.split("|")
+    elements = [
+        # scale 12, not the module-level NORMAL: this model is frozen
+        # bytes, so its parameters are written out rather than borrowed.
+        CostElement("norm", {"type": "normal", "loc": 100.0, "scale": 12.0}, 100.0),
+        CostElement("tri", TRIANGLE, 20.0),
+        CostElement("pert", PERT, 20.0),
+        CostElement("unif", {"type": "uniform", "low": 5.0, "high": 30.0}, 15.0),
+        CostElement("fix", {"type": "fixed", "value": 42.0}, 42.0),
+        CostElement("logn", {"type": "lognormal", "mean": np.log(80.0), "sigma": 0.25}, 80.0),
+    ]
+    model = RiskModel(
+        elements=elements, correlation=uniform_correlation(6, 0.25), name="mixed6"
+    )
+    result = simulate_risk_model(model, int(n_iter), int(seed), method=method)
+    assert (result.p50, result.p80, result.p90) == MIXED_REFERENCE[key]
+
+
+@pytest.mark.parametrize(
+    "draws,message",
+    [
+        ([1.0], "at least 2 draws"),
+        ([], "at least 2 draws"),
+        ([1.0, np.nan], "finite draws"),
+        ([1.0, np.inf], "finite draws"),
+        ([-1.0, 2.0], "non-negative draws"),
+    ],
+)
+def test_a_malformed_empirical_spec_is_refused(draws, message):
+    with pytest.raises(RiskModelError, match=message):
+        make_distribution({"type": "empirical", "draws": draws})
+
+
+def test_an_empirical_spec_without_draws_is_refused_by_name():
+    with pytest.raises(RiskModelError, match=r"needs parameter\(s\) \['draws'\]"):
+        make_distribution({"type": "empirical"})
+
 
 
 @pytest.mark.parametrize(

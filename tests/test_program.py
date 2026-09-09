@@ -13,6 +13,8 @@ import pandas as pd
 import pytest
 
 import cost_core.program as wbs
+from cost_core.lotmodel import enrich
+from cost_core.lotmodel.enrich import DEFAULT_LOT_CORRELATION
 
 FY_HIST = [2015, 2016, 2017, 2018, 2019, 2020]
 FY_BUY = [2028, 2029, 2030, 2031, 2032, 2033]
@@ -255,6 +257,28 @@ class TestProgramRisk:
         # these are not: their CVs run from 0.014 to 0.023. So the closed
         # form lands below 1.5 rather than on it, and the real check is that
         # the measured inflation matches whatever the algebra says it is.
+        #
+        # Step 3 used most of this tolerance, so the numbers are written out
+        # on the one scale the assertion works on, the standard deviation
+        # scale that pytest.approx(rel=0.05) compares. The measured inflation
+        # now disagrees with the closed form by 3.14% where it used to
+        # disagree by 0.07%, which leaves 1.86 of the 5 percentage points
+        # allowed where 4.93 were left before. (0.14% is the same old
+        # disagreement squared onto the variance scale, which is not the
+        # scale asserted here; quoting it against 1.86 would compare two
+        # different quantities.)
+        #
+        # The cause: since step 3 the marginals are the elements' own draws,
+        # whose tails are heavier than the lognormal that stood in for them,
+        # and a Gaussian copula attenuates a heavier tail more. Measured on
+        # this fixture, the achieved Pearson correlation between the three
+        # fitted elements falls from a mean of 0.262 to 0.216, pair by pair
+        # 0.279/0.241/0.267 down to 0.225/0.189/0.235, while Spearman does
+        # not move at all. The measured inflation therefore sits further
+        # below the closed form, which is computed from the marginal
+        # variances and the requested correlation rather than from the
+        # sample. 5% still holds it, on a third of the room it had, so widen
+        # it only with a fresh measurement.
         analytic = simulated.variance_ratio_analytic
         assert 1.0 < analytic < 1.5
         assert simulated.independence_understates_sd_by == pytest.approx(
@@ -281,9 +305,13 @@ class TestProgramRisk:
 
     def test_adding_element_p80s_overstates_the_program_p80(self):
         # The whole reason this is not a column of SUMs. Checked at zero
-        # correlation, where the diversification is unambiguous: at the 0.25
-        # default the two sit within the half-percent the distribution
-        # handoff costs, so the comparison would not mean anything.
+        # correlation, where diversification is the only thing at work and
+        # the gap does not depend on how faithfully the copula achieves a
+        # requested correlation. Since step 3 it would hold at the default
+        # too: measured at 20,000 iterations and seed 5, the naive sum
+        # exceeds the programme P80 by 0.295% here and by 0.182% at rho 0.25.
+        # Zero is still where it is asserted, because that margin is the one
+        # that follows from the arithmetic rather than from the copula.
         indep = wbs.roll_up(program(), n_iter=20000, seed=5, correlation=0.0)
         naive = sum(
             float(np.percentile(e.totals, 80)) for e in indep.elements
@@ -306,37 +334,97 @@ class TestSummaries:
 
 
 class TestDistributionHandoff:
-    """cost_core's WBS model takes distributions, not draws.
+    """The risk model takes each element's draws, not a summary of them.
 
-    Summarising each element as a lognormal to get it there costs accuracy,
-    so the cost is measured and bounded rather than assumed away.
+    There used to be a two-parameter lognormal in between, and it cost about
+    six tenths of a percent at the element's own P80. What replaces it is not
+    a smaller error but no error at all, so what is asserted here is equality
+    rather than closeness.
     """
 
-    def test_the_fitted_spec_tracks_the_element_it_replaces(self, simulated):
-        from scipy import stats
+    def test_each_element_keeps_its_own_percentiles_inside_the_program(
+        self, simulated
+    ):
+        """The point of the raw-draw handoff, stated as an identity.
 
+        The element's column in the programme simulation is a permutation of
+        the draws its own simulation produced, so np.percentile, which sorts,
+        must return the identical vector. Asserted with ``==`` and not with
+        approx: any sane relative tolerance would also have passed on the
+        lognormal fit this replaces, which agreed to about 0.38% on average.
+        The re-run below uses the same n_iter, seed and lot correlation the
+        roll-up used, because the identity holds only when the draw count
+        equals the programme's iteration count.
+        """
         for e in simulated.elements:
-            spec = wbs._lognormal_spec(e.totals)
-            fitted = stats.lognorm(s=spec["sigma"], scale=np.exp(spec["mean"]))
-            for level in (0.05, 0.50, 0.80, 0.90, 0.95):
-                empirical = float(np.percentile(e.totals, level * 100))
-                assert fitted.ppf(level) == pytest.approx(
-                    empirical, rel=wbs.SPEC_TOLERANCE
-                ), f"{e.name} at P{level * 100:.0f}"
+            if e.kind != "fitted":
+                continue
+            buy = enrich.simulate_buy(
+                e.ctx, e.projections, e.model,
+                n_iter=len(e.totals), seed=11,
+                lot_correlation=DEFAULT_LOT_CORRELATION,
+            )
+            levels = np.arange(1, 100)
+            standalone = np.percentile(buy.totals, levels)
+            in_program = np.percentile(e.totals, levels)
+            bad = [
+                f"P{lvl}: {a!r} vs {b!r}"
+                for lvl, a, b in zip(levels, in_program, standalone)
+                if a != b
+            ]
+            assert not bad, f"{e.name} moved at {len(bad)} levels: {bad[:5]}"
+            # and the stronger statement the percentiles follow from
+            assert np.array_equal(np.sort(e.totals), np.sort(buy.totals))
 
-    def test_the_median_survives_the_handoff_almost_exactly(self, simulated):
-        from scipy import stats
+    def test_the_draws_go_through_unsummarised(self, monkeypatch):
+        """No fitted family in between: the marginal is the draws themselves.
 
-        for e in simulated.elements:
-            spec = wbs._lognormal_spec(e.totals)
-            fitted = stats.lognorm(s=spec["sigma"], scale=np.exp(spec["mean"]))
-            assert fitted.ppf(0.5) == pytest.approx(
-                float(np.median(e.totals)), rel=0.002
+        What matters is the spec ``_program_risk`` actually hands to
+        ``RiskModel``, so that is what is read here. Building the marginal in
+        the test and checking its type would pass whatever the roll-up did,
+        because ``make_distribution`` returns an ``_Empirical`` for any array
+        it is given. ``RiskModel`` is wrapped instead and the elements it was
+        constructed with are kept.
+        """
+        from cost_core.program import rollup
+
+        real_model = rollup.RiskModel
+        captured = {}
+
+        def spy(**kwargs):
+            captured["elements"] = list(kwargs["elements"])
+            return real_model(**kwargs)
+
+        monkeypatch.setattr(rollup, "RiskModel", spy)
+        result = wbs.roll_up(program(), n_iter=2000, seed=11)
+
+        by_name = {e.name: e for e in result.elements if e.kind == "fitted"}
+        handed = captured["elements"]
+        assert [e.name for e in handed] == list(by_name)
+        assert handed, "no fitted element reached the risk model"
+        for element in handed:
+            spec = element.distribution
+            # Exactly two keys: a summary would carry parameters instead.
+            assert set(spec) == {"type", "draws"}
+            assert spec["type"] == "empirical"
+            draws = np.asarray(spec["draws"], dtype=float)
+            assert draws.size == 2000
+            # The element's own simulated totals, not a fit to them. After the
+            # copula runs, e.totals is the same numbers reordered.
+            assert np.array_equal(
+                np.sort(draws), np.sort(by_name[element.name].totals)
             )
 
-    def test_the_approximation_is_disclosed(self, simulated):
+    def test_the_handoff_is_disclosed(self, simulated):
         text = " ".join(simulated.notes)
-        assert "lognormal" in text and "half a percent" in text
+        assert "own simulated draws" in text
+        assert "identical to its percentiles on its own" in text
+        # The note this replaced said each element was summarised as a
+        # lognormal that tracked it to "about half a percent". Both phrases
+        # have to be gone, or a reader would be told the opposite of what the
+        # code now does.
+        assert "half a percent" not in text
+        assert "summarised as a lognormal" not in text
 
 
 class TestManyElements:

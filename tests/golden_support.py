@@ -26,8 +26,10 @@ Comparator
 and returns one record per disagreeing leaf. It reads ``COMPARE_POLICY.json``
 rather than hard-coding tolerances, and it applies, per leaf:
 
-* the stage exclusion lists (``exclude_from_step2`` at stage 2; that list plus
-  ``exclude_after_step3`` at stage 3), with the documented exception that
+* the stage exclusion list ``exclude_from_step2`` at stage 2, which is the
+  stage the suite runs at. Stage 3 exists in the walk but excludes nothing:
+  step 3 rebaselined the programme-level percentiles rather than dropping them
+  from the comparison. With the documented exception that
   ``iteration_detail`` IS golden for ``app_example_maxiter_1``,
   ``app_example_maxiter_2`` and ``app_example_tol_1e-14``;
 * ``ctx.cfg`` compared for exact equality, so a changed engine default is caught
@@ -1061,10 +1063,11 @@ def capture_wbs(program, workbooks, prov_sink: dict) -> dict:
                                   "cv": b.cv, "point_estimate_percentile": b.point_estimate_percentile,
                                   "clipped": b.clipped}
     out["element_standalone_simulate_buy"] = standalone
-    # The block below is what step 3 changes on purpose (lognormal handoff ->
-    # raw draws). Excluded from the 1e-9 regression test, kept for the record.
+    # The block below is what step 3 changed on purpose (lognormal handoff ->
+    # raw draws). It was rebaselined to the new values rather than excluded, so
+    # it is still compared at the general rule like everything else.
     out["program_level_percentiles"] = {
-        "_note": "step 3 changes these on purpose; exclude from the 1e-9 regression",
+        "_note": "rebaselined by step 3 (raw-draw handoff); compared at the general rule",
         "n_iter": sim.n_iter, "seed": 11, "correlation": sim.correlation,
         "p50": sim.p50, "p80": sim.p80, "p90": sim.p90, "mean": sim.mean, "std": sim.std, "cv": sim.cv,
         "point_percentile": sim.point_percentile,
@@ -2166,11 +2169,13 @@ def _mask_printed_rows(text: str) -> str:
                      if not any(p.search(line) for p in _MASKED_LINES))
 
 
-_EXCLUDE_AFTER_STEP3 = [
-    (r"(^|/)program_level_percentiles($|/)",
-     "step 3 replaces the lognormal handoff with raw draws and rebaselines the programme-level risk "
-     "(COMPARE_POLICY exclude_after_step3)"),
-]
+#: Empty on purpose. Step 3 replaced the lognormal handoff with raw draws and
+#: moved the programme-level percentiles, and the choice was to rebaseline that
+#: block and keep comparing it rather than to stop comparing it. COMPARE_POLICY
+#: exclude_after_step3 now records what was rebaselined and by how much. The
+#: stage-3 branch below stays so a later step has somewhere to put an exclusion
+#: it can justify, and so the two stages keep meaning what the docstring says.
+_EXCLUDE_AFTER_STEP3 = []
 
 # ctx.cfg is the settings dict the run was given. Compared for exact equality so
 # a changed default is caught rather than absorbed by a tolerance.
@@ -2658,10 +2663,11 @@ def _short(v, limit=300):
 def compare_with_policy(golden, new, policy, *, stage, case=None, new_only_items=()):
     """Compare a golden tree with a freshly computed one under COMPARE_POLICY.
 
-    `stage` is 2 while step 2 is in flight (exclude_from_step2 only) and 3 once
-    step 3 has rebaselined the programme-level risk (exclude_from_step2 plus
-    exclude_after_step3). `case` names the engine case, which is what lets the
-    three maxiter/tol cases keep their iteration_detail.
+    `stage` is 2, which applies exclude_from_step2. Stage 3 adds
+    _EXCLUDE_AFTER_STEP3, which is empty: step 3 rebaselined the
+    programme-level percentiles instead of excluding them, so nothing stopped
+    being compared. `case` names the engine case, which is what lets the three
+    maxiter/tol cases keep their iteration_detail.
 
     `new_only_items` names summary Items this particular golden is allowed to
     lack -- for a golden captured before the library grew the row. It is empty

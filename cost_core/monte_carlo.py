@@ -243,6 +243,136 @@ class _Degenerate:
         return f"_Degenerate({self.value})"
 
 
+class _Empirical:
+    """A distribution that *is* the draws it was given.
+
+    Some marginals are not a two-parameter family, and summarising one as a
+    family throws away the part that matters. A WBS element's buy total is a
+    sum of correlated lognormal lot costs; it is not itself lognormal, so
+    fitting a lognormal to it cost about six tenths of a percent on the upper
+    tail. This class removes that step: the draws go into the risk model
+    unchanged.
+
+    The quantile function is :func:`numpy.interp` over the Hazen plotting
+    positions ``(i + 0.5) / n`` of the sorted draws. Two properties earn that
+    choice, and both were measured rather than assumed:
+
+    * ``ppf`` returns the knot value bit for bit at every plotting position,
+      so when a sampler feeds it the rank positions of ``n`` draws the column
+      it gets back is an exact permutation of the draws. ``np.quantile`` is
+      not reliable here: its ``virtual_index = q * (n - 1)`` is not exactly an
+      integer at every knot, so the interpolation weight is not exactly zero
+      and the value can come back a unit or two in the last place out. On a
+      spread as narrow as an element total it happens to round-trip; on a
+      lognormal of sigma 1.5 it misses 1605 of 20000 knots.
+    * ``np.interp`` clamps outside the knot range instead of extrapolating, so
+      a quantile asked for beyond the observed data returns the observed
+      minimum or maximum rather than a number no draw supports.
+
+    ``var()`` and ``std()`` are at ddof 0: the variance of the empirical
+    distribution, which is what every other marginal's ``.var()`` means.
+    :attr:`RiskSimulationResult.std` separately reports a ddof-1 sample
+    standard deviation of the total, which is a different question; the two
+    differ by ``n / (n - 1)``, 1.25e-4 in variance at n = 8000.
+
+    Whether that factor reaches :meth:`RiskModel.variance_inflation` depends
+    on whether the model carries discrete risks, so the claim is worth stating
+    carefully. That method divides ``analytic_variance(rho)`` by
+    ``sd @ sd + sum(_risk_variance(r) for r in self.risks)``. With no risks
+    both sides are quadratic forms in the same standard deviations, so the
+    factor cancels algebraically. It does not cancel bit for bit, because the
+    numerator and the denominator round separately: on the roll-up's own three
+    elements at rho 0.25, ddof 0 gave 1.4609311177070974 and ddof 1 gave
+    1.4609311177070976, one unit in the last place apart, 1.5e-16 relative.
+    Across synthetic three-element empirical models the two agreed exactly
+    about half the time and were a unit or two out otherwise, never more than
+    3e-16 relative. Treat the ratio as invariant to the choice of ddof to
+    within a ulp, not as identical. With risks it does not cancel, because a
+    risk's variance is added to the denominator and to nothing else: the same
+    model carrying one
+    Bernoulli-gated risk of about an element's own spread moved 3.3e-6
+    relative when the marginals were switched to ddof 1. The programme roll-up
+    builds no discrete risks, so the ratio it reports is the first case.
+
+    Attributes:
+        n_draws: How many draws it holds. A sampler compares this against its
+            iteration count to decide whether the exact-permutation path is
+            available.
+        draws: The draws, sorted ascending.
+        positions: The Hazen plotting positions, the knots of ``ppf``.
+    """
+
+    def __init__(self, draws) -> None:
+        values = np.asarray(draws, dtype=float).ravel()
+        if values.size < 2:
+            raise RiskModelError(
+                f"An empirical distribution needs at least 2 draws to have a "
+                f"quantile function; got {values.size}."
+            )
+        if not np.all(np.isfinite(values)):
+            bad = int(np.count_nonzero(~np.isfinite(values)))
+            raise RiskModelError(
+                f"An empirical distribution needs finite draws; {bad} of "
+                f"{values.size} are nan or infinite."
+            )
+        if np.any(values < 0.0):
+            worst = float(values.min())
+            raise RiskModelError(
+                f"An empirical distribution needs non-negative draws; the "
+                f"smallest is {worst:g}. The sampler clamps costs at zero "
+                f"after drawing them, so one negative draw would come back a "
+                f"zero and the column would silently stop being a permutation "
+                f"of the draws."
+            )
+        self.draws = np.sort(values)
+        self.n_draws = int(self.draws.size)
+        self.positions = (np.arange(self.n_draws) + 0.5) / self.n_draws
+
+    def ppf(self, q):
+        return np.interp(np.asarray(q, dtype=float), self.positions, self.draws)
+
+    def mean(self) -> float:
+        return float(np.mean(self.draws))
+
+    def median(self) -> float:
+        return float(np.median(self.draws))
+
+    def var(self) -> float:
+        """Variance of the draws at ddof 0; see the class docstring."""
+        return float(np.var(self.draws, ddof=0))
+
+    def std(self) -> float:
+        """Standard deviation of the draws at ddof 0."""
+        return float(np.std(self.draws, ddof=0))
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return (
+            f"_Empirical(n_draws={self.n_draws}, "
+            f"min={self.draws[0]:g}, max={self.draws[-1]:g})"
+        )
+
+
+def _marginal_column(dist, uniforms: np.ndarray, n_iter: int) -> np.ndarray:
+    """One column of a correlated sample, exact where it can be.
+
+    When the marginal carries exactly ``n_iter`` draws, the uniforms are
+    replaced by their own rank plotting positions before the inverse CDF is
+    applied. The ranks are unchanged, so the copula's rank correlation is
+    unchanged -- relabelling by rank is monotone, and Spearman does not move --
+    but the column is now the draws themselves in a new order. That makes an
+    element's percentiles inside a programme simulation identical to its
+    standalone percentiles rather than merely close to them.
+
+    Every other marginal, and an empirical one whose draw count does not match
+    the iteration count, goes straight through ``dist.ppf(uniforms)``, byte
+    for byte as before.
+    """
+    if getattr(dist, "n_draws", 0) == n_iter:
+        ranks = np.argsort(np.argsort(uniforms))
+        uniforms = (ranks + 0.5) / n_iter
+    return dist.ppf(uniforms)
+
+
 def make_distribution(spec: Dict[str, Any]):
     """Build a frozen scipy distribution from a spec dictionary.
 
@@ -261,6 +391,9 @@ def make_distribution(spec: Dict[str, Any]):
     ``uniform``      ``low``, ``high``
     ``fixed``        ``value`` -- a degenerate distribution, for an element
                      carrying no uncertainty
+    ``empirical``    ``draws`` -- the simulated values themselves, for an
+                     element whose own simulation has already been run and
+                     whose shape no two-parameter family reproduces
 
     Raises:
         RiskModelError: On an unknown type, a missing parameter, or parameters
@@ -323,9 +456,19 @@ def make_distribution(spec: Dict[str, Any]):
         (value,) = need("value")
         return _Degenerate(value)
 
+    if dist_type == "empirical":
+        # need() coerces each key with float(), which a sequence of draws is
+        # not, so the one required key is checked here instead of through it.
+        if "draws" not in spec:
+            raise RiskModelError(
+                f"Distribution 'empirical' needs parameter(s) ['draws']; "
+                f"got {sorted(spec)}."
+            )
+        return _Empirical(spec["draws"])
+
     raise RiskModelError(
         f"Unsupported distribution type {dist_type!r}. Allowed: normal, "
-        f"lognormal, triangular, pert, uniform, fixed."
+        f"lognormal, triangular, pert, uniform, fixed, empirical."
     )
 
 
@@ -512,6 +655,13 @@ def _gaussian_copula(
     out exactly right; the induced rank correlation is close to the target and
     the Pearson correlation slightly below it, which is inherent to the copula
     and not a defect of the implementation.
+
+    "Exactly right" is a statement about the family, not about the sample: an
+    analytic marginal is sampled at n arbitrary points of its own CDF. An
+    empirical marginal holding exactly ``n_iter`` draws is stronger than that,
+    because :func:`_marginal_column` hands it the rank positions of the
+    correlated uniforms rather than the uniforms themselves, and the column
+    comes back a permutation of the draws.
     """
     # Cholesky needs strict positive definiteness; nudge the diagonal if the
     # repaired matrix sits exactly on the boundary.
@@ -525,7 +675,10 @@ def _gaussian_copula(
     # Keep the inverse CDF away from the open ends of [0, 1].
     uniforms = np.clip(uniforms, 1e-12, 1.0 - 1e-12)
     return np.column_stack(
-        [dist.ppf(uniforms[:, i]) for i, dist in enumerate(marginals)]
+        [
+            _marginal_column(dist, uniforms[:, i], n_iter)
+            for i, dist in enumerate(marginals)
+        ]
     )
 
 
@@ -542,7 +695,16 @@ def _iman_conover(
     """
     k = len(marginals)
     samples = np.column_stack(
-        [dist.ppf(rng.uniform(1e-12, 1.0 - 1e-12, n_iter)) for dist in marginals]
+        [
+            # The rng.uniform call stays where it is even when
+            # _marginal_column discards its result: it advances the generator,
+            # and moving it would move every analytic marginal in every
+            # seeded simulation.
+            _marginal_column(
+                dist, rng.uniform(1e-12, 1.0 - 1e-12, n_iter), n_iter
+            )
+            for dist in marginals
+        ]
     )
 
     # Van der Waerden scores, independently permuted per column.
@@ -917,6 +1079,8 @@ def simulate_risk_model(
     sampler = _gaussian_copula if method == "gaussian_copula" else _iman_conover
     element_samples = sampler(marginals, corr, n_iter, rng)
     # Cost cannot be negative; clamp rather than let a wide normal go through.
+    # An empirical marginal is validated non-negative when it is built, so this
+    # is the identity on its column and cannot break the permutation.
     element_samples = np.maximum(element_samples, 0.0)
 
     if model.risks:

@@ -12,10 +12,13 @@ regenerate the golden. See ``tests/goldens/README.md``.
 
 Stage
 -----
-``GOLDEN_STAGE`` selects which exclusion lists apply. It is 2 while step 2 (the
-three lot models moving onto ``cost_core.fitting``) is in flight; step 3, which
-replaces the lognormal handoff with a raw-draw handoff, sets it to 3 and the
-programme-level risk block stops being golden.
+``GOLDEN_STAGE`` selects which exclusion lists apply, and it is 2. Step 3
+(the raw-draw handoff replacing the lognormal one) moved the WBS
+``program_level_percentiles`` block on purpose and could have set the stage to
+3, which drops that block from the comparison. It rebaselined the block to its
+new values instead, so the block is still compared leaf by leaf and nothing
+here is unpinned. ``COMPARE_POLICY.exclude_after_step3`` records what was
+rebaselined, when and by how much.
 """
 from __future__ import annotations
 
@@ -30,8 +33,9 @@ import pytest
 
 import golden_support as GS
 
-#: 2 while step 2 is in flight. Step 3 sets this to 3, which additionally
-#: excludes wbs program_level_percentiles (COMPARE_POLICY exclude_after_step3).
+#: 2. Step 3 could have moved this to 3, which drops wbs
+#: program_level_percentiles from the comparison; it rebaselined that block
+#: instead and left the stage here, so the block stays golden.
 GOLDEN_STAGE = 2
 
 GOLDENS = Path(__file__).resolve().parent / "goldens"
@@ -308,11 +312,12 @@ def test_wbs_program(program, tmp_path):
         assert (entry["n_iter"], entry["seed"], entry["lot_correlation"]) == (8000, 11, 0.30)
     prog = GS.program_from_inputs(golden)
     new = GS.capture_wbs(prog, tmp_path, {})
-    # The three roll-up knobs are inputs, not numbers step 3 rebaselines, and
+    # The three roll-up knobs are inputs, not numbers step 3 rebaselined, and
     # correlation is a defaulted argument (rollup.roll_up correlation=
-    # monte_carlo.DEFAULT_CORRELATION). At GOLDEN_STAGE 3 the percentiles
-    # around them stop being golden; the knobs must not, or changing the
-    # default lot correlation would move numbers with nothing going red.
+    # monte_carlo.DEFAULT_CORRELATION). They are asserted here, outside the
+    # policy walk, so that they stay pinned even if a later step does drop the
+    # percentiles around them; otherwise changing the default correlation
+    # could move numbers with nothing going red.
     for knob in ("n_iter", "seed", "correlation"):
         assert new["program_level_percentiles"][knob] == golden["program_level_percentiles"][knob], (
             f"roll-up {knob} changed: golden {golden['program_level_percentiles'][knob]!r}, "

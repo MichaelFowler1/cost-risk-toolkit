@@ -517,36 +517,6 @@ def _selected_model(summary: pd.DataFrame) -> str:
     raise ProgramError("No model was selected; nothing could be fitted.")
 
 
-#: How far the fitted spec may sit from the element's own simulated
-#: percentiles before it stops being a fair summary of it. Measured, not
-#: guessed: see tests/test_program.py::TestDistributionHandoff.
-SPEC_TOLERANCE = 0.015
-
-
-def _lognormal_spec(totals: np.ndarray) -> dict:
-    """Describe an element's simulated total as a lognormal.
-
-    cost_core's WBS model takes distributions rather than raw draws, so each
-    element's simulated total has to be summarised by a two-parameter family
-    before it can be correlated with the others. That step costs accuracy: an
-    element total is a sum of six-odd correlated lognormal lot costs, which is
-    not itself lognormal, so no two-parameter fit reproduces it exactly.
-
-    Matching in log space was chosen by measurement rather than by taste. It
-    tracks the element's own percentiles to about half a percent, and beat
-    both arithmetic moment-matching and a normal on the same data. The median
-    comes back within 0.05%; the upper tail is the part that gives, sitting
-    around half a percent high at P80. A test bounds it at
-    :data:`SPEC_TOLERANCE` so it cannot quietly get worse.
-    """
-    logs = np.log(np.clip(totals, 1e-12, None))
-    return {
-        "type": "lognormal",
-        "mean": float(np.mean(logs)),
-        "sigma": float(max(np.std(logs, ddof=1), 1e-9)),
-    }
-
-
 def roll_up(
     program: Program,
     overrides: dict | None = None,
@@ -643,7 +613,15 @@ def _program_risk(
         elements.append(
             CostElement(
                 name=r.name,
-                distribution=_lognormal_spec(r.totals),
+                # The draws themselves, not a two-parameter summary of them.
+                # An element total is a sum of correlated lognormal lot costs
+                # and is not itself lognormal, so the fitted lognormal this
+                # replaces tracked it only to about six tenths of a percent at
+                # its own P80. Because the draw count equals the programme's
+                # iteration count, the copula returns a permutation of these
+                # very numbers and the element's percentiles inside the
+                # programme are identical to its standalone ones.
+                distribution={"type": "empirical", "draws": r.totals},
                 point_estimate=r.total,
             )
         )
@@ -723,10 +701,12 @@ def _program_risk(
         "spread of the programme total."
     )
     result.notes.append(
-        "Each fitted element is summarised as a lognormal before being "
-        "correlated with the others, which tracks its own percentiles to "
-        "about half a percent. Read the programme percentiles at that "
-        "resolution."
+        "Each fitted element enters the correlation as its own simulated "
+        "draws rather than as a fitted distribution, so its percentiles "
+        "inside the programme are identical to its percentiles on its own. "
+        "The two-parameter summary this replaces ran about six tenths of a "
+        "percent high on the upper tail, so the programme percentiles sit a "
+        "little lower than they used to through the working range."
     )
     derived = [r for r in result.elements if r.kind != "fitted"]
     if derived:

@@ -13,14 +13,12 @@ from __future__ import annotations
 from cost_core.program.rollup import (
     DEFAULT_CORRELATION,
     KINDS,
-    SPEC_TOLERANCE,
     Element,
     ElementResult,
     Program,
     ProgramError,
     ProgramResult,
     _estimate_frame,
-    _lognormal_spec,
     _program_risk,
     _scale_element,
     _scurve,
@@ -48,7 +46,6 @@ from cost_core.reporting.program_workbook import (
 __all__ = [
     "DEFAULT_CORRELATION",
     "KINDS",
-    "SPEC_TOLERANCE",
     "Element",
     "ElementResult",
     "Program",
