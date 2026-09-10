@@ -1,5 +1,9 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+# 77.0.3 is the oldest setuptools checked to read the licence metadata below,
+# an SPDX string plus license-files (PEP 639). 76.1 rejects this file outright
+# with a schema error, so any lower floor here is a promise the build cannot
+# keep. pip builds in isolation by default and fetches a new enough one anyway.
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
