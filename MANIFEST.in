@@ -1,0 +1,33 @@
+# What goes into the sdist, beyond the files setuptools adds on its own.
+#
+# Without this file setuptools' default sweep picks up `tests/test_*.py` and
+# nothing those modules import: no conftest.py, no golden_support.py, and none
+# of the recorded goldens. An sdist like that unpacks into a suite that collects
+# and then errors on `import golden_support`, which is worse than shipping no
+# tests at all. So graft the whole directory: the suite in the sdist is then the
+# suite in the repo, goldens included, and `pytest tests/ -q` works from an
+# unpacked source release.
+graft tests
+
+# example_lots.csv is test input, not decoration. tests/golden_support.py reads
+# it from the repository root for the `example_lots_csv` and `cli_fit_lots`
+# golden cases, so a grafted tests/ without it is still a suite that cannot run.
+include example_lots.csv
+
+# A source release should carry the history and the citation metadata, not only
+# the code. README.md and LICENSE arrive on their own through `readme` and the
+# license field; requirements.txt is the exact stack the goldens were recorded
+# against, which is worth having beside them.
+include CHANGELOG.md
+include CITATION.cff
+include requirements.txt
+
+# The README tells the reader to regenerate the hero figure with this script, so
+# a source release that omits it is a source release the README lies about. The
+# figure itself is not here: the README now points at it by absolute URL, which
+# is what makes it render on PyPI, where nothing from the sdist is served.
+include make_hero.py
+
+# Build leftovers are not source.
+global-exclude *.py[cod]
+prune tests/__pycache__

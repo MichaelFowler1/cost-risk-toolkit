@@ -11,9 +11,13 @@ Monte Carlo risk analysis.
 
 **Want a window instead of a terminal?** The desktop lot cost model lives in
 its own repository, [lot-cost-model](https://github.com/MichaelFowler1/lot-cost-model).
-It is the tkinter front end for the engine in this library: paste analogy lots
-and estimate lots from Excel, fit three competing models, roll several WBS
-elements into one programme, and write the Excel workbook.
+It is a tkinter tool over the same three models: paste analogy lots and
+estimate lots from Excel, fit LC, Rate and LC+Rate, roll several WBS elements
+into one programme, and write the Excel workbook. It is not yet a front end onto
+this library. Today it carries its own copy of the deterministic fit and imports
+`cost_core` for the risk half only, the prediction intervals and the correlated
+simulations, guarded so the window still opens when the library is absent and
+says so where those numbers would be.
 
 **Fit a curve to your own lot data in one command:**
 
@@ -32,7 +36,7 @@ Two columns is the whole input. [Jump to the details](#fitting-a-curve-to-your-o
 including the four things that quietly ruin a lot fit and how the tool checks
 for each one.
 
-![Learning curve forecast and Monte Carlo cost risk](docs/hero.png)
+![Learning curve forecast and Monte Carlo cost risk](https://raw.githubusercontent.com/MichaelFowler1/cost-risk-toolkit/main/docs/hero.png)
 
 *Real output. `cost_core` fits an 85% Wright learning curve and forecasts future
 lots (left), then runs a 10,000 iteration Monte Carlo total cost simulation with
@@ -50,7 +54,7 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 
 | Module | Purpose |
 | --- | --- |
-| `cost_core.lotmodel` | **The lot cost engine.** Analogy lots in, estimate lots out. Fits LC / Rate / LC+Rate, selects on significance with an AICc tiebreak, and layers refits, influence, prediction intervals and buy risk on top. The desktop tool in lot-cost-model is a window onto it |
+| `cost_core.lotmodel` | **The lot cost engine.** Analogy lots in, estimate lots out. Fits LC / Rate / LC+Rate, selects on significance with an AICc tiebreak, and layers refits, influence, prediction intervals and buy risk on top. Carried over from the desktop tool in lot-cost-model, which still runs its own copy of the deterministic half |
 | `cost_core.program` | **WBS roll-up.** Several elements, fitted, factor or amount, priced against one lot schedule and correlated into a programme estimate |
 | `cost_core.lots` | **Your own data.** Units and cost per lot, in CSV or Excel. Runs the same three model engine, then layers the statistics on top |
 | `cost_core.synth` | Seeded synthetic CSDR/SRDR generator: DD 1921, DD 1921-1, DD 1921-2, Cost and Hour Report (FlexFile), Quantity Data Report, SRDR (DD 2630), with realistic pathologies to clean |
@@ -63,15 +67,30 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 
 ## Installation
 
-Python 3.11 or higher.
+Python 3.9 or higher. The distribution name is `cost-core` and the import name
+is `cost_core`. Nothing is published yet, so install from a clone:
 
 ```bash
-python -m venv .venv && .venv/Scripts/activate && pip install -e .
+python -m venv .venv && .venv/Scripts/activate && pip install -e ".[plots]"
 ```
 
-That pulls in pandas, numpy, scipy, matplotlib and openpyxl. Excel input and the
-workbooks the lot engine writes both need openpyxl, so it's installed by default
-rather than as an extra.
+That pulls in pandas, numpy, scipy and openpyxl, plus matplotlib for the
+`[plots]` extra. Excel input and the workbooks the lot engine writes both need
+openpyxl, so it's installed by default rather than as an extra. matplotlib is
+the other way round: it draws the charts and nothing else, so installing without
+the extra gives you the whole engine, the CERs, the risk simulation and the Excel
+workbooks, and anything that draws a PNG tells you to add `[plots]` when you
+reach it.
+
+numpy and scipy also carry an upper bound, `numpy<2.5` and `scipy<1.18`. That is
+about reproducing numbers, not about running: above those versions the library
+imports and works, but it stops reproducing the figures this release pins. Both
+land the unbiased MUPE and ZMPE refits in a slightly different place, which moves
+golden leaves by up to 8e-9 and 4.5e-8 relative against a 1e-9 tolerance, and
+scipy 1.18 also changes the simulated draws, which the frozen-draw tests hash.
+Raising a bound means rebaselining the goldens and the frozen draws against the
+new stack and writing down what moved, the same process every other rebaseline
+here went through. `CHANGELOG.md` carries the measurements.
 
 ## Quick start
 
@@ -83,7 +102,9 @@ ce-core fit-lots --csv mylots.csv --dollar-year 2026 --forecast "30,40" --out re
 
 Prints the fitted slope and first unit cost, the standard error and CV, an
 interval on the slope, and a per lot percentage error showing which lots the
-curve misses. With `--out` it also writes a chart and an `ASSUMPTIONS.md`. See
+curve misses. With `--out` it also writes those tables as CSV and an
+`ASSUMPTIONS.md`; the one chart this command draws is the buy S-curve, and that
+needs `--simulate`. See
 [Fitting a curve to your own lot data](#fitting-a-curve-to-your-own-lot-data).
 
 ### With generated data, to see the whole pipeline
@@ -113,7 +134,8 @@ The same seed reproduces the run exactly.
 
 ## The lot cost engine
 
-The engine the desktop tool runs is `cost_core.lotmodel`. Historical **analogy
+The lot cost engine is `cost_core.lotmodel`, the code the desktop tool still
+carries its own copy of. Historical **analogy
 lots** (fiscal year, quantity, unit cost) are the history; **estimate lots**
 (fiscal year, quantity, complexity factor) are the buy being priced.
 
@@ -202,16 +224,18 @@ misses, prediction intervals on forecast lots, and an `ASSUMPTIONS.md`.
 ### Re-using the curve on another program
 
 The fit is also an estimating relationship you can lift and apply somewhere else.
-The equation gets printed and written to `equation.csv`. For an LC fit it looks
-like this:
+The equation gets printed and written to `equation.csv`. The four lots above
+select LC+Rate, so theirs carries both terms:
 
 ```
-Unit Cost = 5,897,536.83 * midpoint^(-0.127995)
+Unit Cost = 7,424,501.70 * midpoint^(-0.108355) * qty^(-0.093348)
 ```
 
-If the selected model carries a rate term the equation picks up a `qty^c`
-factor, and the priced lots carry it too. There's a test for exactly that,
-because for a while they didn't.
+Where only the learning term survives the significance gate the `qty` factor is
+absent. Drop `FRP 2` from that sample and the remaining three lots select LC,
+printing `Unit Cost = 5,586,219.86 * midpoint^(-0.108548)`. The priced lots carry
+whichever terms the equation does. There's a test for exactly that, because for a
+while they didn't.
 
 `--price-lots` applies the selected model to any buy profile from unit 1,
 producing the learning curve table an analyst would build by hand:
@@ -265,8 +289,10 @@ Rate      ln(unit cost) = ln(T1) + c*ln(lot quantity)
 LC+Rate   both terms together
 ```
 
-This is the same engine the desktop tool runs, so `ce-core fit-lots` and the
-lot-cost-model window give the same answer for the same lots. All three models get fitted
+This engine came across from the desktop tool in lot-cost-model, which still
+carries its own copy of the deterministic fit and borrows this library only for
+the risk half, so the two are the same code by descent rather than by import.
+All three models get fitted
 and all three price every lot, so the alternatives stay on the record. Because
 the midpoint depends on the slope you're fitting, the fit iterates to a fixed
 point.
@@ -505,15 +531,21 @@ tests/                property tests, see below
 ## Tests
 
 ```bash
-pip install -r requirements.txt pytest
+pip install -e ".[plots]" pytest
 pytest tests/ -q
 ```
 
-726 tests, run on Python 3.11 and 3.12 on every push. They assert mathematics
-against closed form answers rather than against recorded output, with one
-deliberate exception: tests/goldens pins what the lot engine produced on 6
-September 2026, so a refactor that moves a number has to say so. The
-strongest ones:
+`requirements.txt` also exists, but it holds the exact versions this repo
+develops against, and four of the five will not install on 3.9, three of them
+not on 3.10. It is the pinned development set, not the way to set up a checkout
+on an older interpreter. Install the package and let the version range in
+`pyproject.toml` resolve.
+
+752 tests, run on Python 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14 on every push,
+which is the whole supported range. They assert mathematics against closed form
+answers rather than against recorded output, with one deliberate exception:
+tests/goldens pins what the lot engine produced on 6 September 2026, so a
+refactor that moves a number has to say so. The strongest ones:
 
 **Our OLS *is* the textbook OLS.** The generic estimator reproduces
 `scipy.stats.linregress` and the normal equations to machine precision, and the

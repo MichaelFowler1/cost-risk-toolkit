@@ -3,20 +3,71 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cost_core"
-version = "0.1.0"
+# The distribution name on PyPI. The import name stays `cost_core`; setuptools
+# normalises "cost-core" and "cost_core" to the same artefact names, so the
+# hyphen is only what people type after `pip install`.
+name = "cost-core"
+version = "1.0.0"
 description = "Cost-Estimation Core Library and CLI"
 readme = "README.md"
-requires-python = ">=3.11"
+# 3.9 is the floor because nothing here needs more. Every PEP 604 union in the
+# source sits in an annotation in a file with `from __future__ import
+# annotations`, so none of them is evaluated at runtime, and the whole suite
+# passes on 3.9 unmodified. The CI matrix runs the floor on every push so the
+# claim stays true.
+requires-python = ">=3.9"
 dependencies = [
-    "numpy>=1.26.0",
+    # The two upper bounds are reproducibility bounds, not compatibility ones:
+    # the library imports and runs fine above them, but it stops reproducing the
+    # numbers this release pins. numpy 2.5 and scipy 1.18 each land the unbiased
+    # MUPE and ZMPE refits in a slightly different place, which moves golden
+    # leaves by up to 8e-9 and 4.5e-8 relative against a 1e-9 tolerance, and
+    # scipy 1.18 also changes the draws the risk model produces, so the
+    # frozen-draw hashes in tests/test_monte_carlo.py fail too. Neither is a bug
+    # in either library. The figures and the measurement are in CHANGELOG.md
+    # under 1.0.0; lifting a bound means rebaselining the goldens and the frozen
+    # draws under the new stack and recording what moved, not widening a
+    # tolerance until the failure stops.
+    "numpy>=1.26.0,<2.5",
     "pandas>=2.1.0",
-    "matplotlib>=3.8.0",
-    "scipy>=1.11.0",
+    "scipy>=1.11.0,<1.18",
     # The desktop lot cost model writes an Excel workbook as its deliverable,
     # and the lot reader accepts .xlsx, so this is core rather than optional.
     "openpyxl>=3.1.0"
 ]
+
+# Mirrors CITATION.cff, which is the record for the same release. No email:
+# the repository is the contact point and a published address cannot be recalled.
+authors = [{ name = "Michael Fowler" }]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+keywords = ["cost-estimating", "monte-carlo", "learning-curve", "risk-analysis", "csdr"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[project.urls]
+Homepage = "https://github.com/MichaelFowler1/cost-risk-toolkit"
+Changelog = "https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/CHANGELOG.md"
+
+[project.optional-dependencies]
+# matplotlib draws the charts and nothing else. The engine, the lot models, the
+# CERs, the risk simulation and the Excel workbooks all run without it, so a
+# caller who only wants numbers should not have to install a plotting stack to
+# get them. Anything that draws -- `ce-core full-run`, `ce-core fit-lots
+# --simulate --out` (the buy S-curve is the only chart that command writes, and
+# it needs `--simulate`), `cost_core.reporting.charts`,
+# `monte_carlo.plot_distribution` -- needs this extra, and says so by name when
+# it is missing.
+plots = ["matplotlib>=3.8.0"]
 
 [project.scripts]
 ce-core = "cli.ce_core_cli:main"

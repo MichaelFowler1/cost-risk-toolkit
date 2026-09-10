@@ -4,12 +4,21 @@ All notable changes to `cost_core` are recorded here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Nothing has been released yet, so everything sits under Unreleased.
 
 Entries say what moved and by how much. A number that changes is not a
 housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-09-09
+
+The first release. This is the point where the library stopped being the back
+half of a desktop tool and became something installable on its own: the lot cost
+engine, the WBS roll-up and the shared estimator all live here, and the window
+lives in [lot-cost-model](https://github.com/MichaelFowler1/lot-cost-model),
+which today carries its own copy of the deterministic fit and imports this
+library for the risk half. The version says the interface is now something worth
+keeping stable, and the goldens are what hold it to that.
 
 ### Added
 
@@ -41,6 +50,91 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ### Changed
 
+- The distribution name on PyPI is `cost-core`. The import name does not move:
+  `import cost_core` is unchanged, and setuptools normalises the two spellings
+  to the same artefact names, so the hyphen is only what you type after
+  `pip install`.
+
+- The sdist carries the whole of `tests/`, plus `example_lots.csv`,
+  `requirements.txt` and this file, through a new `MANIFEST.in`. setuptools'
+  default sweep picks up `tests/test_*.py` and nothing those modules import, so
+  the sdist used to unpack into a suite that could not run: `pytest tests/ -q`
+  never reached a test, because collection was interrupted by
+  `ModuleNotFoundError: No module named 'golden_support'`, and `--collect-only`
+  reported 704 tests collected and one error, the 48 in `test_goldens.py` being
+  the ones it lost. It now unpacks into the same suite the repository runs,
+  goldens included, and `pytest tests/ -q` gives the same 752 passed from an
+  unpacked release as from a checkout.
+
+- `requires-python` drops from `>=3.11` to `>=3.9`. Nothing here needed 3.11.
+  The PEP 604 unions that looked like they needed 3.10 all sit in annotations
+  in files carrying `from __future__ import annotations`, so none of them is
+  evaluated at runtime, and the suite passes on 3.9 unmodified. The last
+  3.9-capable releases of numpy, pandas, scipy and matplotlib -- 2.0.2, 2.3.3,
+  1.13.1 and 3.9.4 -- all satisfy the dependency floors, so the floors did not
+  have to move either.
+
+- CI runs 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14 on every push, up from 3.11 and
+  3.12. Every lane now installs the package from the version range it declares
+  instead of from `requirements.txt`, because four of the five pins in that file
+  will not install on 3.9 and three of them will not install on 3.10, so a
+  pinned install could not have been what the lower lanes ran. One lane applies
+  the pins afterwards, so the goldens are still checked against the stack they
+  were recorded on. A lane on every version also uninstalls matplotlib and
+  imports the engine without it, which is the only thing that keeps the claim
+  below honest.
+
+  The 3.9 lane names `ubuntu-24.04` instead of `ubuntu-latest`. setup-python
+  takes its interpreters from the manifest in `actions/python-versions`, which
+  has linux builds of 3.9 up to 24.04 and no further while every other version in
+  the matrix has a 26.04 build. `ubuntu-latest` is 24.04 today, so the lane runs;
+  the day it moves on, a lane left following it would stop finding an interpreter
+  and 3.9 is too far past end of life for a new build to appear. Naming the image
+  keeps the floor actually tested rather than quietly skipped.
+
+- **numpy and scipy now carry an upper bound, `numpy<2.5` and `scipy<1.18`.**
+  These are reproducibility bounds, not compatibility ones. Above them the
+  library imports and runs; what it stops doing is reproducing the numbers this
+  release pins, and both effects were measured on Python 3.12 one package at a
+  time.
+
+  numpy 2.5.3 moves the unbiased refits in `tests/goldens/lots_cost_core`. The
+  MUPE iteration lands somewhere slightly different and sometimes takes a
+  different number of steps, 13 instead of 11 on the `scatter_0.3` case, so T1
+  goes 2,712.4962079 -> 2,712.4962290, about 8 parts in a billion, and the
+  nominally zero mean percentage error goes -4.3e-13 -> -2.6e-11. scipy 1.18.1
+  moves the same refits further, T1 to 2,712.4963311, about 4.5 parts in a
+  hundred million, and it also changes the draws the risk model produces, so
+  all four frozen-draw hashes in `tests/test_monte_carlo.py` fail as well.
+  Forty-one golden leaves move under scipy and forty-two under numpy, against
+  a tolerance of 1e-9 relative and 1e-12 absolute.
+
+  None of that is a bug in either library, and neither version was excluded
+  before. Both declare Requires-Python >=3.12, so the 3.12, 3.13 and 3.14 lanes
+  were all new enough to be offered them, and with nothing stopping them a lane
+  resolved both together and failed five tests on numbers: 71 golden leaves in
+  one case and the four frozen-draw hashes. The lanes whose tests actually ran
+  on a resolved stack were 3.12 and 3.13; 3.14 resolves the same pair and is
+  protected only because it applies `requirements.txt` before it runs the suite.
+  Raising a bound means rebaselining the goldens and the frozen draws under the
+  new stack and recording the movement, the way `COMPARE_POLICY.json` records
+  every other rebaseline here, rather than quietly widening a tolerance until
+  the failure stops.
+
+- **matplotlib is an optional extra, `cost-core[plots]`, rather than a
+  dependency.** It draws the charts and does nothing else here, so a caller who
+  wants numbers should not have to install a plotting stack to get them: the lot
+  engine, the CERs, the risk simulation and the Excel workbooks all import and
+  run without it. `cost_core.monte_carlo` no longer imports pyplot at module
+  scope, `plot_distribution` imports it when called, and anything that draws --
+  `cost_core.reporting.charts`, `ce-core full-run`, `ce-core fit-lots --simulate
+  --out` -- fails with a message naming the extra rather than a bare
+  `No module named 'matplotlib'`. `fit-lots --out` on its own draws nothing and
+  needs nothing: the buy S-curve is the only chart that command writes and it
+  only exists with `--simulate`, so the eight tables and the `ASSUMPTIONS.md`
+  come out of a bare install unchanged. **This changes what a `pip install` pulls: an
+  install that used to produce charts now needs `pip install 'cost-core[plots]'`.**
+
 - The lot engine, the analyst summary and the Excel workbook writer are the
   desktop tool's current versions rather than the copy taken from it on 21
   August. The engine itself had not moved in between; the summary had gained
@@ -68,9 +162,15 @@ housekeeping detail here, because someone may have put the old one in a budget.
   `Fit_Methods` table shift by up to 3.3e-7 relative on their coefficients,
   because the shared estimator's iteration stops on its own least squares
   tolerance and its ZMPE starts from the MUPE answer rather than from ordinary
-  least squares. The ZMPE row was never reproducible better than about 1e-7
-  against itself, measured by perturbing its own seed, so this is inside the
-  noise that row always had. And `DFFITS` now reports zero below two degrees
+  least squares. One leaf goes further in relative terms and not in absolute
+  ones: the ZMPE learning exponent of the flat reference series is 0.0036265630
+  against 0.0036265683, which is 1.5e-6 relative on a move of 5.3e-9, and it is
+  large only because the number it divides into is nearly zero. That is why the
+  exponent carries an absolute allowance as well as a relative one;
+  `COMPARE_POLICY._atol_on_the_exponents` has the reasoning. The ZMPE row was
+  never reproducible better than about 1e-7 against itself, measured by
+  perturbing its own seed, so this is inside the noise that row always had.
+  And `DFFITS` now reports zero below two degrees
   of freedom, where the leave-one-out variance is zero divided by zero and the
   old formula returned whatever the rounding produced.
 
@@ -103,13 +203,13 @@ housekeeping detail here, because someone may have put the old one in a budget.
   | figure | TEST_PROGRAM | | FULL_WBS | |
   | --- | --- | --- | --- | --- |
   | | before -> after | change | before -> after | change |
-  | P50 | 197,359,861.00 -> 197,248,653.81 | -0.056% | 235,806,082.37 -> 235,679,973.43 | -0.054% |
+  | P50 | 197,359,861.00 -> 197,248,653.81 | -0.056% | 235,806,082.37 -> 235,679,973.43 | -0.053% |
   | P80 | 199,334,505.70 -> 198,764,987.35 | -0.286% | 238,045,329.47 -> 237,399,495.65 | -0.271% |
   | P90 | 200,431,772.55 -> 199,833,437.80 | -0.299% | 239,289,630.07 -> 238,611,118.46 | -0.284% |
   | P99 | 202,989,641.04 -> 204,171,353.96 | +0.582% | 242,190,252.94 -> 243,530,315.40 | +0.553% |
   | standard deviation | 2,361,702.58 -> 2,337,709.99 | -1.016% | 2,678,170.73 -> 2,650,963.13 | -1.016% |
   | reserve to P80 | 2,168,821.67 -> 1,599,303.32 | -26.3% | 2,459,443.78 -> 1,813,609.96 | -26.3% |
-  | point estimate sits at | P46.39 -> P47.96 | +1.58 points | P46.39 -> P47.96 | +1.58 points |
+  | point estimate sits at | P46.3875 -> P47.9625 | +1.575 points | P46.3875 -> P47.9625 | +1.575 points |
 
   All of these are at 8,000 iterations, seed 11, element correlation 0.25 and
   lot correlation 0.30. The reserve is the headline: the old P80 was carrying
@@ -141,8 +241,8 @@ housekeeping detail here, because someone may have put the old one in a budget.
 - `cost_core.gui` and the `ce-core gui` subcommand. It was a copy of the
   desktop tool's window taken on 21 August, already older than the tool by the
   time it landed, and two windows over one engine is one too many. The window
-  is [lot-cost-model](https://github.com/MichaelFowler1/lot-cost-model); this
-  library is the engine it drives. **Anyone importing `cost_core.gui` or
+  to keep is [lot-cost-model](https://github.com/MichaelFowler1/lot-cost-model).
+  **Anyone importing `cost_core.gui` or
   running `ce-core gui` has to move to that repository.**
 
 - `cost_core.lotmodel.mathx.ols_fit` and `.solve_model`, the lot engine's
@@ -155,3 +255,6 @@ housekeeping detail here, because someone may have put the old one in a budget.
 - `cost_core.program.SPEC_TOLERANCE` and `cost_core.program._lognormal_spec`,
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
+
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/releases/tag/v1.0.0

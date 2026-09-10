@@ -42,13 +42,32 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Literal, Sequence
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy import stats
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def _pyplot():
+    """Return ``matplotlib.pyplot``, or explain how to get it.
+
+    matplotlib is an optional extra as of 1.0.0. It serves the one plotting
+    helper in this module and nothing else here, so importing it at module
+    scope would have made every simulation, roll-up and workbook depend on a
+    plotting stack they never touch. Importing it inside the one function that
+    needs it keeps ``import cost_core.monte_carlo`` free of it.
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError as exc:  # pragma: no cover - depends on the install
+        raise ImportError(
+            "plot_distribution needs matplotlib, which is an optional extra. "
+            "Install it with: pip install 'cost-core[plots]'"
+        ) from exc
+    return plt
+
 
 @dataclass(frozen=True)
 class SimulationResult:
@@ -162,7 +181,9 @@ def plot_distribution(result: SimulationResult, bins: int = 50) -> None:
         bins: Number of histogram bins.
     """
     logger.info("Generating distribution plot.")
-    
+
+    plt = _pyplot()
+
     fig, ax = plt.subplots(figsize=(10, 6))
     
     # Plot histogram

@@ -1,10 +1,10 @@
 name: tests
 
 on:
-  # Every branch, not just main. The matrix is the only place 3.11 is actually
-  # exercised, so restricting it to main meant a 3.11-only problem could not
-  # surface until after merge -- which is exactly how a Python 3.12 f-string
-  # construct reached this repo.
+  # Every branch, not just main. The matrix is the only place the floor is
+  # actually exercised, so restricting it to main meant a version-specific
+  # problem could not surface until after merge -- which is exactly how a
+  # Python 3.12 f-string construct reached this repo.
   push:
   pull_request:
   workflow_dispatch:
@@ -12,20 +12,47 @@ on:
 jobs:
   test:
     name: python ${{ matrix.python-version }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        # pyproject declares requires-python >=3.11, and the source uses
-        # `list[float] | np.ndarray`, which needs 3.10+. Test the floor and
-        # the version actually developed against.
-        python-version: ["3.11", "3.12"]
+        # Every version pyproject claims to support, floor to ceiling. The
+        # source does use `list[float] | np.ndarray` and friends, but every one
+        # of those sits in an annotation in a file carrying `from __future__
+        # import annotations`, so none of them is evaluated at runtime and 3.9
+        # runs the suite unmodified. The 3.9 lane is what proves that, and it
+        # is the reason requires-python could drop from 3.11 to 3.9.
+        #
+        # The runner is named per lane rather than left at ubuntu-latest,
+        # because 3.9 is the one version that cannot follow it. setup-python
+        # resolves interpreters from the manifest in actions/python-versions,
+        # and that manifest has linux builds of 3.9 for 16.04 through 24.04 and
+        # nothing newer, while 3.10 and up all have 26.04 builds. ubuntu-latest
+        # is 24.04 today, so every lane works; the day it moves to 26.04 the
+        # setup step on the 3.9 lane would fail to find an interpreter, and
+        # since 3.9 is past end of life a 26.04 build of it is never going to
+        # be published. Pinning that lane to ubuntu-24.04 keeps the floor
+        # tested for as long as GitHub hosts the image. The lanes that can
+        # follow the current runner still do.
+        include:
+          - python-version: "3.9"
+            runner: ubuntu-24.04
+          - python-version: "3.10"
+            runner: ubuntu-latest
+          - python-version: "3.11"
+            runner: ubuntu-latest
+          - python-version: "3.12"
+            runner: ubuntu-latest
+          - python-version: "3.13"
+            runner: ubuntu-latest
+          - python-version: "3.14"
+            runner: ubuntu-latest
 
     env:
-      # monte_carlo and cost_core.reporting.charts import pyplot at module
-      # scope; a headless runner has no display, so pin the non-interactive
-      # backend rather than relying on matplotlib guessing right.
+      # cost_core.reporting.charts imports pyplot at module scope; a headless
+      # runner has no display, so pin the non-interactive backend rather than
+      # relying on matplotlib guessing right.
       MPLBACKEND: Agg
 
     steps:
@@ -36,28 +63,77 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install dependencies
+      - name: Install the package and its test tooling
+        # Resolved from the version range pyproject declares, not from
+        # requirements.txt. The pins in requirements.txt are the versions this
+        # repo develops against, and four of the five will not install on 3.9,
+        # three of them not on 3.10: numpy 2.4.4, pandas 3.0.3 and scipy 1.17.1
+        # all declare Requires-Python >=3.11, and matplotlib 3.10.9 declares
+        # >=3.10. So a pinned install cannot be what the lower lanes run.
+        # Installing the package itself is also the more honest test: it is what
+        # a user gets, and it checks that the declared range really does resolve
+        # on every version we claim to support. `[plots]` because matplotlib is
+        # an optional extra as of 1.0.0, and the chart tests and the CLI smoke
+        # test need it.
+        #
+        # What makes a resolved install safe to run the goldens against is the
+        # upper bound on numpy and scipy in pyproject.toml. numpy 2.5.3 and
+        # scipy 1.18.1 both declare Requires-Python >=3.12, so the 3.12, 3.13
+        # and 3.14 lanes are all new enough to be offered them, and this step
+        # runs before the pinning step below on every lane including 3.14.
+        # Without the bound those three would resolve both, and on the two whose
+        # tests then run unpinned -- 3.12 and 3.13 -- five tests failed, on
+        # numbers rather than on behaviour. That was measured on 3.12; 3.13
+        # resolves the same two. Inside the bound a lane can still pick up a new
+        # patch release, so a resolved lane is not a frozen lane; the pinned lane
+        # below is the one that holds the stack completely still.
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -e '.[plots]'
           pip install pytest
-
-      - name: Install the package
-        # Catches a broken pyproject or a missing package, which importing
-        # from the source tree would hide.
-        run: pip install -e .
 
       - name: Check a real install exposes every subpackage
         # An editable install resolves against the source tree, so it cannot
         # catch a packages.find pattern that misses cost_core.synth and the
         # other subpackages -- everything would import anyway. A non-editable
         # install, imported from outside the repo, can.
+        #
+        # --no-cache-dir because pip caches the wheels it builds from a local
+        # directory and setup-python's `cache: pip` carries that cache between
+        # runs. The version string does not move on every commit, so a cached
+        # wheel from an earlier run can be reinstalled in place of the one this
+        # commit would build, which is exactly the check this step exists to
+        # make. Building it fresh costs a couple of seconds.
         run: |
-          pip install --force-reinstall --no-deps .
+          pip install --force-reinstall --no-deps --no-cache-dir .
           cd /tmp
-          python -c "import cost_core.synth, cost_core.ingest, cost_core.cer, cost_core.reporting, cli.ce_core_cli; print('subpackages import from site-packages')"
+          python -c "import cost_core.synth, cost_core.ingest, cost_core.cer, cost_core.reporting, cost_core.lotmodel, cost_core.program, cost_core.lots, cli.ce_core_cli; print('subpackages import from site-packages')"
           cd "$GITHUB_WORKSPACE"
-          pip install -e .
+          pip install -e '.[plots]'
+
+      - name: Check the engine imports without the plots extra
+        # matplotlib is optional as of 1.0.0, and the claim that the engine
+        # does not need it is only worth something if something checks. Take it
+        # away, import the whole non-drawing surface, confirm a plotting entry
+        # point names the extra rather than raising a bare "No module named",
+        # then put it back for the tests.
+        run: |
+          pip uninstall -y matplotlib
+          cd /tmp
+          python -c "import cost_core, cost_core.lotmodel, cost_core.program, cost_core.lots, cost_core.monte_carlo, cost_core.reporting, cost_core.fitting, cost_core.cer, cost_core.ingest, cost_core.synth; print('engine imports without matplotlib')"
+          python -c "import cost_core.reporting.charts" > import_error.txt 2>&1 || true
+          grep -q "cost-core\[plots\]" import_error.txt
+          rm import_error.txt
+          cd "$GITHUB_WORKSPACE"
+          pip install -e '.[plots]'
+
+      - name: Pin to the development set
+        # One lane also runs the exact versions in requirements.txt, so the
+        # numbers the goldens pin are checked against the stack they were
+        # recorded on and not only against whatever the floors resolve to.
+        # Last, so nothing after it can quietly resolve a different matplotlib.
+        if: matrix.python-version == '3.14'
+        run: pip install -r requirements.txt
 
       - name: Run tests
         run: pytest tests/ -q

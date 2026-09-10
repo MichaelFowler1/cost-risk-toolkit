@@ -193,6 +193,25 @@ integer that has become a float is tolerated, because pandas 2.3.3 and pandas
 3.0.3 disagree about when an integer column stays integer; everywhere else --
 `ctx.n_keep`, `ctx.mdl_*.N` / `K` / `DF` -- that type change is reported.
 
+## 1e-9 is tight enough to be stack-dependent
+
+Which is why `pyproject.toml` caps numpy below 2.5 and scipy below 1.18. Both
+versions land the unbiased MUPE and ZMPE refits in a slightly different place --
+on `scatter_0.3` the MUPE iteration takes 13 steps instead of 11 under numpy
+2.5.3, and `lots_cost_core` T1 moves 2,712.4962079 -> 2,712.4962290 there and ->
+2,712.4963311 under scipy 1.18.1, 8e-9 and 4.5e-8 relative. Forty-two leaves
+move under numpy and forty-one under scipy, all of them in the refit block, plus
+nominally zero quantities like a mean percentage error at 1e-13 that moves to
+1e-11 and so fails in relative terms while meaning nothing. scipy 1.18.1 also
+changes the draws the risk model produces, which the frozen-draw hashes in
+`tests/test_monte_carlo.py` catch.
+
+So a golden failure right after a numpy or scipy upgrade is the expected
+behaviour of a 1e-9 pin, not a regression in this repo. Raising a cap belongs in
+the rebaseline process below: measure what moved, write it into
+`COMPARE_POLICY.json`, and say so here. Widening the tolerance instead would
+throw away the thing these files exist to detect.
+
 ## What `summary.py` prints, and how it is still pinned at 1e-9
 
 The eight statistics `cost_core/lotmodel/summary.py` computes for itself -- SEE,
@@ -265,14 +284,14 @@ the extreme. Both programmes, before and after:
 | figure | TEST_PROGRAM | | FULL_WBS | |
 | --- | --- | --- | --- | --- |
 | | before -> after | change | before -> after | change |
-| P50 | 197,359,861.00 -> 197,248,653.81 | -0.056% | 235,806,082.37 -> 235,679,973.43 | -0.054% |
+| P50 | 197,359,861.00 -> 197,248,653.81 | -0.056% | 235,806,082.37 -> 235,679,973.43 | -0.053% |
 | P80 | 199,334,505.70 -> 198,764,987.35 | -0.286% | 238,045,329.47 -> 237,399,495.65 | -0.271% |
 | P90 | 200,431,772.55 -> 199,833,437.80 | -0.299% | 239,289,630.07 -> 238,611,118.46 | -0.284% |
 | P99 | 202,989,641.04 -> 204,171,353.96 | +0.582% | 242,190,252.94 -> 243,530,315.40 | +0.553% |
 | mean | 197,367,931.16 -> 197,350,332.99 | -0.009% | 235,815,233.94 -> 235,795,277.61 | -0.009% |
 | std | 2,361,702.58 -> 2,337,709.99 | -1.016% | 2,678,170.73 -> 2,650,963.13 | -1.016% |
 | cv | 0.011966 -> 0.011845 | -1.007% | 0.011357 -> 0.011243 | -1.008% |
-| point estimate at | P46.39 -> P47.96 | +1.58 pts | P46.39 -> P47.96 | +1.58 pts |
+| point estimate at | P46.3875 -> P47.9625 | +1.575 pts | P46.3875 -> P47.9625 | +1.575 pts |
 | reserve to P80 | 2,168,821.67 -> 1,599,303.32 | -26.3% | 2,459,443.78 -> 1,813,609.96 | -26.3% |
 | `independence_understates_sd_by` | 1.208202 -> 1.170682 | -3.11% | same | same |
 | `variance_ratio_analytic` | 1.461729 -> 1.460931 | -0.055% | same | same |

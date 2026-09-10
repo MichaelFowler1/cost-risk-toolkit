@@ -25,4 +25,8 @@ keywords:
   - risk-analysis
   - csdr
 license: "Apache-2.0"
-date-released: "2026-05-13"
+version: "1.0.0"
+# CFF pairs `version` with `date-released`: together they describe the release
+# being cited, not the first commit. 1.0.0 is released today, so the date moves
+# with it.
+date-released: "2026-09-09"

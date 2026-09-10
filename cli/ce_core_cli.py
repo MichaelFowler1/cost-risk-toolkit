@@ -205,9 +205,14 @@ def run_fit_lots(args: argparse.Namespace) -> None:
                 priced_from_unit=args.price_from_unit,
             ).write(out / "ASSUMPTIONS.md")
 
-            from cost_core.reporting import charts
-
             if simulation is not None:
+                # Inside the branch, not above it. The only chart this command
+                # writes is the buy S-curve, and that needs `--simulate`.
+                # matplotlib is an optional extra, so importing charts
+                # unconditionally would have made `--out` fail on an install
+                # without it even when nothing was going to be drawn.
+                from cost_core.reporting import charts
+
                 charts.plot_s_curve(
                     simulation, out / "buy_s_curve.png",
                     title=f"{series.program}: cost of the priced lots",

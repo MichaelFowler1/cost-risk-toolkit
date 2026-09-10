@@ -32,7 +32,10 @@ __all__ = [
 
 # The workbook writers live in this package too and must import without
 # matplotlib, so the chart and pipeline names load lazily (PEP 562) on first
-# access rather than when the package is imported.
+# access rather than when the package is imported. Since 1.0.0 matplotlib is an
+# optional extra, so that laziness is what makes `import cost_core.reporting`
+# work at all on a bare install, and the names below are exactly the ones that
+# do not.
 _LAZY = {
     "AssumptionLog": ".assumptions",
     "plot_cer_diagnostics": ".charts",

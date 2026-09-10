@@ -17,7 +17,18 @@ import logging
 import os
 from pathlib import Path
 
-import matplotlib
+# matplotlib is an optional extra as of 1.0.0, and this module is the only
+# place in the library that imports it at module scope. Everything that draws
+# reaches a chart through here or through the pipeline that imports it, so one
+# message here covers every path. A bare "No module named 'matplotlib'" does
+# not tell anyone which extra brings it back.
+try:
+    import matplotlib
+except ImportError as exc:  # pragma: no cover - depends on the install
+    raise ImportError(
+        "cost_core.reporting.charts draws charts and needs matplotlib, which "
+        "is an optional extra. Install it with: pip install 'cost-core[plots]'"
+    ) from exc
 
 # Charts are written to file, never displayed, so a non-interactive backend is
 # always correct here. Respect an explicit choice if the caller made one.
