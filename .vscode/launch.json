@@ -13,7 +13,7 @@
       "name": "fit-lots: example_lots.csv",
       "type": "debugpy",
       "request": "launch",
-      "module": "cli.ce_core_cli",
+      "module": "cost_core.cli",
       "args": [
         "fit-lots",
         "--csv", "example_lots.csv",
@@ -31,7 +31,7 @@
       "name": "fit-lots: pick a file",
       "type": "debugpy",
       "request": "launch",
-      "module": "cli.ce_core_cli",
+      "module": "cost_core.cli",
       "args": [
         "fit-lots",
         "--csv", "${input:lotFile}",
@@ -46,7 +46,7 @@
       "name": "full-run: the whole synthetic pipeline",
       "type": "debugpy",
       "request": "launch",
-      "module": "cli.ce_core_cli",
+      "module": "cost_core.cli",
       "args": ["full-run", "--out", "artifacts", "--seed", "7", "--iters", "20000"],
       "console": "integratedTerminal",
       "cwd": "${workspaceFolder}",

@@ -107,7 +107,7 @@ jobs:
         run: |
           pip install --force-reinstall --no-deps --no-cache-dir .
           cd /tmp
-          python -c "import cost_core.synth, cost_core.ingest, cost_core.cer, cost_core.reporting, cost_core.lotmodel, cost_core.program, cost_core.lots, cli.ce_core_cli; print('subpackages import from site-packages')"
+          python -c "import cost_core.synth, cost_core.ingest, cost_core.cer, cost_core.reporting, cost_core.lotmodel, cost_core.program, cost_core.lots, cost_core.cli; print('subpackages import from site-packages')"
           cd "$GITHUB_WORKSPACE"
           pip install -e '.[plots]'
 

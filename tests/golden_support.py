@@ -1402,7 +1402,7 @@ def capture_lots(inputs_dir) -> dict:
 CLI_RUNS = {
     "cli_fit_lots": ["--csv", "example_lots.csv", "--dollar-year", "2026",
                      "--forecast", "30,40", "--simulate", "5000", "--seed", "0", "--price-lots", "10,15,20"],
-    # the argument plumbing: cli/ce_core_cli.py:309-350
+    # the argument plumbing: cost_core/cli.py, the fit-lots parser
     "cli_fit_lots_flags": ["--csv", "example_lots.csv", "--dollar-year", "2026",
                            "--forecast", "30,40", "--level", "0.95", "--legacy-rate-omission",
                            "--first-unit", "101", "--price-lots", "10,15,20", "--price-from-unit", "201",
@@ -1419,7 +1419,7 @@ def run_cli_one(name: str, extra: list, workbooks) -> dict:
     outdir = workbooks / name
     if outdir.exists():
         shutil.rmtree(outdir)
-    cmd = [PY, "-m", "cli.ce_core_cli", "fit-lots"] + extra + ["--out", str(outdir)]
+    cmd = [PY, "-m", "cost_core.cli", "fit-lots"] + extra + ["--out", str(outdir)]
     env = dict(os.environ, MPLBACKEND="Agg", PYTHONIOENCODING="utf-8")
     proc = subprocess.run(cmd, cwd=str(LIB_ROOT), capture_output=True, text=True, env=env, encoding="utf-8",
                           errors="replace")

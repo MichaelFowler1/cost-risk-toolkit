@@ -1,7 +1,14 @@
 """
 Cost-Estimation Core CLI
 Bridge between the math engine and the terminal.
+
+Installed as the ``ce-core`` command, and ``python -m cost_core.cli`` runs the
+same thing. It lives inside the package rather than as a top-level ``cli``
+module, because a wheel that installs a package called ``cli`` shares that
+name with every other distribution that does.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -12,10 +19,7 @@ from typing import NoReturn
 
 import pandas as pd
 
-try:
-    from cost_core import data_io, learning_curve, monte_carlo
-except ImportError as e:
-    sys.exit(f"Critical: cost_core modules missing ({e}). Run from project root.")
+from cost_core import data_io, learning_curve, monte_carlo
 
 # Setup minimalist logging
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")

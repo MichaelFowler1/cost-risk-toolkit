@@ -236,6 +236,12 @@ keeping stable, and the goldens are what hold it to that.
   `COMPARE_POLICY.exclude_after_step3` records what was rebaselined, when, why
   and by how much, and `tests/goldens/README.md` carries the same account.
 
+- The command line moved from a top-level `cli` package to `cost_core.cli`.
+  A wheel that installs a package called `cli` into site-packages shares that
+  name with every other distribution that does, and installing or removing
+  either can break the other. The `ce-core` command is unchanged, and
+  `python -m cost_core.cli` replaces `python -m cli.ce_core_cli`.
+
 ### Removed
 
 - `cost_core.gui` and the `ce-core gui` subcommand. It was a copy of the

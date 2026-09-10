@@ -356,10 +356,17 @@ def test_lots_cost_core(tmp_path):
 @pytest.mark.parametrize("run", sorted(GS.CLI_RUNS))
 def test_cli_fit_lots(run, tmp_path):
     golden = load_golden("cli_fit_lots")[run]
-    # the arguments come off the golden's own masked command line
+    # the arguments come off the golden's own masked command line. It was
+    # captured when the command line was a top-level cli package; it has been
+    # cost_core.cli since, so the module differs and the arguments, which are
+    # what the numbers depend on, must not.
     assert golden["cmd"][:4] == ["<python>", "-m", "cli.ce_core_cli", "fit-lots"]
     assert golden["cmd"][4:] == GS.CLI_RUNS[run] + ["--out", f"<workbooks>/{run}"]
     new = GS.run_cli_one(run, GS.CLI_RUNS[run], tmp_path)
+    assert new["cmd"][:4] == ["<python>", "-m", "cost_core.cli", "fit-lots"]
+    assert new["cmd"][4:] == golden["cmd"][4:]
+    golden.pop("cmd")
+    new.pop("cmd")
     assert new["returncode"] == golden["returncode"] == 0
     for fname, why in CLI_SHA_SKIP.items():
         assert why

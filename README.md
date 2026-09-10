@@ -515,6 +515,7 @@ a reliable estimate.
 cost_core/
   fitting.py          shared OLS / MUPE / ZMPE estimator and intervals
   lots.py             your own lot data: units and cost per lot
+  cli.py              the ce-core command line interface
   lotmodel/           the lot cost engine: LC / Rate / LC+Rate on lot midpoints, summary, enrichment
   program/            WBS roll-up of several elements into one programme
   learning_curve.py   Wright and Crawford theories, rate breaks
@@ -524,7 +525,6 @@ cost_core/
   ingest/             crosswalk, inflation, normalization pipeline
   cer/                parametric CERs and diagnostics
   reporting/          charts, assumptions log, the Excel workbooks, end to end run
-cli/                  the ce-core command line interface
 tests/                property tests, see below
 ```
 
