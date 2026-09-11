@@ -17,7 +17,7 @@ housekeeping detail here, because someone may have put the old one in a budget.
   tests on all six Linux lanes. Nothing in `cost_core` changed and no golden
   was rewritten; the tests assumed more was portable than is.
 
-  Under Linux the same numpy on the same machine draws about 0.6% of the
+  Under Linux the same numpy on the same machine draws about 0.5% of the
   analytic risk model's values one to nine ulps away from Windows, so the four
   frozen-draw hashes can't hold there. That model is now pinned at p50, p80
   and p90 on every platform, to 1e-12 relative, and at the hashes on Windows
@@ -28,16 +28,22 @@ housekeeping detail here, because someone may have put the old one in a budget.
   learning-curve block of `tests/goldens/lots_cost_core`, because
   `cost_core.learning_curve` fits with central differences: fifty leaves, up
   to 3.8e-8 relative on T1, and the `scatter_0.3` MUPE loop stops at 12 steps
-  instead of 11. Off Windows those leaves are now compared under a measured
-  allowance, `COMPARE_POLICY.expected_to_move_across_platforms`, and the two
-  iteration counts aren't compared. On Windows they stay at 1e-9. Nothing
-  else in any golden moves. That makes Windows the place a numpy or scipy cap
-  raise has to be measured: under Linux, scipy 1.18.1 now passes the whole
-  suite.
+  instead of 11. Which leaves move depends on the CPU as well, through the
+  kernel OpenBLAS picks for it: three GitHub lanes, and OpenBLAS forced onto
+  its kernels without FMA, also moved an iteration count or two and flipped
+  the sign of the `Mean bias` the two exact-fit fixtures print as zero, both
+  ways between `-0.00%` and `+0.00%`. Off Windows, every MUPE and ZMPE statistic
+  in that block is now compared under a measured allowance,
+  `COMPARE_POLICY.expected_to_move_across_platforms`, the
+  three iteration counts aren't compared, and those `Mean bias` cells pass
+  when both sides print a zero. On Windows all of it stays at 1e-9. Nothing
+  else in any golden moves, anywhere. That makes Windows the place a numpy or
+  scipy cap raise has to be measured: under Linux, numpy 2.5.3 and scipy
+  1.18.1 now both pass the whole suite.
 
   And a masked path in an error text keeps the separator of the machine that
-  wrote it, so the error-path comparison now reads `<error_inputs>\` and
-  `<error_inputs>/` as the same.
+  wrote it, so off Windows the error-path comparison now reads
+  `<error_inputs>\` and `<error_inputs>/` as the same.
 
 ## [1.0.0] - 2026-09-09
 

@@ -8,6 +8,10 @@ know in closed form.
 
 from __future__ import annotations
 
+import json
+import sys
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -342,11 +346,12 @@ def test_a_non_empirical_marginal_has_no_draw_count_to_trip_on():
 #:
 #: Held two ways, because the bytes are not the same on every platform. The
 #: percentiles hold everywhere, to 1e-12 relative. Under Linux the same numpy
-#: on the same machine draws about 0.6% of the values one to nine ulps away
+#: on the same machine draws about 0.5% of the values one to nine ulps away
 #: from Windows, so the totals differ by up to two ulps, 3.6e-16 relative, and
 #: a percentile interpolates between two of them. p50, p80 and p90 came out
-#: identical on every platform and stack measured, but that is luck in which
-#: totals they land on, not something to lean on.
+#: identical on every platform and stack measured, but not on every machine:
+#: with OpenBLAS forced onto its kernels without FMA they move 1.5e-16
+#: relative, which an exact comparison would have failed.
 ANALYTIC_PERCENTILES = {
     "gaussian_copula|8000|11": (714114878.045728, 798449992.4574431, 845738614.6909219),
     "gaussian_copula|20000|3": (713758889.1478798, 797501511.7317004, 846647867.8881909),
@@ -359,8 +364,12 @@ ANALYTIC_PERCENTILES = {
 #: 3.14), and they see what the percentiles cannot: scipy 1.18.1 changes the
 #: draws enough to fail these hashes, which is how the scipy cap in
 #: pyproject.toml was found, and leaves all four sets of percentiles exactly
-#: where they were, which was measured under Linux.
-ANALYTIC_BYTES_PLATFORM = "win32"
+#: where they were, which was measured under Linux. The platform is read from
+#: COMPARE_POLICY, which names it for the whole suite, and anywhere else the
+#: byte test reports itself skipped rather than passed.
+ANALYTIC_BYTES_PLATFORM = json.loads(
+    (Path(__file__).resolve().parent / "goldens" / "COMPARE_POLICY.json").read_text(encoding="utf-8")
+)["expected_to_move_across_platforms"]["captured_on_platform"]
 ANALYTIC_BYTES = {
     "gaussian_copula|8000|11": (
         "a98b9aed7fdec825a732570f6e664ac02196b0f2a448a833409665cea96b3628",
@@ -398,29 +407,45 @@ def lognormal_reference_model():
     )
 
 
-@pytest.mark.parametrize("key", sorted(ANALYTIC_PERCENTILES))
-def test_an_analytic_model_still_reproduces_its_frozen_draws(key):
-    import hashlib
-    import sys
-
+def _analytic_result(key):
     method, n_iter, seed = key.split("|")
-    result = simulate_risk_model(
+    return simulate_risk_model(
         lognormal_reference_model(), int(n_iter), int(seed), method=method
     )
-    moved = (
+
+
+def _analytic_moved(key):
+    return (
         f"{key}: the analytic marginals moved. If _marginal_column or the "
         f"order the generator is consumed in was changed, that is the cause."
     )
+
+
+@pytest.mark.parametrize("key", sorted(ANALYTIC_PERCENTILES))
+def test_an_analytic_model_still_reproduces_its_frozen_percentiles(key):
+    # the platform the bytes below are keyed to, pinned where every lane runs:
+    # a misspelt policy string would otherwise skip the byte test everywhere
+    assert ANALYTIC_BYTES_PLATFORM == "win32"
+    result = _analytic_result(key)
     assert (result.p50, result.p80, result.p90) == pytest.approx(
         ANALYTIC_PERCENTILES[key], rel=1e-12
-    ), moved
-    if sys.platform != ANALYTIC_BYTES_PLATFORM:
-        return
+    ), _analytic_moved(key)
+
+
+@pytest.mark.skipif(
+    sys.platform != ANALYTIC_BYTES_PLATFORM,
+    reason=f"the draws' bytes are frozen on {ANALYTIC_BYTES_PLATFORM} only",
+)
+@pytest.mark.parametrize("key", sorted(ANALYTIC_BYTES))
+def test_an_analytic_model_still_reproduces_its_frozen_draws(key):
+    import hashlib
+
+    result = _analytic_result(key)
     got = (
         hashlib.sha256(result.totals.tobytes()).hexdigest(),
         hashlib.sha256(result.element_samples.tobytes()).hexdigest(),
     )
-    assert got == ANALYTIC_BYTES[key], moved
+    assert got == ANALYTIC_BYTES[key], _analytic_moved(key)
 
 
 #: The same guard for the mixed model, held at the percentiles rather than at

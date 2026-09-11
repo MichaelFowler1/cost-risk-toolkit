@@ -88,9 +88,12 @@ imports and works, but it stops reproducing the figures this release pins. Both
 land the unbiased MUPE and ZMPE refits in a slightly different place, which moves
 golden leaves by up to 8e-9 and 4.5e-8 relative against a 1e-9 tolerance, and
 scipy 1.18 also changes the simulated draws, which the frozen-draw tests hash.
-Raising a bound means rebaselining the goldens and the frozen draws against the
-new stack and writing down what moved, the same process every other rebaseline
-here went through. `CHANGELOG.md` carries the measurements.
+Both are seen on Windows, where the goldens were captured. Elsewhere those refit
+leaves carry a measured allowance for the machine's own last bits and the hashes
+are not checked, so a bound has to be measured on Windows. Raising a bound means
+rebaselining the goldens and the frozen draws against the new stack and writing
+down what moved, the same process every other rebaseline here went through.
+`CHANGELOG.md` carries the measurements.
 
 ## Quick start
 
@@ -541,8 +544,9 @@ not on 3.10. It is the pinned development set, not the way to set up a checkout
 on an older interpreter. Install the package and let the version range in
 `pyproject.toml` resolve.
 
-752 tests, run on Python 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14 on every push,
-which is the whole supported range. They assert mathematics against closed form
+759 tests, run on Python 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14 on every push,
+which is the whole supported range; four of them, the frozen-draw hashes, run
+on Windows only. They assert mathematics against closed form
 answers rather than against recorded output, with one deliberate exception:
 tests/goldens pins what the lot engine produced on 6 September 2026, so a
 refactor that moves a number has to say so. The strongest ones:

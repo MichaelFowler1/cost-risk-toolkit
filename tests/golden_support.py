@@ -280,8 +280,10 @@ def neutral_separators(tree):
     missing file reads ``<error_inputs>\\nope.csv`` in the goldens, which were
     captured on Windows, and ``<error_inputs>/nope.csv`` everywhere else. That
     separator is the platform's spelling of the path, not part of the text a
-    test pins, so this is applied to both sides of a comparison and never to a
-    golden on disk.
+    test pins, so off the capture platform test_error_paths applies this to
+    both sides of its comparison. On the capture platform it is not applied, so
+    the separator is still compared there, and it is never applied to a golden
+    on disk.
     """
     if isinstance(tree, dict):
         return {k: neutral_separators(v) for k, v in tree.items()}
@@ -2180,10 +2182,18 @@ def _build_platform_exclusions(path=None, *, platform=None) -> list:
     entry = _platform_carve_out(path)
     if (platform or sys.platform) == entry["captured_on_platform"]:
         return []
-    methods = "|".join(entry["fits"])
-    return [(rf"^{re.escape(entry['block'])}/[^/]+/ok/fits/({methods})/{re.escape(field)}$",
-             f"{why} (COMPARE_POLICY expected_to_move_across_platforms.not_compared_off_platform)")
-            for field, why in entry["not_compared_off_platform"].items()]
+    return [(rf"^{re.escape(entry['block'])}/[^/]+/ok/fits/({'|'.join(spec['fits'])})/{re.escape(field)}$",
+             f"{spec['why']} (COMPARE_POLICY expected_to_move_across_platforms.not_compared_off_platform)")
+            for field, spec in entry["not_compared_off_platform"].items()]
+
+
+def _build_platform_zero_sign(path=None, *, platform=None) -> list:
+    """The printed cells whose zero is compared without its sign, as path
+    patterns. Empty on the capture platform, like the allowance."""
+    entry = _platform_carve_out(path)
+    if (platform or sys.platform) == entry["captured_on_platform"]:
+        return []
+    return list(entry["printed_zero_sign"]["paths"])
 
 
 #: The leaves allowed a tolerance of their own, and how much. Two policy
@@ -2200,6 +2210,10 @@ def _build_platform_exclusions(path=None, *, platform=None) -> list:
 #: of its own; what is dropped from the comparison entirely is in
 #: _build_exclusions and _build_platform_exclusions.
 OVERRIDES: dict = {**_build_overrides(), **_build_platform_overrides()}
+
+#: Whether this run is on the platform the goldens were captured on. Every
+#: cross-platform allowance in this module is empty when it is.
+ON_CAPTURE_PLATFORM: bool = sys.platform == _platform_carve_out()["captured_on_platform"]
 
 #: The three cases whose iteration bookkeeping IS golden -- they exist to pin
 #: the loop counter itself (COMPARE_POLICY exclude_from_step2, second item).
@@ -2224,6 +2238,24 @@ _EXCLUDE_STEP2 += _build_exclusions()
 # And the cross-platform one, which is empty on the platform the goldens were
 # captured on.
 _EXCLUDE_STEP2 += _build_platform_exclusions()
+
+#: A printed zero, with or without a sign: "-0.00%", "+0.00%", "0.0000".
+_PRINTED_ZERO = re.compile(r"^[+-]?0(\.0+)?%?$")
+
+#: The cells COMPARE_POLICY.expected_to_move_across_platforms.printed_zero_sign
+#: names; empty on the capture platform.
+_PLATFORM_ZERO_SIGN = [re.compile(p) for p in _build_platform_zero_sign()]
+
+
+def _same_printed_zero(path: str, g, n, patterns=None) -> bool:
+    """True when both cells print the same zero, differing at most in its sign,
+    and the policy names the cell: the sign of a value below the last printed
+    digit is the one thing allowed to differ. A printed digit on either side,
+    or any other change in how the zero is written, is still a mismatch."""
+    return (isinstance(g, str) and isinstance(n, str)
+            and bool(_PRINTED_ZERO.fullmatch(g)) and bool(_PRINTED_ZERO.fullmatch(n))
+            and g.lstrip("+-") == n.lstrip("+-")
+            and any(p.search(path) for p in (_PLATFORM_ZERO_SIGN if patterns is None else patterns)))
 
 #: DFFITS at fewer than two degrees of freedom: {"column", "accept_new",
 #: "golden_abs_at_least"} from the policy. The allowance is only taken when the
@@ -2638,7 +2670,7 @@ def _compare_records(path, gr, nr, w, frame_path, frame, index):
             g, n = _as_number(g), _as_number(n)
         if _num(g) and _num(n):
             _numeric_leaf(p, g, n, w, frame_path=frame_path, column=key, rec_index=index, frame=frame)
-        elif g != n:
+        elif g != n and not _same_printed_zero(p, g, n):
             w.add(p, gr[key], nr[key], "exact (frame cell)")
 
 

@@ -27,11 +27,13 @@ dependencies = [
     # MUPE and ZMPE refits in a slightly different place, which moves golden
     # leaves by up to 8e-9 and 4.5e-8 relative against a 1e-9 tolerance, and
     # scipy 1.18 also changes the draws the risk model produces, so the
-    # frozen-draw hashes in tests/test_monte_carlo.py fail too. Neither is a bug
-    # in either library. The figures and the measurement are in CHANGELOG.md
-    # under 1.0.0; lifting a bound means rebaselining the goldens and the frozen
-    # draws under the new stack and recording what moved, not widening a
-    # tolerance until the failure stops.
+    # frozen-draw hashes in tests/test_monte_carlo.py fail too. Both are seen on
+    # Windows, where the goldens were captured; elsewhere those leaves carry a
+    # measured allowance and the hashes are skipped, so a bound is measured on
+    # Windows. Neither is a bug in either library. The figures and the
+    # measurement are in CHANGELOG.md under 1.0.0; lifting a bound means
+    # rebaselining the goldens and the frozen draws under the new stack and
+    # recording what moved, not widening a tolerance until the failure stops.
     "numpy>=1.26.0,<2.5",
     "pandas>=2.1.0",
     "scipy>=1.11.0,<1.18",

@@ -26,6 +26,7 @@ import fnmatch
 import gzip
 import json
 import re
+import sys
 import time
 from pathlib import Path
 
@@ -367,11 +368,19 @@ def test_the_platform_allowance_reaches_mupe_and_zmpe_and_nothing_else():
     it is about. On the capture platform it builds nothing, so every leaf there
     is still compared at 1e-9. Anywhere else it reaches exactly the MUPE and
     ZMPE leaves the policy names, in every scatter: not the OLS fit or its
-    table row, not a field the policy leaves out, nothing outside the block.
-    And every field it names reaches at least one leaf, so a renamed field
-    cannot leave behind an allowance nothing takes."""
+    table row, not a field the policy leaves out, nothing outside the block,
+    each at the tolerance the policy sizes for it. Every field it names reaches
+    at least one leaf, so a renamed field cannot leave behind an allowance
+    nothing takes. And the tables the comparator actually reads agree: on the
+    capture platform they hold nothing from this entry, anywhere else all of
+    it. The capture platform itself is pinned here too, because every other
+    check keys on the policy's string: were it misspelt, Windows would build
+    the allowance and the byte tests would skip everywhere, with nothing to say
+    so."""
     entry = GS._platform_carve_out()
     home = entry["captured_on_platform"]
+    assert home == "win32"
+    assert GS.ON_CAPTURE_PLATFORM == (sys.platform == "win32")
     assert GS._build_platform_overrides(platform=home) == {}
     assert GS._build_platform_exclusions(platform=home) == []
     globs = GS._build_platform_overrides(platform="linux")
@@ -384,13 +393,98 @@ def test_the_platform_allowance_reaches_mupe_and_zmpe_and_nothing_else():
         fit, row = fit_leaf.match(path), row_leaf.match(path)
         allowed = bool(fit and fit[1] in entry["fits"] and fit[2] in entry["fit_fields"]) or bool(
             row and int(row[1]) in entry["table_rows"].values() and row[2] in entry["table_columns"])
-        skipped = bool(fit and fit[1] in entry["fits"] and fit[2] in entry["not_compared_off_platform"])
-        assert any(fnmatch.fnmatch(path, g) for g in globs) == allowed, path
+        skipped = bool(fit and fit[2] in entry["not_compared_off_platform"]
+                       and fit[1] in entry["not_compared_off_platform"][fit[2]]["fits"])
+        hits = [g for g in globs if fnmatch.fnmatch(path, g)]
+        assert bool(hits) == allowed, path
         assert any(p.search(path) for p in dropped) == skipped, path
+        if allowed:
+            sized = entry["fit_fields"][fit[2]] if fit else entry["table_columns"][row[2]]
+            assert all(globs[g] == sized for g in hits), path
         if allowed or skipped:
             reached.add(("fits", fit[2]) if fit else ("table", row[2]))
     assert reached == ({("fits", f) for f in [*entry["fit_fields"], *entry["not_compared_off_platform"]]}
                        | {("table", c) for c in entry["table_columns"]})
+    live_exclusions = {p for p, _ in GS._EXCLUDE_STEP2}
+    platform_exclusions = {p for p, _ in GS._build_platform_exclusions(platform="linux")}
+    if GS.ON_CAPTURE_PLATFORM:
+        assert GS.OVERRIDES == GS._build_overrides()
+        assert not live_exclusions & platform_exclusions
+        assert GS._PLATFORM_ZERO_SIGN == []
+    else:
+        assert all(GS.OVERRIDES.get(g) == t for g, t in globs.items())
+        assert platform_exclusions <= live_exclusions
+        assert [p.pattern for p in GS._PLATFORM_ZERO_SIGN] == GS._build_platform_zero_sign(platform="linux")
+
+
+def _frame_cells(tree, path=""):
+    """Every cell of every Item-keyed frame in a golden tree, as (path, value),
+    with the path spelled the way the comparator spells it:
+    <frame>/[Item=<key>]/<column>."""
+    if isinstance(tree, dict) and "records" in tree and "columns" in tree:
+        if "Item" in tree["columns"]:
+            for key, rec in zip(GS._item_keys(tree["records"]), tree["records"]):
+                for column, value in rec.items():
+                    yield f"{path}/[Item={key}]/{column}", value
+        return
+    if isinstance(tree, dict):
+        for k, v in tree.items():
+            yield from _frame_cells(v, f"{path}/{k}")
+    elif isinstance(tree, list):
+        for i, v in enumerate(tree):
+            yield from _frame_cells(v, f"{path}[{i}]")
+
+
+def test_a_printed_zero_off_the_capture_platform_is_compared_without_its_sign():
+    """COMPARE_POLICY.expected_to_move_across_platforms.printed_zero_sign. On
+    the capture platform it builds nothing. Elsewhere it reaches every Mean bias
+    cell of the summary and model_comparison frames of the two exact-fit
+    fixtures, which are the cells measured to flip, and no other cell of the
+    golden. Only the sign of a zero may differ: a printed digit, or any other
+    change in how the zero is written, still fails. And the comparator itself,
+    through the tables it reads, holds the flip to that: a mismatch on the
+    capture platform, none anywhere else."""
+    home = GS._platform_carve_out()["captured_on_platform"]
+    assert GS._build_platform_zero_sign(platform=home) == []
+    patterns = [re.compile(p) for p in GS._build_platform_zero_sign(platform="linux")]
+    cells = dict(_frame_cells(load_golden("lots_cost_core")))
+    reached = {p for p in cells if any(r.search(p) for r in patterns)}
+    # the three model columns; the row's Item label and the summary's Value
+    # column (blank on this row) print no statistic
+    exact_fit_bias = {p for p in cells if re.match(
+        r"^/(clean_series|midpoint_curve_recovery)/.*/(model_comparison|summary)/\[Item=Mean bias\]/(LC|Rate|LC\+Rate)$", p)}
+    assert reached and reached == exact_fit_bias
+    # a sibling fixture that is not an exact fit also prints a zero here, and
+    # stays compared as printed
+    sibling = "/clean_series_escalated_0.02/report/ok/fit/summary/[Item=Mean bias]/LC+Rate"
+    assert GS._PRINTED_ZERO.fullmatch(cells[sibling]) and sibling not in reached
+    assert not GS._same_printed_zero(sibling, "-0.00%", "+0.00%", patterns)
+    zeros = [p for p in reached if GS._PRINTED_ZERO.fullmatch(str(cells[p]))]
+    assert zeros
+    for path in zeros:
+        assert GS._same_printed_zero(path, "-0.00%", "+0.00%", patterns)
+        assert GS._same_printed_zero(path, "+0.00%", "-0.00%", patterns)
+        assert not GS._same_printed_zero(path, "-0.00%", "+0.01%", patterns)
+        assert not GS._same_printed_zero(path, "-0.01%", "+0.01%", patterns)
+        assert not GS._same_printed_zero(path, "-0.00%", "0", patterns)
+        assert not GS._same_printed_zero(path, "-0.00%", "-0.000%", patterns)
+
+    def one_cell(text, *frame_path):
+        frame = {"columns": ["Item", "LC"], "records": [{"Item": "Mean bias", "LC": text}]}
+        for key in reversed(frame_path):
+            frame = {key: frame}
+        return frame
+
+    def mismatches(golden, new):
+        return GS.compare_with_policy(one_cell(golden, *at), one_cell(new, *at), POLICY, stage=GOLDEN_STAGE)
+
+    at = ("clean_series", "fit", "summary")
+    assert len(mismatches("-0.00%", "+0.00%")) == (1 if GS.ON_CAPTURE_PLATFORM else 0)
+    assert len(mismatches("-0.00%", "+0.01%")) == 1
+    # the same flip at the sibling's path is a mismatch everywhere: the
+    # allowance is confined to the cells the policy names
+    at = ("clean_series_escalated_0.02", "report", "ok", "fit", "summary")
+    assert len(mismatches("-0.00%", "+0.00%")) == 1
 
 
 # --------------------------------------------------------------------------
@@ -439,7 +533,20 @@ def test_error_paths(tmp_path):
     # the library capture tags its own engine "lib"; the golden side it has to
     # reproduce is the tool's, so the tool's texts are read under that tag
     golden["engine"] = {"lib": golden["engine"][ERROR_ENGINE_SIDE]}
-    # the goldens spell a masked path with the separator of the machine they
-    # were captured on; the text around it is what is pinned
-    check(GS.neutral_separators(golden),
-          GS.neutral_separators(GS.to_json_tree(GS.capture_error_paths(tmp_path))))
+    new = GS.to_json_tree(GS.capture_error_paths(tmp_path))
+    if not GS.ON_CAPTURE_PLATFORM:
+        # the goldens spell a masked path with the separator of the machine
+        # they were captured on; off it, the text around it is what is pinned
+        golden, new = GS.neutral_separators(golden), GS.neutral_separators(new)
+    check(golden, new)
+
+
+def test_neutral_separators_rewrites_the_separator_after_a_token_and_nothing_else():
+    """What test_error_paths relies on off the capture platform: the one
+    separator after a mask token is written as '/', and every other character
+    of the text, before and after it, is left as it was."""
+    text = "FileNotFoundError: No lot data file at <error_inputs>\\nope.csv; check the path."
+    assert GS.neutral_separators(text) == "FileNotFoundError: No lot data file at <error_inputs>/nope.csv; check the path."
+    assert GS.neutral_separators("<error_inputs>/nope.csv") == "<error_inputs>/nope.csv"
+    assert GS.neutral_separators("C:\\data\\nope.csv") == "C:\\data\\nope.csv"
+    assert GS.neutral_separators({"a": [text, 3, None]}) == {"a": [GS.neutral_separators(text), 3, None]}

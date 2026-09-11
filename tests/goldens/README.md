@@ -219,21 +219,34 @@ The goldens were captured on Windows, and under Linux the same refit block
 moves by the same kind of amount with no change of stack at all: fifty leaves,
 every one of them in the MUPE and ZMPE results of `lots_cost_core`'s
 `learning_curve_compare_methods`, up to 3.8e-8 relative on T1, and the
-`scatter_0.3` MUPE loop stops at 12 steps instead of 11. The same numpy on the
-same machine computes different last bits under the two, and
-`cost_core.learning_curve` fits with central differences, which magnify them.
-Nothing else in any golden moves, the lot engine included.
+`scatter_0.3` MUPE loop stops at 12 steps instead of 11. It depends on the
+machine as well as the platform. The same numpy on the same computer computes
+different last bits under the two, OpenBLAS picks its kernels by CPU, and
+`cost_core.learning_curve` fits with central differences, which magnify all of
+it. Forcing OpenBLAS onto its kernels without FMA moves 40 more leaves and lets
+8 of the 50 back inside 1e-9: nine in `scatter_0.05`, more of the `scatter_0.1`
+MUPE fit (five spread statistics among them, by 1.3e-9), all three iteration
+counts, and the sign of the `Mean bias` the two exact-fit fixtures print as
+zero. One GitHub runner moved the OLS iteration count and ten of those signs on
+its own, and two lanes of the v1.0.0 tag's run moved 73 leaves where the others
+moved 50, two of the 73 being those signs. Nothing else in any golden moves,
+the lot engine included.
 
 Off Windows those leaves are compared under
-`COMPARE_POLICY.expected_to_move_across_platforms`, sized by the same
-three-times rule as step 2, and the MUPE and ZMPE iteration counts are not
-compared. On Windows that entry builds nothing and they stay at 1e-9. The
+`COMPARE_POLICY.expected_to_move_across_platforms`: every MUPE and ZMPE
+statistic in the block under an allowance sized by the same three-times rule as
+step 2,
+the three iteration counts not at all, and those `Mean bias` cells as equal
+when both print a zero, whatever its sign. On Windows that entry builds nothing
+and all of it stays at 1e-9. The
 upgrade check above therefore only works on Windows, because off it the
 allowance absorbs the numpy 2.5.3 and scipy 1.18.1 moves in this block. Under
-Linux, with the allowance in place, scipy 1.18.1 passes the whole suite, and
-numpy 2.5.3 fails only on eight printed `Mean bias` cells of the two exact-fit
-fixtures that flip between `-0.00%` and `+0.00%`. Measure a cap raise on
-Windows. The policy entry carries the eight Linux runs the sizes rest on.
+Linux, with the allowance in place, numpy 2.5.3 and scipy 1.18.1 each pass the
+whole suite, so off Windows nothing sees either of them. Measure a cap raise on
+Windows. The policy entry records the 32 Linux runs it was measured on; the
+maxima the sizes rest on come from the 26 that printed the allowed fields, and
+the iteration counts and `Mean bias` signs from those and the one lane that
+printed only them.
 
 ## What `summary.py` prints, and how it is still pinned at 1e-9
 
