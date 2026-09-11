@@ -10,6 +10,13 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-11
+
+A tests-only release. The engine's code and every number it produces are the
+same as 1.0.0's; the one thing that reads differently is the version in the
+provenance row. What changed is the source distribution, which ships the test
+suite, and 1.0.0's failed on Linux.
+
 ### Fixed
 
 - The test suite passes off Windows. Every golden and every frozen draw in it
@@ -297,5 +304,6 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/releases/tag/v1.0.0
