@@ -10,6 +10,35 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Fixed
+
+- The test suite passes off Windows. Every golden and every frozen draw in it
+  was captured on Windows, and the first push of 1.0.0 failed the same six
+  tests on all six Linux lanes. Nothing in `cost_core` changed and no golden
+  was rewritten; the tests assumed more was portable than is.
+
+  Under Linux the same numpy on the same machine draws about 0.6% of the
+  analytic risk model's values one to nine ulps away from Windows, so the four
+  frozen-draw hashes can't hold there. That model is now pinned at p50, p80
+  and p90 on every platform, to 1e-12 relative, and at the hashes on Windows
+  only, where they still catch a change like scipy 1.18.1's that leaves the
+  percentiles alone.
+
+  The same last-bit differences move the MUPE and ZMPE refits in the
+  learning-curve block of `tests/goldens/lots_cost_core`, because
+  `cost_core.learning_curve` fits with central differences: fifty leaves, up
+  to 3.8e-8 relative on T1, and the `scatter_0.3` MUPE loop stops at 12 steps
+  instead of 11. Off Windows those leaves are now compared under a measured
+  allowance, `COMPARE_POLICY.expected_to_move_across_platforms`, and the two
+  iteration counts aren't compared. On Windows they stay at 1e-9. Nothing
+  else in any golden moves. That makes Windows the place a numpy or scipy cap
+  raise has to be measured: under Linux, scipy 1.18.1 now passes the whole
+  suite.
+
+  And a masked path in an error text keeps the separator of the machine that
+  wrote it, so the error-path comparison now reads `<error_inputs>\` and
+  `<error_inputs>/` as the same.
+
 ## [1.0.0] - 2026-09-09
 
 The first release. This is the point where the library stopped being the back

@@ -22,8 +22,10 @@ rebaselined, when and by how much.
 """
 from __future__ import annotations
 
+import fnmatch
 import gzip
 import json
+import re
 import time
 from pathlib import Path
 
@@ -348,6 +350,49 @@ def test_lots_cost_core(tmp_path):
           new_only_items=GS.LOTS_GOLDEN_PREDATES_ITEMS)
 
 
+def _leaf_paths(tree, path=""):
+    """Every leaf path in a golden tree, spelled the way the comparator spells it."""
+    if isinstance(tree, dict):
+        for k, v in tree.items():
+            yield from _leaf_paths(v, f"{path}/{k}")
+    elif isinstance(tree, list):
+        for i, v in enumerate(tree):
+            yield from _leaf_paths(v, f"{path}[{i}]")
+    else:
+        yield path
+
+
+def test_the_platform_allowance_reaches_mupe_and_zmpe_and_nothing_else():
+    """COMPARE_POLICY.expected_to_move_across_platforms, held against the golden
+    it is about. On the capture platform it builds nothing, so every leaf there
+    is still compared at 1e-9. Anywhere else it reaches exactly the MUPE and
+    ZMPE leaves the policy names, in every scatter: not the OLS fit or its
+    table row, not a field the policy leaves out, nothing outside the block.
+    And every field it names reaches at least one leaf, so a renamed field
+    cannot leave behind an allowance nothing takes."""
+    entry = GS._platform_carve_out()
+    home = entry["captured_on_platform"]
+    assert GS._build_platform_overrides(platform=home) == {}
+    assert GS._build_platform_exclusions(platform=home) == []
+    globs = GS._build_platform_overrides(platform="linux")
+    dropped = [re.compile(p) for p, _ in GS._build_platform_exclusions(platform="linux")]
+    block = re.escape(entry["block"])
+    fit_leaf = re.compile(rf"^{block}/[^/]+/ok/fits/(\w+)/(\w+)(\[\d+\])*$")
+    row_leaf = re.compile(rf"^{block}/[^/]+/ok/comparison_table/records\[(\d+)\]/(\w+)$")
+    reached = set()
+    for path in _leaf_paths(load_golden("lots_cost_core")):
+        fit, row = fit_leaf.match(path), row_leaf.match(path)
+        allowed = bool(fit and fit[1] in entry["fits"] and fit[2] in entry["fit_fields"]) or bool(
+            row and int(row[1]) in entry["table_rows"].values() and row[2] in entry["table_columns"])
+        skipped = bool(fit and fit[1] in entry["fits"] and fit[2] in entry["not_compared_off_platform"])
+        assert any(fnmatch.fnmatch(path, g) for g in globs) == allowed, path
+        assert any(p.search(path) for p in dropped) == skipped, path
+        if allowed or skipped:
+            reached.add(("fits", fit[2]) if fit else ("table", row[2]))
+    assert reached == ({("fits", f) for f in [*entry["fit_fields"], *entry["not_compared_off_platform"]]}
+                       | {("table", c) for c in entry["table_columns"]})
+
+
 # --------------------------------------------------------------------------
 # the CLI
 # --------------------------------------------------------------------------
@@ -394,4 +439,7 @@ def test_error_paths(tmp_path):
     # the library capture tags its own engine "lib"; the golden side it has to
     # reproduce is the tool's, so the tool's texts are read under that tag
     golden["engine"] = {"lib": golden["engine"][ERROR_ENGINE_SIDE]}
-    check(golden, GS.capture_error_paths(tmp_path))
+    # the goldens spell a masked path with the separator of the machine they
+    # were captured on; the text around it is what is pinned
+    check(GS.neutral_separators(golden),
+          GS.neutral_separators(GS.to_json_tree(GS.capture_error_paths(tmp_path))))

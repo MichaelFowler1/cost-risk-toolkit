@@ -269,6 +269,29 @@ def mask_paths(s: str) -> str:
     return s
 
 
+#: A mask token and the separator that followed the directory it replaced.
+_TOKEN_SEPARATOR = re.compile(r"(<[a-z_]+>)[\\/]")
+
+
+def neutral_separators(tree):
+    """tree with the separator after every mask token written as '/'.
+
+    Masking replaces the directory and keeps the separator after it, so one
+    missing file reads ``<error_inputs>\\nope.csv`` in the goldens, which were
+    captured on Windows, and ``<error_inputs>/nope.csv`` everywhere else. That
+    separator is the platform's spelling of the path, not part of the text a
+    test pins, so this is applied to both sides of a comparison and never to a
+    golden on disk.
+    """
+    if isinstance(tree, dict):
+        return {k: neutral_separators(v) for k, v in tree.items()}
+    if isinstance(tree, list):
+        return [neutral_separators(v) for v in tree]
+    if isinstance(tree, str):
+        return _TOKEN_SEPARATOR.sub(r"\1/", tree)
+    return tree
+
+
 # --------------------------------------------------------------------------
 # input data
 # --------------------------------------------------------------------------
@@ -2119,16 +2142,64 @@ def _build_exclusions() -> list:
     return out
 
 
-#: The leaves step 2 is allowed to move, and by how much. Read from
-#: COMPARE_POLICY.expected_to_move_beyond_rtol_in_step_2, which carries the
-#: measured sizes and the reasoning: the MUPE and ZMPE rows of every
-#: compare_fitting_methods frame move when the private _fit_mupe / _fit_zmpe
-#: are replaced by cost_core.fitting.fit_all_methods, because the two
-#: estimators stop on different rules, and derived_stats Bias, which is a
-#: near-zero quantity that needs an absolute allowance rather than the
-#: general one. Nothing else is given a tolerance of its own; what is
-#: dropped from the comparison entirely is in _build_exclusions.
-OVERRIDES: dict = _build_overrides()
+def _platform_carve_out(path=None) -> dict:
+    """COMPARE_POLICY's cross-platform entry."""
+    return json.loads(Path(path or POLICY_PATH).read_text(encoding="utf-8"))[
+        "expected_to_move_across_platforms"]
+
+
+def _build_platform_overrides(path=None, *, platform=None) -> dict:
+    """The cross-platform allowance, expanded from COMPARE_POLICY into path globs.
+
+    Empty on the platform the goldens were captured on, so there every leaf is
+    still compared at 1e-9 and a numpy or scipy upgrade still shows. Anywhere
+    else it gives the MUPE and ZMPE results of the lots golden's learning-curve
+    block -- the fitting.fit results and their two comparison-table rows -- the
+    tolerance the policy sizes for each field. theta, cov and fitted are lists,
+    which the second glob reaches element by element.
+    """
+    entry = _platform_carve_out(path)
+    if (platform or sys.platform) == entry["captured_on_platform"]:
+        return {}
+    block = entry["block"]
+    out = {}
+    for method in entry["fits"]:
+        for field, tol in entry["fit_fields"].items():
+            leaf = f"{block}/*/ok/fits/{method}/{field}"
+            out[leaf] = dict(tol)
+            out[leaf + "[[]*"] = dict(tol)
+    for index in entry["table_rows"].values():
+        for column, tol in entry["table_columns"].items():
+            out[f"{block}/*/ok/comparison_table/records[[]{index}]/{column}"] = dict(tol)
+    return out
+
+
+def _build_platform_exclusions(path=None, *, platform=None) -> list:
+    """The leaves the cross-platform entry stops comparing, as (pattern, why)
+    pairs. Empty on the capture platform, like the allowance."""
+    entry = _platform_carve_out(path)
+    if (platform or sys.platform) == entry["captured_on_platform"]:
+        return []
+    methods = "|".join(entry["fits"])
+    return [(rf"^{re.escape(entry['block'])}/[^/]+/ok/fits/({methods})/{re.escape(field)}$",
+             f"{why} (COMPARE_POLICY expected_to_move_across_platforms.not_compared_off_platform)")
+            for field, why in entry["not_compared_off_platform"].items()]
+
+
+#: The leaves allowed a tolerance of their own, and how much. Two policy
+#: entries feed it. COMPARE_POLICY.expected_to_move_beyond_rtol_in_step_2
+#: carries the measured sizes and the reasoning for what step 2 moved: the
+#: MUPE and ZMPE rows of every compare_fitting_methods frame, which move when
+#: the private _fit_mupe / _fit_zmpe are replaced by
+#: cost_core.fitting.fit_all_methods because the two estimators stop on
+#: different rules, and derived_stats Bias, which is a near-zero quantity that
+#: needs an absolute allowance rather than the general one.
+#: COMPARE_POLICY.expected_to_move_across_platforms adds the MUPE and ZMPE
+#: results of the lots golden's learning-curve block, off the platform the
+#: goldens were captured on and only there. Nothing else is given a tolerance
+#: of its own; what is dropped from the comparison entirely is in
+#: _build_exclusions and _build_platform_exclusions.
+OVERRIDES: dict = {**_build_overrides(), **_build_platform_overrides()}
 
 #: The three cases whose iteration bookkeeping IS golden -- they exist to pin
 #: the loop counter itself (COMPARE_POLICY exclude_from_step2, second item).
@@ -2150,6 +2221,9 @@ _EXCLUDE_STEP2 = [
 # The step-2 carve-outs the policy spells out, appended so they are visible in
 # the same list as everything else the comparator skips.
 _EXCLUDE_STEP2 += _build_exclusions()
+# And the cross-platform one, which is empty on the platform the goldens were
+# captured on.
+_EXCLUDE_STEP2 += _build_platform_exclusions()
 
 #: DFFITS at fewer than two degrees of freedom: {"column", "accept_new",
 #: "golden_abs_at_least"} from the policy. The allowance is only taken when the

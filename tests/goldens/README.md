@@ -204,13 +204,36 @@ move under numpy and forty-one under scipy, all of them in the refit block, plus
 nominally zero quantities like a mean percentage error at 1e-13 that moves to
 1e-11 and so fails in relative terms while meaning nothing. scipy 1.18.1 also
 changes the draws the risk model produces, which the frozen-draw hashes in
-`tests/test_monte_carlo.py` catch.
+`tests/test_monte_carlo.py` catch on Windows, the one platform they are checked
+on.
 
 So a golden failure right after a numpy or scipy upgrade is the expected
 behaviour of a 1e-9 pin, not a regression in this repo. Raising a cap belongs in
 the rebaseline process below: measure what moved, write it into
 `COMPARE_POLICY.json`, and say so here. Widening the tolerance instead would
 throw away the thing these files exist to detect.
+
+## And platform-dependent
+
+The goldens were captured on Windows, and under Linux the same refit block
+moves by the same kind of amount with no change of stack at all: fifty leaves,
+every one of them in the MUPE and ZMPE results of `lots_cost_core`'s
+`learning_curve_compare_methods`, up to 3.8e-8 relative on T1, and the
+`scatter_0.3` MUPE loop stops at 12 steps instead of 11. The same numpy on the
+same machine computes different last bits under the two, and
+`cost_core.learning_curve` fits with central differences, which magnify them.
+Nothing else in any golden moves, the lot engine included.
+
+Off Windows those leaves are compared under
+`COMPARE_POLICY.expected_to_move_across_platforms`, sized by the same
+three-times rule as step 2, and the MUPE and ZMPE iteration counts are not
+compared. On Windows that entry builds nothing and they stay at 1e-9. The
+upgrade check above therefore only works on Windows, because off it the
+allowance absorbs the numpy 2.5.3 and scipy 1.18.1 moves in this block. Under
+Linux, with the allowance in place, scipy 1.18.1 passes the whole suite, and
+numpy 2.5.3 fails only on eight printed `Mean bias` cells of the two exact-fit
+fixtures that flip between `-0.00%` and `+0.00%`. Measure a cap raise on
+Windows. The policy entry carries the eight Linux runs the sizes rest on.
 
 ## What `summary.py` prints, and how it is still pinned at 1e-9
 

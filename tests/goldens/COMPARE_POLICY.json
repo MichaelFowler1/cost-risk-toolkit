@@ -839,6 +839,149 @@
    "numeric_strings": "a csv_contents cell that is a string on both sides and parses as a finite float on both sides is compared as a number under the general rule rather than as text. Without that the CSV columns pandas leaves as object dtype (a value column holding both names and numbers) would be compared byte for byte and the 1e-9 this policy promises for csv_contents would never be applied"
   }
  },
+ "expected_to_move_across_platforms": {
+  "_what": "the MUPE and ZMPE results of the learning_curve_compare_methods block of lots_cost_core.json.gz, both the fitting.fit results and their rows of the comparison table, when the suite runs anywhere but Windows, where every golden was captured. tests/golden_support.py builds OVERRIDES entries and one exclusion from this entry, and builds nothing from it on Windows",
+  "_why": "the same numpy on the same machine does not compute the same last bits under Windows and under Linux: the lognormal reference model in tests/test_monte_carlo.py draws 0.6% of its values one to nine ulps apart between the two, numpy 2.4.4 on both. cost_core.learning_curve gives fitting no analytic Jacobian, so fitting takes central differences, which divide a last-bit disagreement by the step, and MUPE and ZMPE iterate on the result. The two refits land about 1e-8 apart and the scatter_0.3 MUPE loop stops at 12 steps instead of 11. The OLS fit is closed form and does not move, and neither does any leaf of any other golden, the lot engine's included, whose models carry analytic Jacobians. This is the sensitivity tests/goldens/README.md records for numpy and scipy upgrades, reached through the platform instead of the stack",
+  "_measured_not_guessed": "on eight Linux runs of the tree tagged v1.0.0: the six GitHub Actions lanes of its first push (python 3.9 to 3.14 on ubuntu, whose logs print the first 40 of the 50 leaves), and, uncapped, python 3.12 under WSL (Ubuntu 24.04, glibc 2.39) on the machine the goldens came from, once on the pinned stack (numpy 2.4.4, pandas 3.0.3, scipy 1.17.1) and once on the 3.9 lane's floor (numpy 2.0.2, pandas 2.3.3, scipy 1.13.1). All eight move the same 50 leaves, in scatter_0.1 and scatter_0.3, by the same amounts: the one disagreement among them is one ulp on one slope_lower_80. scatter_0.05 moves on none of them, and Windows, python 3.14 and 3.9, moves nothing",
+  "_how_the_allowances_are_sized": "by the rule expected_to_move_beyond_rtol_in_step_2 states: the smallest power of ten that clears the largest measured move by at least three times, with an absolute allowance only where a leaf sits so near zero that its relative move is arithmetic about nothing. T1 1e-6 over 3.820e-8 (26x; 1e-7 would be 2.6x). slope and its two 80% bounds 1e-7 over 7.953e-9 (12.6x). fitted 1e-7 over 2.342e-8 (4.3x). theta 1e-7 over theta[0]'s 4.832e-9 (20.7x), plus an atol of 1e-7 for theta[1], the log2 of a slope near one, which is -0.012 on the scatter_0.3 ZMPE fit and moves 1.119e-8 there, 9.3e-7 relative (8.9x); _atol_on_the_exponents is the same case in step 2. cov 1e-8 over 3.181e-9 (3.1x). r_squared 1e-7 over 1.875e-8 (5.3x), plus an atol of 1e-7 for the scatter_0.3 ZMPE r_squared, which is -0.0014 and moves 1.736e-8 (5.8x). Mean percent error, a cancelling sum of order 1e-11, atol 1e-9 over 1.841e-10 (5.4x). Apart from mean percent error, which is noise about zero whatever its figures say, every allowance is at least ten times below the fourth significant figure of the leaf it covers",
+  "_what_is_given_up": "off Windows, a move in these leaves smaller than its allowance goes unseen, and the MUPE and ZMPE iteration counts are not compared at all. That includes the numpy 2.5.3 and scipy 1.18.1 moves tests/goldens/README.md records for this block. Measured under Linux with this entry in place: scipy 1.18.1 passes the whole suite, and numpy 2.5.3 fails only on eight printed Mean bias cells of the two exact-fit lots fixtures, which flip between -0.00% and +0.00%. So a raise of the numpy or scipy cap has to be measured on Windows. On Windows nothing is given up: this entry builds nothing there, and every leaf is compared at rtol 1e-9 and the iteration counts exactly",
+  "captured_on_platform": "win32",
+  "block": "/learning_curve_compare_methods",
+  "fits": [
+   "mupe",
+   "zmpe"
+  ],
+  "table_rows": {
+   "MUPE": 1,
+   "ZMPE": 2
+  },
+  "fit_fields": {
+   "t1": {
+    "rtol": 1e-06
+   },
+   "slope": {
+    "rtol": 1e-07
+   },
+   "theta": {
+    "rtol": 1e-07,
+    "atol": 1e-07
+   },
+   "fitted": {
+    "rtol": 1e-07
+   },
+   "cov": {
+    "rtol": 1e-08
+   },
+   "r_squared": {
+    "rtol": 1e-07,
+    "atol": 1e-07
+   },
+   "mean_percent_error": {
+    "atol": 1e-09
+   }
+  },
+  "table_columns": {
+   "t1": {
+    "rtol": 1e-06
+   },
+   "slope": {
+    "rtol": 1e-07
+   },
+   "slope_lower_80": {
+    "rtol": 1e-07
+   },
+   "slope_upper_80": {
+    "rtol": 1e-07
+   },
+   "r_squared": {
+    "rtol": 1e-07,
+    "atol": 1e-07
+   },
+   "mean_pct_error": {
+    "atol": 1e-09
+   }
+  },
+  "not_compared_off_platform": {
+   "n_iter": "the MUPE and ZMPE iteration count is a loop counter, like iteration_detail, and the scatter_0.3 MUPE loop takes 12 steps under Linux where it took 11 under Windows; converged, and every number the loop produces, are still compared"
+  },
+  "_measured_maxima": {
+   "_note": "the largest move each field makes across the eight Linux runs, and where. All of them are on scatter_0.3",
+   "fits t1": {
+    "rel": 3.82e-08,
+    "abs": 0.0001036,
+    "at": "zmpe"
+   },
+   "fits slope": {
+    "rel": 7.757e-09,
+    "abs": 7.693e-09,
+    "at": "zmpe"
+   },
+   "fits theta[0]": {
+    "rel": 4.832e-09,
+    "abs": 3.82e-08,
+    "at": "zmpe"
+   },
+   "fits theta[1]": {
+    "rel": 9.338e-07,
+    "abs": 1.119e-08,
+    "at": "zmpe"
+   },
+   "fits fitted": {
+    "rel": 2.342e-08,
+    "abs": 6.254e-05,
+    "at": "zmpe fitted[0]"
+   },
+   "fits cov": {
+    "rel": 3.181e-09,
+    "abs": 7.139e-10,
+    "at": "zmpe cov[0][0]"
+   },
+   "fits r_squared": {
+    "rel": 1.264e-05,
+    "abs": 1.736e-08,
+    "at": "zmpe, where r_squared is -0.0014; the largest relative move away from zero is 1.875e-8, on mupe"
+   },
+   "fits mean_percent_error": {
+    "abs": 1.841e-10,
+    "at": "mupe"
+   },
+   "fits n_iter": {
+    "golden": 11,
+    "new": 12,
+    "at": "mupe"
+   },
+   "table t1": {
+    "rel": 3.82e-08,
+    "abs": 0.0001036,
+    "at": "row 2 (ZMPE)"
+   },
+   "table slope": {
+    "rel": 7.757e-09,
+    "abs": 7.693e-09,
+    "at": "row 2 (ZMPE)"
+   },
+   "table slope_lower_80": {
+    "rel": 7.562e-09,
+    "abs": 6.53e-09,
+    "at": "row 2 (ZMPE)"
+   },
+   "table slope_upper_80": {
+    "rel": 7.953e-09,
+    "abs": 9.057e-09,
+    "at": "row 2 (ZMPE)"
+   },
+   "table r_squared": {
+    "rel": 1.264e-05,
+    "abs": 1.736e-08,
+    "at": "row 2 (ZMPE), as fits r_squared"
+   },
+   "table mean_pct_error": {
+    "abs": 1.841e-10,
+    "at": "row 1 (MUPE)"
+   }
+  },
+  "unchanged_at_the_general_rule": "everything else, on every platform: the OLS fit and the OLS row of the table, observed, sigma, standard_error, std_error, cv, df, n_obs, n_params and converged of every fit, and every other block of every golden. None of those moved on any of the eight runs"
+ },
  "workbooks": {
   "resolution": "every numeric xlsx cell is written rounded by the engine (2 dp costs, 4 dp midpoints; Risk_Summary values are formatted strings), so compare_workbooks.py --rtol 1e-9 has an effective resolution of about 0.005/|value|. The JSON goldens (ctx, midpoints.forecast_unrounded, enrich, derived_stats) are the only 1e-9 authority; the workbook check guards layout, sheet/chart structure and the rounded values",
   "wbs_<program>.xlsx": "risk variant: Program_SCurve, Program_Tornado and the risk rows/columns of Program_Summary and Program_Elements change in step 3; regress wbs_<program>_plain.xlsx and wbs_<program>_plain_nosens.xlsx instead (compare_workbooks.py --skip-sheets Program_SCurve,Program_Tornado for the risk one)",

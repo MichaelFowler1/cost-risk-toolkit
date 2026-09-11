@@ -339,9 +339,29 @@ def test_a_non_empirical_marginal_has_no_draw_count_to_trip_on():
 #: sampled at the copula's own uniforms, in the order the generator produced
 #: them. Both samplers and two iteration counts, because iman_conover consumes
 #: the generator differently and the rank branch is keyed on the count.
-#: Verified identical on both supported lanes (numpy 2.0.2 / Python 3.9 and
-#: numpy 2.4 / Python 3.14).
-ANALYTIC_REFERENCE = {
+#:
+#: Held two ways, because the bytes are not the same on every platform. The
+#: percentiles hold everywhere, to 1e-12 relative. Under Linux the same numpy
+#: on the same machine draws about 0.6% of the values one to nine ulps away
+#: from Windows, so the totals differ by up to two ulps, 3.6e-16 relative, and
+#: a percentile interpolates between two of them. p50, p80 and p90 came out
+#: identical on every platform and stack measured, but that is luck in which
+#: totals they land on, not something to lean on.
+ANALYTIC_PERCENTILES = {
+    "gaussian_copula|8000|11": (714114878.045728, 798449992.4574431, 845738614.6909219),
+    "gaussian_copula|20000|3": (713758889.1478798, 797501511.7317004, 846647867.8881909),
+    "iman_conover|8000|11": (715051024.504147, 800100954.8868344, 848154851.5720096),
+    "iman_conover|20000|3": (713376830.190798, 800133746.5882429, 848639407.2056745),
+}
+
+#: And the bytes, on Windows, where they were frozen. There they are identical
+#: on both supported lanes (numpy 2.0.2 / Python 3.9 and numpy 2.4 / Python
+#: 3.14), and they see what the percentiles cannot: scipy 1.18.1 changes the
+#: draws enough to fail these hashes, which is how the scipy cap in
+#: pyproject.toml was found, and leaves all four sets of percentiles exactly
+#: where they were, which was measured under Linux.
+ANALYTIC_BYTES_PLATFORM = "win32"
+ANALYTIC_BYTES = {
     "gaussian_copula|8000|11": (
         "a98b9aed7fdec825a732570f6e664ac02196b0f2a448a833409665cea96b3628",
         "77a5e0627efa2aca7455730dfba2991c0d186a014f65b891795bac61d8e74c92",
@@ -378,22 +398,29 @@ def lognormal_reference_model():
     )
 
 
-@pytest.mark.parametrize("key", sorted(ANALYTIC_REFERENCE))
+@pytest.mark.parametrize("key", sorted(ANALYTIC_PERCENTILES))
 def test_an_analytic_model_still_reproduces_its_frozen_draws(key):
     import hashlib
+    import sys
 
     method, n_iter, seed = key.split("|")
     result = simulate_risk_model(
         lognormal_reference_model(), int(n_iter), int(seed), method=method
     )
+    moved = (
+        f"{key}: the analytic marginals moved. If _marginal_column or the "
+        f"order the generator is consumed in was changed, that is the cause."
+    )
+    assert (result.p50, result.p80, result.p90) == pytest.approx(
+        ANALYTIC_PERCENTILES[key], rel=1e-12
+    ), moved
+    if sys.platform != ANALYTIC_BYTES_PLATFORM:
+        return
     got = (
         hashlib.sha256(result.totals.tobytes()).hexdigest(),
         hashlib.sha256(result.element_samples.tobytes()).hexdigest(),
     )
-    assert got == ANALYTIC_REFERENCE[key], (
-        f"{key}: the analytic marginals moved. If _marginal_column or the "
-        f"order the generator is consumed in was changed, that is the cause."
-    )
+    assert got == ANALYTIC_BYTES[key], moved
 
 
 #: The same guard for the mixed model, held at the percentiles rather than at
