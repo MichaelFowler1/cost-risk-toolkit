@@ -237,11 +237,33 @@ def plot_s_curve(
             arrowprops={"arrowstyle": "->", "color": SECONDARY, "linewidth": 1.2},
         )
 
-        ax.set_xlabel("Total cost")
+        # The axis follows where the probability mass is, not the single most
+        # extreme draw. Parameter uncertainty on a short series is a t with a
+        # few degrees of freedom, so one iteration in several thousand can land
+        # at multiple times the median; letting that set the right edge squeezes
+        # the readable part of the curve into a vertical line against the left
+        # spine. Nothing about the distribution changes here, and the curve is
+        # still drawn in full: this crops the view to the 0.5th through 99.5th
+        # percentile, widened to keep every marked threshold and the point
+        # estimate inside it, and the label says so when anything is cropped.
+        drawn = [ordered] if comparison is None else [ordered, np.sort(comparison.totals)]
+        marked = [float(np.percentile(result.totals, level)) for level in (50, 80, 90)]
+        marked.append(float(result.point_estimate))
+        low = min([*(float(np.percentile(v, 0.5)) for v in drawn), *marked])
+        high = max([*(float(np.percentile(v, 99.5)) for v in drawn), *marked])
+        pad = 0.03 * (high - low) if high > low else max(abs(high), 1.0) * 0.03
+        full_low = min(float(v.min()) for v in drawn)
+        full_high = max(float(v.max()) for v in drawn)
+        low, high = max(low - pad, full_low), min(high + pad, full_high)
+        if high <= low:
+            high = low + max(abs(low) * 1e-3, 1.0)
+        cropped = full_high > high or full_low < low
+
+        ax.set_xlabel("Total cost" + (" (0.5th to 99.5th percentile shown)" if cropped else ""))
         ax.set_ylabel("Confidence level (%)")
         ax.set_ylim(0, 100)
-        ax.set_xlim(ordered.min(), ordered.max())
-        ax.xaxis.set_major_formatter(_money_formatter(ordered))
+        ax.set_xlim(low, high)
+        ax.xaxis.set_major_formatter(_money_formatter(np.asarray([low, high])))
         ax.grid(axis="both", alpha=0.6)
         _titles(ax, title, subtitle)
         if comparison is not None:

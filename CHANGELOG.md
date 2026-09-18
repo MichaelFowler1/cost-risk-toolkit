@@ -10,6 +10,28 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Fixed
+
+- The buy S-curve is readable again when the simulation throws a long tail.
+  The axis followed the single most extreme draw, and parameter uncertainty on
+  a short series is a t with a few degrees of freedom, so one iteration in five
+  thousand landing at 2.6x the median squeezed the whole curve into a vertical
+  line against the left spine. It now shows the 0.5th through 99.5th
+  percentile, widened to keep P50, P80, P90 and the point estimate inside it,
+  and the axis label says so whenever anything is cropped. No number moves: the
+  curve is still drawn in full and the percentiles are what they were.
+
+- `ce-core fit-lots` says which units its costs are in. The engine is scale
+  free and hands back whatever it is given, but its column headings read `($K)`,
+  carried over from the desktop tool whose input column is `AUC ($K)`, while
+  the charts format the same numbers as dollars. Feed it a file in dollars, as
+  the bundled `example_lots.csv` is, and a first-unit cost of $7.5M prints as
+  `T1 ($K) 7,477,686`, which is a 1,000x misread waiting to happen. The command
+  now states the convention in its output and in `--csv --help`, and the README
+  says it as well. The headings are unchanged, because they are the engine's
+  column names: the goldens pin them, the workbook writer builds sheets from
+  them and the desktop tool reads them.
+
 ## [1.0.1] - 2026-09-11
 
 A tests-only release. The engine's code and every number it produces are the

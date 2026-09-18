@@ -133,6 +133,16 @@ def run_fit_lots(args: argparse.Namespace) -> None:
 
         print()
         print(f"--- {series.program} ---")
+        # The engine is scale free: it fits whatever cost numbers it is given
+        # and hands them back in the same units. Its column names say ($K)
+        # because they come from the desktop tool, whose input column is
+        # "AUC ($K)", and the charts format the same numbers as dollars. Two
+        # conventions over one set of numbers is a 1,000x misread waiting to
+        # happen, so say which one this run is in: the file's.
+        print(f"Costs are in the units {path.name} states them in. Nothing here "
+              f"converts them, so a heading that reads ($K) is the engine's "
+              f"column name rather than a claim about scale, and the S-curve "
+              f"formats the same numbers as dollars.")
         print(report.narrative())
 
         print()
@@ -301,7 +311,8 @@ def main() -> None:
         help="Fit a curve to a two-column lot file (units, cost)",
     )
     p_lots.add_argument("--csv", required=True,
-                        help="CSV or XLSX with a units column and a cost column")
+                        help="CSV or XLSX with a units column and a cost column, "
+                             "in whatever cost units it states; nothing is converted")
     p_lots.add_argument("--dollar-year", type=int, required=True,
                         help="Fiscal year the constant dollars are stated in")
     p_lots.add_argument("--out", default=None,

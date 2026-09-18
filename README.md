@@ -13,11 +13,10 @@ Monte Carlo risk analysis.
 its own repository, [lot-cost-model](https://github.com/MichaelFowler1/lot-cost-model).
 It is a tkinter tool over the same three models: paste analogy lots and
 estimate lots from Excel, fit LC, Rate and LC+Rate, roll several WBS elements
-into one programme, and write the Excel workbook. It is not yet a front end onto
-this library. Today it carries its own copy of the deterministic fit and imports
-`cost_core` for the risk half only, the prediction intervals and the correlated
-simulations, guarded so the window still opens when the library is absent and
-says so where those numbers would be.
+into one programme, and write the Excel workbook. Since its 3.0.0 it is a front
+end onto this library rather than a second copy of it: the fit, the roll-up, the
+risk and the workbooks all come from `cost_core`, and the window refuses to
+start without it.
 
 **Fit a curve to your own lot data in one command:**
 
@@ -54,7 +53,7 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 
 | Module | Purpose |
 | --- | --- |
-| `cost_core.lotmodel` | **The lot cost engine.** Analogy lots in, estimate lots out. Fits LC / Rate / LC+Rate, selects on significance with an AICc tiebreak, and layers refits, influence, prediction intervals and buy risk on top. Carried over from the desktop tool in lot-cost-model, which still runs its own copy of the deterministic half |
+| `cost_core.lotmodel` | **The lot cost engine.** Analogy lots in, estimate lots out. Fits LC / Rate / LC+Rate, selects on significance with an AICc tiebreak, and layers refits, influence, prediction intervals and buy risk on top. Carried over from the desktop tool in lot-cost-model, which runs on this code from its 3.0.0 rather than a copy of it |
 | `cost_core.program` | **WBS roll-up.** Several elements, fitted, factor or amount, priced against one lot schedule and correlated into a programme estimate |
 | `cost_core.lots` | **Your own data.** Units and cost per lot, in CSV or Excel. Runs the same three model engine, then layers the statistics on top |
 | `cost_core.synth` | Seeded synthetic CSDR/SRDR generator: DD 1921, DD 1921-1, DD 1921-2, Cost and Hour Report (FlexFile), Quantity Data Report, SRDR (DD 2630), with realistic pathologies to clean |
@@ -103,6 +102,12 @@ down what moved, the same process every other rebaseline here went through.
 ce-core fit-lots --csv mylots.csv --dollar-year 2026 --forecast "30,40" --out results/
 ```
 
+Costs come back in the units they went in, because the fit is scale free and
+this command converts nothing. Headings that read `($K)` are the engine's own
+column names, carried over from the desktop tool whose input column is
+`AUC ($K)`, and the S-curve formats the same numbers as dollars, so read both
+as "cost" in your file's units unless that file really is in thousands.
+
 Prints the fitted slope and first unit cost, the standard error and CV, an
 interval on the slope, and a per lot percentage error showing which lots the
 curve misses. With `--out` it also writes those tables as CSV and an
@@ -137,8 +142,8 @@ The same seed reproduces the run exactly.
 
 ## The lot cost engine
 
-The lot cost engine is `cost_core.lotmodel`, the code the desktop tool still
-carries its own copy of. Historical **analogy
+The lot cost engine is `cost_core.lotmodel`, the code the desktop tool runs
+on. Historical **analogy
 lots** (fiscal year, quantity, unit cost) are the history; **estimate lots**
 (fiscal year, quantity, complexity factor) are the buy being priced.
 
@@ -292,10 +297,9 @@ Rate      ln(unit cost) = ln(T1) + c*ln(lot quantity)
 LC+Rate   both terms together
 ```
 
-This engine came across from the desktop tool in lot-cost-model, which still
-carries its own copy of the deterministic fit and borrows this library only for
-the risk half, so the two are the same code by descent rather than by import.
-All three models get fitted
+This engine came across from the desktop tool in lot-cost-model, which since
+its 3.0.0 imports it rather than keeping a copy, so the two are the same code by
+import rather than by descent. All three models get fitted
 and all three price every lot, so the alternatives stay on the record. Because
 the midpoint depends on the slope you're fitting, the fit iterates to a fixed
 point.
