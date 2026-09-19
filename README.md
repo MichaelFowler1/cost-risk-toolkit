@@ -1,6 +1,13 @@
 # cost-risk-toolkit
 
 [![tests](https://github.com/MichaelFowler1/cost-risk-toolkit/actions/workflows/tests.yml/badge.svg)](https://github.com/MichaelFowler1/cost-risk-toolkit/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/cost-core.svg)](https://pypi.org/project/cost-core/)
+[![Python versions](https://img.shields.io/pypi/pyversions/cost-core.svg)](https://pypi.org/project/cost-core/)
+[![License](https://img.shields.io/pypi/l/cost-core.svg)](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/LICENSE)
+
+```bash
+pip install cost-core
+```
 
 A Python library and command line tool for defense cost estimating. Point it at
 your own production history, units and cost for each lot, and it fits a learning
