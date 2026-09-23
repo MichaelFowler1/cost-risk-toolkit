@@ -34,6 +34,23 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Refuse anything but a release tag that matches the package version
+        # A manual run on main once published main's code under the 1.0.1
+        # label, so PyPI's 1.0.1 and the v1.0.1 tag are not the same code.
+        # Only a tag vX.Y.Z whose X.Y.Z is the version in pyproject.toml may
+        # publish, whether the run came from a release or was started by hand.
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          case "$GITHUB_REF" in
+            refs/tags/v*) tag="${GITHUB_REF#refs/tags/v}" ;;
+            *) echo "::error::Refusing to publish from $GITHUB_REF: only a release tag vX.Y.Z may publish."; exit 1 ;;
+          esac
+          if [ "$tag" != "$version" ]; then
+            echo "::error::Tag v$tag does not match the version in pyproject.toml ($version)."
+            exit 1
+          fi
+          echo "Publishing $version from tag v$tag"
+
       - name: Build sdist and wheel
         run: |
           python -m pip install --upgrade pip build
