@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Several WBS elements priced against one lot schedule.
 
 Each element carries its own analogy history and is fitted on its own; what

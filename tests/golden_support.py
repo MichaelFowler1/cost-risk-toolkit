@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Shared builders and the policy comparator behind the golden regression test.
 
 Two callers use this module and they must agree to the byte:

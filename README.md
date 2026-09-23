@@ -610,3 +610,23 @@ year, two lots, fractional units, unmatched WBS names, non positive costs in a
 log fit, a correlation matrix that isn't symmetric, a rate break beyond the data,
 an unknown interval kind, an index asked for a year it doesn't cover. Each one
 raises instead of producing a plausible looking number.
+
+## License
+
+Versions 1.0.0 and 1.0.1 were released under the Apache License 2.0 and stay
+that way. Everything after them is under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). In plain terms:
+
+- **Free for any noncommercial purpose**: personal study, research, teaching,
+  hobby projects.
+- **Free for schools and universities, public research organizations, government
+  institutions, charities, and public safety, health and environmental
+  organizations**, whatever their funding. A government cost office or a
+  university research lab can use it as it stands.
+- **Commercial use needs a license from the author.** That includes using it in
+  paid work for clients or building it into a product. Ask through
+  [the issue tracker](https://github.com/MichaelFowler1/cost-risk-toolkit/issues).
+
+Anyone who passes on a copy of any part of it has to pass on the license terms
+and the `Required Notice:` line in [NOTICE](NOTICE) with it. This is a plain
+summary; the LICENSE file is what governs.

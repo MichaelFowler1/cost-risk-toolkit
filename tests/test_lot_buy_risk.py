@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Intervals and the simulated buy total, on the lot cost engine's own run.
 
 These come from the desktop tool's risk bridge tests. The enrichment layer

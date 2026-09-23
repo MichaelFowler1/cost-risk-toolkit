@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """
 cost_core.lotmodel - Learning curve / rate analysis on analogy and estimate lots.
 

@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Loading and persisting cost data.
 
 The schema check is the guard between a spreadsheet someone typed by hand and

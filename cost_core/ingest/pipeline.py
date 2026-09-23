@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """
 pipeline.py - Normalise CSDR/SRDR submissions into one long-format table.
 

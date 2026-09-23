@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Charts, the assumptions log, and the end-to-end run.
 
 A chart is hard to assert about, so these tests check the things that would

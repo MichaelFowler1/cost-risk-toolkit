@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """The lot-entry front door: units and cost, one row per lot.
 
 This is the path a user takes with real production history, so the tests care

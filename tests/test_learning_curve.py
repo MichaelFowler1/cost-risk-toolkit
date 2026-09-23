@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Learning curves: does the maths actually hold?
 
 These are property tests against known answers, not smoke tests. The strongest

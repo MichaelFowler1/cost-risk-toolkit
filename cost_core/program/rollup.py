@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Roll several WBS elements into one program estimate.
 
 Each element carries its own analogy history and gets its own curve: the

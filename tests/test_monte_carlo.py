@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Monte Carlo cost risk.
 
 A simulation whose numbers move between runs can't support a P80 you'd put in

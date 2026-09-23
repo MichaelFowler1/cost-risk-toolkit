@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """The ingest and normalisation pipeline.
 
 The generator hands us something rare: messy data whose correct answer is

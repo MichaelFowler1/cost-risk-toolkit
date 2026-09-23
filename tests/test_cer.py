@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Parametric cost estimating relationships.
 
 The synthetic portfolio is generated from two exact power laws -- one relating

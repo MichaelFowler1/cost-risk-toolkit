@@ -24,6 +24,9 @@ keywords:
   - learning-curve
   - risk-analysis
   - csdr
+# Release 1.0.1, which this file describes, is Apache-2.0. Work after it is
+# PolyForm-Noncommercial-1.0.0 (see LICENSE and NOTICE), and this field moves
+# with the next release's version and date.
 license: "Apache-2.0"
 version: "1.0.1"
 # CFF pairs `version` with `date-released`: together they describe the release

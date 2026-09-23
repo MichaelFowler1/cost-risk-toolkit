@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """
 data_io.py - Core I/O module for the defense cost-estimation library.
 Provides robust loading and persistence for historical cost data.

@@ -18,6 +18,7 @@ include example_lots.csv
 # the code. README.md and LICENSE arrive on their own through `readme` and the
 # license field; requirements.txt is the exact stack the goldens were recorded
 # against, which is worth having beside them.
+include NOTICE
 include CHANGELOG.md
 include CITATION.cff
 include requirements.txt

@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """The golden regression: cost_core alone must reproduce the captured engine.
 
 ``tests/goldens/`` holds what the desktop tool's engine produced on 2026-09-06,

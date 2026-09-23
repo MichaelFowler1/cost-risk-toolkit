@@ -45,8 +45,12 @@ dependencies = [
 # Mirrors CITATION.cff, which is the record for the same release. No email:
 # the repository is the contact point and a published address cannot be recalled.
 authors = [{ name = "Michael Fowler" }]
-license = "Apache-2.0"
-license-files = ["LICENSE"]
+# PolyForm Noncommercial for everything after 1.0.1; 1.0.0 and 1.0.1 were
+# released under Apache-2.0 and stay so. NOTICE carries the Required Notice
+# line the licence obliges anyone redistributing to pass on, which is why it
+# ships in the wheel beside LICENSE.
+license = "PolyForm-Noncommercial-1.0.0"
+license-files = ["LICENSE", "NOTICE"]
 keywords = ["cost-estimating", "monte-carlo", "learning-curve", "risk-analysis", "csdr"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",

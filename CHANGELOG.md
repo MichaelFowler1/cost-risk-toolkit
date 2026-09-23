@@ -10,6 +10,21 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Changed
+
+- **The license changes for everything after 1.0.1**, from the Apache License
+  2.0 to the PolyForm Noncommercial License 1.0.0. Noncommercial use stays
+  free, and so does use by schools and universities, public research
+  organizations, government institutions and charities, whatever their
+  funding. Commercial use now needs a license from the author. Nothing is
+  withdrawn: 1.0.0 and 1.0.1, as tagged here and published on PyPI, were
+  released under Apache-2.0 and stay under it. A new NOTICE file carries the
+  `Required Notice:` line the license obliges anyone passing the software on to
+  include, and every source file now opens with a copyright line and an SPDX
+  license identifier. The next release is numbered 2.0.0 for that reason:
+  anyone pinning below 2 stays on the terms they already have until they
+  choose to move.
+
 ### Fixed
 
 - The buy S-curve is readable again when the simulation throws a long tail.

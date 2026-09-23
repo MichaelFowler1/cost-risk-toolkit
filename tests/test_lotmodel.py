@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """The lot cost model: the ported engine, and the statistics added to it.
 
 This module is held to a different standard than the rest of the suite, and

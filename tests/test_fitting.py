@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """The shared estimation engine: OLS, MUPE, ZMPE, and the intervals.
 
 Everything a learning curve or a CER reports about its own uncertainty comes

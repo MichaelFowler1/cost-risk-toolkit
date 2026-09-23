@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """The programme roll-up workbook.
 
 Programme first, then every element behind it: the headline sheets, the

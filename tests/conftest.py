@@ -1,3 +1,6 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
 """Shared fixtures for the lot cost engine tests.
 
 These mirror the desktop tool's bundled example lots, so the engine tests
