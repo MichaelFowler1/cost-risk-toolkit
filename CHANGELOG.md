@@ -10,6 +10,19 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-23
+
+A license release. The engine, and every number it produces, is the same as
+1.0.1's. What changes is the terms the library is offered under from here on,
+which is why this is 2.0.0 rather than 1.0.2: anyone pinning below 2 stays on
+the Apache-2.0 terms 1.0.x shipped with until they choose to move. Two
+presentation fixes ride along, listed under Fixed.
+
+One thing about 1.0.1 worth knowing. The copy on PyPI was built from `main`
+after the tag, so it already carries those two fixes and the `v1.0.1` tag
+doesn't. No number differs between the two. 2.0.0 is built from its tag, and
+the publish workflow now refuses to build anything else.
+
 ### Changed
 
 - **The license changes for everything after 1.0.1**, from the Apache License
@@ -21,9 +34,12 @@ housekeeping detail here, because someone may have put the old one in a budget.
   released under Apache-2.0 and stay under it. A new NOTICE file carries the
   `Required Notice:` line the license obliges anyone passing the software on to
   include, and every source file now opens with a copyright line and an SPDX
-  license identifier. The next release is numbered 2.0.0 for that reason:
-  anyone pinning below 2 stays on the terms they already have until they
-  choose to move.
+  license identifier.
+
+- The publish workflow refuses to upload anything but a release tag `vX.Y.Z`
+  whose version matches `pyproject.toml`, whether a release started it or it
+  was run by hand. A manual run on `main` is how PyPI's 1.0.1 came to hold code
+  its tag doesn't.
 
 ### Fixed
 
@@ -341,6 +357,7 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/releases/tag/v1.0.0
