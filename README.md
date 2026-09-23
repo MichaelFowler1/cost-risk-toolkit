@@ -74,7 +74,14 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 ## Installation
 
 Python 3.9 or higher. The distribution name is `cost-core` and the import name
-is `cost_core`. Nothing is published yet, so install from a clone:
+is `cost_core`. It's on PyPI:
+
+```bash
+pip install "cost-core[plots]"
+```
+
+Leave off `[plots]` if you don't need the charts. To work on the code itself,
+install from a clone instead:
 
 ```bash
 python -m venv .venv && .venv/Scripts/activate && pip install -e ".[plots]"
