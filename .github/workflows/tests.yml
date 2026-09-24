@@ -56,9 +56,9 @@ jobs:
       MPLBACKEND: Agg
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -146,3 +146,54 @@ jobs:
           test -s /tmp/ce_run/ASSUMPTIONS.md
           test -s /tmp/ce_run/charts/s_curve.png
           test -s /tmp/ce_run/charts/tornado.png
+
+  package:
+    # The publish workflow builds the distributions in one job and uploads
+    # them from another, passing them across with upload-artifact and
+    # download-artifact. That path otherwise runs only when a release is cut,
+    # so a broken action version would first show up mid-release. This runs
+    # the same build, the same pair of actions and a clean install of the
+    # wheel on every push.
+    name: package round trip
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Build sdist and wheel, and check the metadata
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+          python -m twine check dist/*
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-check
+          path: dist/
+          retention-days: 1
+
+  package-install:
+    name: install the built wheel
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist-check
+          path: dist/
+
+      - name: Install the wheel alone and import every subpackage
+        run: |
+          python -m pip install dist/*.whl
+          cd /tmp
+          python -c "import cost_core, cost_core.public, cost_core.aoa, cost_core.portfolio, cost_core.lotmodel, cost_core.program; print('cost_core', cost_core.__version__, 'installed from the built wheel')"
+          ce-core --help > /dev/null
