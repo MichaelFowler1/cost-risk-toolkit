@@ -13,6 +13,11 @@ original one. That second comparison is the long view of cost growth: what the
 program was supposed to cost per unit when it started, against what it is
 expected to cost now, in constant base-year dollars.
 
+**Base-year and then-year tables.** A report on a program in breach repeats
+its unit cost tables in then-year dollars ("TY $M"). Those rows are kept and
+marked ``dollars == "TY"`` with no base year, since growth measured in them
+includes inflation; the constant-dollar rows are ``"BY"``.
+
 **Three templates.** The layout changed twice, and the parser reads all three:
 
 * 2010 to 2019, the DAMIR SAR: "Unit Cost Report", baselines dated as
@@ -55,7 +60,7 @@ import pandas as pd
 #: Columns of :attr:`SarReport.unit_cost`, in order.
 UNIT_COST_COLUMNS = (
     "subprogram", "comparison", "revised", "measure", "base_year",
-    "base_year_source", "baseline_label",
+    "base_year_source", "dollars", "baseline_label",
     "baseline_cost", "baseline_quantity", "baseline_unit_cost",
     "current_cost", "current_quantity", "current_unit_cost",
     "reported_pct_change", "page",
@@ -64,6 +69,8 @@ UNIT_COST_COLUMNS = (
 _NUMBER = re.compile(r"^[+-]?(?:\d{1,3}(?:,\d{3})+|\d+)?(?:\.\d+)?%?$")
 _BLANK = {"-", "--", "—", "N/A", "n/a", "TBD"}
 _BASE_YEAR = re.compile(r"(?:Base\s*Year:?\s*|\bBY\s?)((?:19|20)\d{2})")
+#: A then-year block: "TY $M" over the table, or "Current Estimate TY".
+_THEN_YEAR = re.compile(r"\bTY\s?\$|\bTY\b|Then[- ]Year")
 _APB_DATE = re.compile(r"\((\w{3}\s+\d{4})\s+APB\)")
 _SLASH_DATE = re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b")
 _LONG_DATE = re.compile(r"\b((?:January|February|March|April|May|June|July|August|September|"
@@ -266,7 +273,8 @@ def _parse_unit_cost_page(page: str, number: int, doc_base_year: Optional[int],
     # A base year or a "Revised" printed above a block's header belongs to the
     # block below it, so both are held here until the next header opens.
     pending_by: Optional[int] = None
-    pending_revised = False
+    pending_revised = pending_ty = False
+    dollars = "BY"
     lines = [l.strip() for l in page.splitlines() if l.strip()]
 
     def subprogram_in(candidates):
@@ -301,7 +309,11 @@ def _parse_unit_cost_page(page: str, number: int, doc_base_year: Optional[int],
             if pct is None and len(values) > 2:
                 pct = values[2]  # printed unsigned, as the DAVE template does for rises
             by, by_source = base_year, "page"
-            if by is None:
+            if dollars == "TY":
+                # A then-year table has no base year; borrowing the
+                # document's would make it look like constant dollars.
+                by, by_source = None, None
+            elif by is None:
                 by, by_source = doc_base_year, "document"
             rows.append({
                 "subprogram": subprogram,
@@ -310,6 +322,7 @@ def _parse_unit_cost_page(page: str, number: int, doc_base_year: Optional[int],
                 "measure": measure,
                 "base_year": by,
                 "base_year_source": by_source if by is not None else None,
+                "dollars": dollars,
                 "baseline_label": baseline_label,
                 "baseline_cost": cost[0],
                 "baseline_quantity": qty[0],
@@ -321,7 +334,7 @@ def _parse_unit_cost_page(page: str, number: int, doc_base_year: Optional[int],
                 "page": number,
             })
             block_rows += 1
-            measure, pending_by, pending_revised = None, None, False
+            measure, pending_by, pending_revised, pending_ty = None, None, False, False
             continue
         if _PAUC_HEAD.match(line) or _APUC_HEAD.match(line):
             if comparison is not None:
@@ -337,18 +350,23 @@ def _parse_unit_cost_page(page: str, number: int, doc_base_year: Optional[int],
             base_year = int(by_match.group(1)) if by_match else pending_by
             by_from_header = bool(by_match)
             revised = pending_revised or "Revised" in line
-            pending_by, pending_revised = None, False
+            dollars = "TY" if (pending_ty or _THEN_YEAR.search(line)) and not by_match else "BY"
+            pending_by, pending_revised, pending_ty = None, False, False
         elif comparison is not None and block_rows == 0 and measure is None:
             # Still inside the scattered header of the open block.
             if by_match and not by_from_header:
                 base_year, by_from_header = int(by_match.group(1)), True
             if "Revised" in line and comparison == "original":
                 revised = True
+            if _THEN_YEAR.search(line) and not by_from_header:
+                dollars = "TY"
         else:
             if by_match:
                 pending_by = int(by_match.group(1))
             if "Revised" in line:
                 pending_revised = True
+            if _THEN_YEAR.search(line) and not by_match:
+                pending_ty = True
             continue
         m = _APB_DATE.search(line)
         if m:

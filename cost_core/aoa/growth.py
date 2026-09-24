@@ -21,7 +21,19 @@ both sides of that comparison in the same base year, so inflation is already
 out of it. What is left includes quantity effects: a cut in quantity raises
 unit cost with nothing going wrong in the estimate. Filter on
 ``quantity_change_pct`` when that matters, as it does for a procurement line
-whose quantity is fixed.
+whose quantity is fixed. The tail is where this bites: across 979 SARs from
+December 2010 to the FY 2027 budget, the largest PAUC growth figures are
+programs cut to a handful of units (JTRS GMR, 108,388 radios to 91; C-130
+AMP, 222 aircraft to 9), where sunk development is spread over almost
+nothing.
+
+**What "original" means in a SAR.** It is the Nunn-McCurdy original
+baseline, and after a critical breach the law lets it be revised, so the
+growth that caused the breach drops out. Seventeen programs in the panel
+show their original baseline move between reports in the same base year
+(JSOW's APUC from $0.28M to $0.77M). Growth measured this way understates
+growth since program start for exactly the programs that grew most, and the
+panel only sees resets after 2010. Treat it as a floor on the right tail.
 """
 
 from __future__ import annotations
@@ -54,8 +66,8 @@ def historical_growth(
 
     Returns:
         One row per program and subprogram: ``program, subprogram, cycle,
-        growth_pct, quantity_change_pct``. Only rows whose arithmetic checks
-        held are used.
+        growth_pct, quantity_change_pct``. Only constant-dollar rows whose
+        arithmetic checks held are used.
     """
     need = {"comparison", "measure", "cycle_year", "program", "unit_cost_growth_pct",
             "quantity_change_pct", "checks_ok"}
@@ -63,9 +75,11 @@ def historical_growth(
     if missing:
         raise AoAError(f"unit_cost is missing column(s) {sorted(missing)}; pass "
                        f"SarPanel.unit_cost.")
-    uc = unit_cost[(unit_cost["comparison"] == "original") & (unit_cost["measure"] == measure)
-                   & unit_cost["checks_ok"].astype(bool)
-                   & unit_cost["unit_cost_growth_pct"].notna()].copy()
+    keep = ((unit_cost["comparison"] == "original") & (unit_cost["measure"] == measure)
+            & unit_cost["checks_ok"].astype(bool) & unit_cost["unit_cost_growth_pct"].notna())
+    if "dollars" in unit_cost:
+        keep &= unit_cost["dollars"] == "BY"  # then-year growth includes inflation
+    uc = unit_cost[keep].copy()
     if max_quantity_change_pct is not None:
         uc = uc[uc["quantity_change_pct"].abs() <= max_quantity_change_pct]
     uc["subprogram"] = uc.get("subprogram", pd.Series(index=uc.index, dtype=object)).fillna("")

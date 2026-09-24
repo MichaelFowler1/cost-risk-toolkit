@@ -266,3 +266,31 @@ def test_panel_growth_survives_blank_and_zero_baselines():
     assert g.unit_cost_growth_pct.isna().tolist() == [True, True, False]
     assert g.quantity_change_pct.isna().tolist() == [True, True, False]
     assert g.unit_cost_growth_pct.iloc[2] == pytest.approx(20.0)
+
+
+def test_then_year_tables_are_marked_and_carry_no_base_year():
+    # JTRS GMR, June 2011, in breach: the unit cost table repeated in TY $M.
+    page = "\n".join([
+        "JTRS GMR                                         June 30, 2011 SAR",
+        "                                     TY $M",
+        "                      Original UCR",
+        "                                    Current Estimate TY",
+        "          Unit Cost     Baseline",
+        "                                    (JUN 2011 SAR) % Change",
+        "                     (JUN 2002 APB)",
+        "          Program Acquisition Unit Cost (PAUC)",
+        "           Cost                            19112.9        4374.1",
+        "           Unit Cost                        0.176          0.397   +125.57",
+        "          Average Procurement Unit Cost (APUC)",
+        "           Cost                            18211.8        2707.3",
+        "           Unit Cost                        0.168          0.247   +47.02",
+    ])
+    r = parse_sar_pages([page, "", "BY2002 $M elsewhere in the report"])
+    assert set(r.unit_cost.dollars) == {"TY"}
+    assert r.unit_cost.base_year.isna().all()
+    assert row(r, "original", "PAUC").reported_pct_change == 125.57
+
+
+def test_fixtures_are_all_constant_dollars():
+    for name in ("aehf_dec2014_damir", "aag_dec2021_dave", "aag_dec2023_msar", "sdb2_dec2017_damir_ocr"):
+        assert set(load(name).unit_cost.dollars) == {"BY"}, name

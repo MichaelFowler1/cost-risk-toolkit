@@ -106,11 +106,21 @@ A few things worth knowing before you use the numbers:
   whose OCR text layer garbles the headers.
 - **Every row is checked against its own arithmetic.** Unit cost times
   quantity has to come back to cost, and the printed percentage change has to
-  match the unit costs. On a sample of 133 reports from every cycle, 126 read
-  and 1,443 of 1,447 checks held. The four that failed were errors in the
-  SARs themselves (an OCR layer that dropped a decimal point, a printed
-  percentage that contradicts its own unit costs), and they stay in the table,
-  marked, rather than being quietly fixed.
+  match the unit costs. Across every cycle, 979 of 1,006 reports read and
+  11,856 of 11,919 checks held (99.5%). The failures looked at were errors
+  in the SARs themselves (an OCR layer that dropped a decimal point, a
+  printed percentage that contradicts its own unit costs), and they stay in
+  the table, marked, rather than being quietly fixed. The 27 reports that
+  didn't read are archive copies that are truncated in every capture, and
+  reports with no unit cost table.
+- **Then-year tables are marked.** A report on a program in breach repeats
+  its unit cost tables in then-year dollars; those rows have
+  `dollars == "TY"` and no base year, and growth analysis skips them.
+- **"Original" can be reset.** After a critical Nunn-McCurdy breach the
+  original baseline can be revised, which takes the breach out of the growth
+  figure. Seventeen programs show it moving between reports, so growth
+  against the SAR's original baseline is a floor for the programs that grew
+  most.
 - **Base years differ between blocks.** A SAR can state its current baseline
   in one base year and its original baseline in another (SDB II, December
   2022: BY2015 and BY2010), so compare growth percentages across programs,

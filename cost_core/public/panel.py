@@ -17,11 +17,12 @@ report, and stacks the results, keeping three things together:
 * ``checks``: every arithmetic check behind every row.
 
 A report that cannot be fetched or read is recorded in ``reports`` and the run
-carries on. Across a stratified sample of 133 reports from every cycle 2010 to
-2027, 126 read and 1,443 of 1,447 checks held; the failures were truncated
-archive copies and reports with no unit cost table, and the failed checks
-were errors in the reports themselves (an OCR layer that dropped a decimal
-point, a printed percentage that disagrees with its own unit costs).
+carries on. Across every cycle from December 2010 to the FY 2027 budget, 979
+of 1,006 reports read and 11,856 of 11,919 checks held; the failures were
+archive copies truncated in every capture and reports with no unit cost
+table, and the failed checks looked at were errors in the reports themselves
+(an OCR layer that dropped a decimal point, a printed percentage that
+disagrees with its own unit costs).
 """
 
 from __future__ import annotations
@@ -123,7 +124,7 @@ def _dedupe(uc: pd.DataFrame) -> pd.DataFrame:
     cycle, program, subprogram, measure and comparison agree; the first copy
     is kept. Two copies that differ in any number both stay.
     """
-    key = ["cycle", "program", "subprogram", "measure", "comparison", "base_year",
+    key = ["cycle", "program", "subprogram", "measure", "comparison", "dollars", "base_year",
            "baseline_cost", "baseline_quantity", "baseline_unit_cost",
            "current_cost", "current_quantity", "current_unit_cost"]
     return uc.drop_duplicates(subset=key, keep="first").reset_index(drop=True)
