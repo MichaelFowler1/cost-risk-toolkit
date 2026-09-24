@@ -213,12 +213,15 @@ class AoAResult:
         draws: Per alternative, the simulated life-cycle cost on the chosen
             basis, one value per iteration.
         assumptions: Every setting the answer depends on, for the record.
+        alternatives: The alternatives as evaluated, so the result can feed
+            :func:`cost_core.portfolio.candidates_from_aoa`.
     """
 
     lines: pd.DataFrame
     summary: pd.DataFrame
     draws: Dict[str, np.ndarray]
     assumptions: Dict[str, Any] = field(default_factory=dict)
+    alternatives: Sequence[Alternative] = field(default_factory=list)
 
     def s_curves(self, points: Iterable[float] = range(5, 100, 5)) -> pd.DataFrame:
         """Percentiles of each alternative's simulated cost, one column each."""
@@ -346,7 +349,7 @@ def evaluate(
         summary["on_frontier"] = [e is not None and j is None for e, j in zip(eff, dom)]
 
     return AoAResult(
-        lines=lines, summary=summary, draws=draws,
+        lines=lines, summary=summary, draws=draws, alternatives=list(alternatives),
         assumptions={"base_year": base_year, "pv_year": pv_year,
                      "discount_rate": discount_rate, "basis": basis,
                      "inflation_index": index, "inflation_source": inflation.source,

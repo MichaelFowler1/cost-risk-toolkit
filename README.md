@@ -73,6 +73,7 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 | `cost_core.monte_carlo` | Correlated WBS level risk: Gaussian copula or Iman Conover, PSD repair, discrete risks, tornado, convergence |
 | `cost_core.reporting` | S curve, tornado, cost improvement curve, CER diagnostics, and the assumptions log |
 | `cost_core.aoa` | **Analysis of alternatives.** Life-cycle cost of each alternative in base-year, then-year and present-value dollars, compared under correlated uncertainty: P50, P80, the chance each is cheapest, cost-effectiveness and which are dominated |
+| `cost_core.portfolio` | **Which programs to fund.** An integer program over candidates, funding options and yearly budgets, with mandatory programs, dependencies and exclusive alternatives; the marginal value of money by year, a value against budget frontier, and the chance the chosen portfolio breaks each year's budget |
 | `cost_core.public` | **Real programs.** DoD's public Selected Acquisition Reports, 2010 to today, read into a program by year table of unit cost against the current and original baselines, with the source file and an arithmetic check behind every number |
 
 ## Real programs from public SARs
@@ -183,6 +184,43 @@ from cost_core.aoa import CostLine, growth_factor, historical_growth, spread
 history = historical_growth(panel.unit_cost, measure="APUC", max_quantity_change_pct=10)
 line = CostLine("Production", "Procurement", spread(4200, 2032, 8), growth_factor(history))
 ```
+
+## Choosing a portfolio: which programs get funded
+
+Moving money between programs is a capital budgeting problem, and the
+spreadsheet version of it is Excel Solver with a binary cell per program. Here
+it's a mixed-integer program solved with CBC through PuLP:
+
+```bash
+pip install "cost-core[optimize]"
+ce-core portfolio --spec docs/portfolio_example.json --out portfolio/
+```
+
+Each candidate has one or more funding options (full rate, minimum sustaining
+rate, defer two years), each with a cost in every budget year and a value
+score. The solver maximises value within every year's budget, funds the
+mandatory programs, keeps dependencies ("integration needs the missile") and
+picks at most one of each set of exclusive alternatives, which is what an AoA's
+alternatives are: `candidates_from_aoa` turns an AoA result straight into them.
+
+The optimum is where the analysis starts, and three more tables come with it:
+
+- **What an extra dollar is worth, by year.** `marginal_value` re-solves with a
+  little more money in one year at a time and says what it would buy. A year
+  whose extra money buys nothing is where money can move from.
+- **Value against budget.** `frontier` solves at a range of budget levels, so
+  the discussion can be about where value per dollar flattens.
+- **Budget risk.** An optimum on point estimates fills the budget almost
+  exactly, so cost growth breaks it. `budget_risk` draws correlated growth for
+  each funded program (from SAR history via `cost_core.aoa.growth_factor`, or
+  any distribution) and gives each year's chance of going over. In the
+  example, the plan that fits on paper breaks its 2028 budget 94% of the time
+  once costs grow the way the example's growth distribution says; planning to
+  a growth factor (`solve(..., cost_factor=1.15)`) is the usual answer.
+
+The solver is checked against brute force: on 40 random portfolios, every
+combination of options is enumerated and the integer program has to find the
+same best value.
 
 ## Installation
 
@@ -661,6 +699,7 @@ cost_core/
   reporting/          charts, assumptions log, the Excel workbooks, end to end run
   public/             public SARs: fetch with provenance, catalogue, unit cost parser, panel
   aoa/                life-cycle cost of alternatives, spec files, growth from SAR history
+  portfolio/          which programs to fund: integer program, marginal value, budget risk
 tests/                property tests, see below
 ```
 

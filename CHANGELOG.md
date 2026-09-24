@@ -31,6 +31,16 @@ housekeeping detail here, because someone may have put the old one in a budget.
   panel into an uncertainty distribution, one observation per program.
   `ce-core aoa --spec file.json` runs one from a JSON file and writes the
   tables and an S-curve chart; `docs/aoa_example.json` is a worked example.
+- **`cost_core.portfolio`: which programs to fund.** A mixed-integer program
+  over candidates with several funding options each, a budget per fiscal
+  year, mandatory programs, dependencies and exclusive alternatives, solved
+  with CBC through PuLP (the new `optimize` extra). `marginal_value` says what
+  extra money would buy in each year, `frontier` sweeps the budget level, and
+  `budget_risk` gives each year's chance of breaking its budget under
+  correlated cost growth. `candidates_from_aoa` turns an AoA into exclusive
+  candidates. `ce-core portfolio --spec file.json` runs one;
+  `docs/portfolio_example.json` is a worked example. The solver is checked
+  against brute-force enumeration on random portfolios.
 
 ## [2.0.0] - 2026-09-23
 

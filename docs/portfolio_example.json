@@ -1,0 +1,42 @@
+{
+  "description": "Invented programs and numbers, for illustration only. Then-year $M, a five-year plan.",
+  "units": "TY $M",
+  "budget": {"2027": 1000, "2028": 1050, "2029": 1100, "2030": 1100, "2031": 1100},
+  "exclusive": [["Sensor: upgrade in place", "Sensor: new development"]],
+  "delta": 50,
+  "growth": {"type": "triangular", "left": 0.92, "mode": 1.0, "right": 1.45},
+  "growth_correlation": 0.3,
+  "seed": 7,
+  "candidates": [
+    {"name": "Fleet sustainment", "category": "Readiness", "mandatory": true,
+     "options": [{"name": "Full", "value": 30,
+                  "cost_by_year": {"2027": 420, "2028": 430, "2029": 440, "2030": 450, "2031": 460}}]},
+    {"name": "Munitions buy", "category": "Readiness",
+     "options": [
+       {"name": "Full rate", "value": 25,
+        "cost_by_year": {"2027": 180, "2028": 180, "2029": 180, "2030": 180, "2031": 180}},
+       {"name": "Minimum sustaining rate", "value": 14,
+        "cost_by_year": {"2027": 90, "2028": 90, "2029": 90, "2030": 90, "2031": 90}}]},
+    {"name": "Sensor: upgrade in place", "category": "Modernization",
+     "options": [{"name": "Fund", "value": 18,
+                  "cost_by_year": {"2027": 120, "2028": 160, "2029": 140, "2030": 60, "2031": 60}}]},
+    {"name": "Sensor: new development", "category": "Modernization",
+     "options": [
+       {"name": "Start now", "value": 34,
+        "cost_by_year": {"2027": 150, "2028": 260, "2029": 300, "2030": 280, "2031": 200}},
+       {"name": "Defer two years", "value": 24,
+        "cost_by_year": {"2029": 150, "2030": 260, "2031": 300}}]},
+    {"name": "Long-range missile", "category": "Modernization",
+     "options": [{"name": "Full", "value": 28,
+                  "cost_by_year": {"2027": 140, "2028": 180, "2029": 200, "2030": 200, "2031": 200}}]},
+    {"name": "Missile integration", "category": "Modernization", "requires": ["Long-range missile"],
+     "options": [{"name": "Full", "value": 9,
+                  "cost_by_year": {"2028": 30, "2029": 40, "2030": 40, "2031": 40}}]},
+    {"name": "Training ranges", "category": "Infrastructure",
+     "options": [{"name": "Full", "value": 7,
+                  "cost_by_year": {"2027": 40, "2028": 40, "2029": 40, "2030": 40, "2031": 40}}]},
+    {"name": "Cyber hardening", "category": "Infrastructure",
+     "options": [{"name": "Full", "value": 11,
+                  "cost_by_year": {"2027": 60, "2028": 60, "2029": 60, "2030": 60, "2031": 60}}]}
+  ]
+}

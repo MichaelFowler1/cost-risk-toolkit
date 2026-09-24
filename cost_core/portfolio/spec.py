@@ -1,0 +1,59 @@
+# Copyright 2026 Michael Fowler
+# SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+
+"""
+spec.py - A portfolio decision written down as a JSON file.
+
+::
+
+    {
+      "units": "$M",
+      "budget": {"2027": 900, "2028": 950, "2029": 1000},
+      "exclusive": [["Radar: upgrade", "Radar: new"]],
+      "candidates": [
+        {"name": "Sustain fleet", "mandatory": true, "category": "Readiness",
+         "options": [{"name": "Full", "value": 5,
+                      "cost_by_year": {"2027": 300, "2028": 300, "2029": 300}}]},
+        {"name": "Missile integration", "requires": ["New missile"], ...}
+      ],
+      "growth": {"type": "triangular", "left": 0.9, "mode": 1.0, "right": 1.5},
+      "growth_correlation": 0.3,
+      "delta": 25
+    }
+
+``growth`` (optional) is the cost growth factor :func:`budget_risk` applies
+to each funded program; ``delta`` (optional) is the amount :func:`marginal_value`
+adds to each year. ``docs/portfolio_example.json`` is a complete one.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Dict
+
+from cost_core.portfolio.optimize import Candidate, Option, Portfolio, PortfolioError
+
+
+def _years(d: Dict[str, Any]) -> Dict[int, float]:
+    return {int(y): float(v) for y, v in d.items()}
+
+
+def load_portfolio(path) -> "tuple[Portfolio, Dict[str, Any]]":
+    """Read a spec file: the Portfolio, and the analysis settings beside it."""
+    path = Path(path)
+    spec = json.loads(path.read_text(encoding="utf-8"))
+    for key in ("budget", "candidates"):
+        if key not in spec:
+            raise PortfolioError(f"{path.name}: missing {key!r}.")
+    cands = []
+    for c in spec["candidates"]:
+        opts = [Option(o["name"], _years(o["cost_by_year"]), float(o["value"]))
+                for o in c.get("options", [])]
+        cands.append(Candidate(c["name"], opts, bool(c.get("mandatory", False)),
+                               tuple(c.get("requires", ())), c.get("category")))
+    portfolio = Portfolio(cands, _years(spec["budget"]),
+                          [list(g) for g in spec.get("exclusive", [])])
+    settings = {k: spec[k] for k in ("units", "growth", "growth_correlation", "delta",
+                                    "frontier_scales", "seed", "n_iter") if k in spec}
+    return portfolio, settings

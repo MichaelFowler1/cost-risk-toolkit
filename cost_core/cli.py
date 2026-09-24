@@ -309,6 +309,57 @@ def run_aoa(args) -> None:
           f"{', ' + chart if chart else ''} to {out}")
 
 
+def run_portfolio(args) -> None:
+    """Solve a portfolio spec and write the choice and its analyses."""
+    from pathlib import Path
+
+    try:
+        from cost_core.portfolio import (PortfolioError, budget_risk, frontier,
+                                         marginal_value, solve)
+        from cost_core.portfolio.spec import load_portfolio
+    except ImportError as e:
+        abort(str(e))
+    try:
+        portfolio, settings = load_portfolio(args.spec)
+        result = solve(portfolio)
+    except (PortfolioError, OSError, KeyError, ValueError) as e:
+        abort(f"Portfolio failed: {e}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    units = settings.get("units", "as entered")
+    money = lambda v: f"{v:,.2f}"  # noqa: E731
+    result.selected.to_csv(out / "selected.csv", index=False)
+    result.spend.to_csv(out / "spend.csv", index=False)
+    written = ["selected.csv", "spend.csv"]
+    print(f"\nValue {result.value:,.2f}, funding {len(result.funded)} of "
+          f"{len(portfolio.candidates)} candidates. Costs in {units}.\n")
+    print(result.selected.to_string(index=False, float_format=money))
+    print("\nSpend by year:")
+    print(result.spend.to_string(index=False, float_format=money))
+    delta = settings.get("delta")
+    if delta:
+        mv = marginal_value(portfolio, float(delta))
+        mv.to_csv(out / "marginal_value.csv", index=False)
+        written.append("marginal_value.csv")
+        print(f"\nWhat {float(delta):,.0f} more in one year would buy:")
+        print(mv.to_string(index=False, float_format=lambda v: f"{v:,.3f}"))
+    fr = frontier(portfolio, settings.get("frontier_scales", [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]))
+    fr.to_csv(out / "frontier.csv", index=False)
+    written.append("frontier.csv")
+    print("\nBest value at other budget levels:")
+    print(fr.to_string(index=False, float_format=money))
+    if "growth" in settings:
+        risk = budget_risk(portfolio, result.choice, settings["growth"],
+                           n_iter=int(settings.get("n_iter", 20000)),
+                           seed=settings.get("seed", 0),
+                           correlation=float(settings.get("growth_correlation", 0.0)))
+        risk.to_csv(out / "budget_risk.csv", index=False)
+        written.append("budget_risk.csv")
+        print("\nChance each year breaks its budget once costs grow:")
+        print(risk.to_string(index=False, float_format=money))
+    print(f"\nWrote {', '.join(written)} to {out}")
+
+
 def run_sar_panel(args) -> None:
     """Build a unit cost panel from public SARs and write it as CSV."""
     try:
@@ -453,6 +504,17 @@ def main() -> None:
     p_aoa.add_argument("--out", default="aoa",
                        help="Directory for the tables, assumptions and chart")
 
+    # Subcommand: portfolio
+    p_port = sub.add_parser(
+        "portfolio",
+        help="Which programs to fund within each year's budget (needs [optimize])",
+    )
+    p_port.add_argument("--spec", required=True,
+                        help="JSON spec of the candidates and budget "
+                             "(see docs/portfolio_example.json)")
+    p_port.add_argument("--out", default="portfolio",
+                        help="Directory for the choice, spend, frontier and risk tables")
+
     # Subcommand: sar-panel
     p_sar = sub.add_parser(
         "sar-panel",
@@ -480,6 +542,7 @@ def main() -> None:
         "full-run": run_full,
         "sar-panel": run_sar_panel,
         "aoa": run_aoa,
+        "portfolio": run_portfolio,
     }
 
     dispatch[args.cmd](args)
