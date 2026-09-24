@@ -65,10 +65,24 @@ class SarPanel:
         return paths
 
 
+_NUMERIC = ("base_year", "baseline_cost", "baseline_quantity", "baseline_unit_cost",
+            "current_cost", "current_quantity", "current_unit_cost", "reported_pct_change")
+
+
 def _growth(uc: pd.DataFrame) -> pd.DataFrame:
+    """Add the growth columns, blank where a side is missing or zero.
+
+    A breached program can print no baseline at all ("--"), which reaches
+    here as None; the numeric columns are coerced first so those rows get a
+    blank growth rather than stopping the whole panel.
+    """
     uc = uc.copy()
-    uc["unit_cost_growth_pct"] = (uc["current_unit_cost"] / uc["baseline_unit_cost"] - 1) * 100
-    uc["quantity_change_pct"] = (uc["current_quantity"] / uc["baseline_quantity"] - 1) * 100
+    for col in _NUMERIC:
+        uc[col] = pd.to_numeric(uc[col], errors="coerce")
+    base_unit = uc["baseline_unit_cost"].where(uc["baseline_unit_cost"] != 0)
+    base_qty = uc["baseline_quantity"].where(uc["baseline_quantity"] != 0)
+    uc["unit_cost_growth_pct"] = (uc["current_unit_cost"] / base_unit - 1) * 100
+    uc["quantity_change_pct"] = (uc["current_quantity"] / base_qty - 1) * 100
     return uc
 
 

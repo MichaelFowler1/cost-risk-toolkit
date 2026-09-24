@@ -250,3 +250,19 @@ def test_panel_filters_by_cycle_and_program(monkeypatch):
                    ("AAG", "Dec 2021", "c.pdf"))
     p = panel.build_sar_panel(catalog=cat, cycles=["Dec 2023"], programs=["aag"])
     assert list(p.reports.url) == ["a.pdf"]
+
+
+def test_panel_growth_survives_blank_and_zero_baselines():
+    # AEHF, December 2010: in breach, both baselines printed as "--".
+    from cost_core.public.panel import _growth
+
+    uc = pd.DataFrame({
+        "base_year": [2002, 2002, 2015], "baseline_cost": [None, 10.0, 5.0],
+        "baseline_quantity": [None, 0, 2], "baseline_unit_cost": [None, 0.0, 2.5],
+        "current_cost": [11670.4, 12.0, 6.0], "current_quantity": [6, 3, 2],
+        "current_unit_cost": [1945.067, 4.0, 3.0], "reported_pct_change": [None, None, 20.0],
+    }, dtype=object)
+    g = _growth(uc)
+    assert g.unit_cost_growth_pct.isna().tolist() == [True, True, False]
+    assert g.quantity_change_pct.isna().tolist() == [True, True, False]
+    assert g.unit_cost_growth_pct.iloc[2] == pytest.approx(20.0)
