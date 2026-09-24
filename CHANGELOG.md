@@ -21,6 +21,16 @@ housekeeping detail here, because someone may have put the old one in a budget.
   own arithmetic and the result travels with it. `ce-core sar-panel` does
   the same from the command line. Reading PDFs needs the new `public` extra
   (pdfplumber); nothing else changes, and no engine number moves.
+- **`cost_core.aoa`: life-cycle cost for an analysis of alternatives.** Cost
+  lines phased by fiscal year, stated in base-year, then-year and present
+  value dollars (real discount rate, as OMB Circular A-94 asks, with no
+  default so the current rate has to be given), simulated with correlated
+  uncertainty per alternative. The comparison reports P50, P80, the
+  probability each alternative is cheapest, cost per unit of effectiveness,
+  and which alternatives are dominated. `historical_growth` turns the SAR
+  panel into an uncertainty distribution, one observation per program.
+  `ce-core aoa --spec file.json` runs one from a JSON file and writes the
+  tables and an S-curve chart; `docs/aoa_example.json` is a worked example.
 
 ## [2.0.0] - 2026-09-23
 

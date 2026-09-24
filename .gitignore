@@ -46,3 +46,6 @@ results*/
 
 # setuptools metadata from an editable install or a build; regenerated every time
 *.egg-info/
+
+# The worked AoA spec the README points at. Invented numbers, no program data.
+!/docs/aoa_example.json

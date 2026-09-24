@@ -72,6 +72,7 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 | `cost_core.cer` | Parametric CERs, log log and linear, with leverage and influence diagnostics, extrapolation warnings, small sample guardrails |
 | `cost_core.monte_carlo` | Correlated WBS level risk: Gaussian copula or Iman Conover, PSD repair, discrete risks, tornado, convergence |
 | `cost_core.reporting` | S curve, tornado, cost improvement curve, CER diagnostics, and the assumptions log |
+| `cost_core.aoa` | **Analysis of alternatives.** Life-cycle cost of each alternative in base-year, then-year and present-value dollars, compared under correlated uncertainty: P50, P80, the chance each is cheapest, cost-effectiveness and which are dominated |
 | `cost_core.public` | **Real programs.** DoD's public Selected Acquisition Reports, 2010 to today, read into a program by year table of unit cost against the current and original baselines, with the source file and an arithmetic check behind every number |
 
 ## Real programs from public SARs
@@ -121,6 +122,56 @@ In Python:
 from cost_core.public import build_sar_panel
 panel = build_sar_panel(programs=["DDG 51"], progress=print)
 panel.unit_cost[["cycle", "measure", "comparison", "unit_cost_growth_pct"]]
+```
+
+## Comparing alternatives: life-cycle cost for an AoA
+
+An analysis of alternatives asks which way of meeting a need is worth its cost
+over the whole life of the thing. Write the alternatives down as a JSON file
+(`docs/aoa_example.json` is a complete one, with invented numbers) and run:
+
+```bash
+ce-core aoa --spec docs/aoa_example.json --out aoa/
+```
+
+```
+     alternative        by        ty       pv      p50       p80  p_cheapest  effectiveness  cost_per_effectiveness     dominated_by
+Upgrade in place  6,260.00  7,597.89 5,262.48 5,737.37  6,181.63        0.95           0.62                9,335.40
+ New development 10,770.00 14,304.08 8,486.81 9,470.01 10,268.04        0.00           0.90               10,611.67
+  Buy commercial  7,730.00  9,648.51 6,381.08 6,680.31  7,041.37        0.05           0.55               12,224.04 Upgrade in place
+```
+
+Each alternative is a set of cost lines (development, procurement, operating
+and support, disposal), each phased by fiscal year in base-year dollars and
+carrying an uncertainty factor. Three things the module is careful about:
+
+- **Three kinds of money.** Base-year dollars for building the estimate,
+  then-year dollars for the budget, and present value for the comparison.
+  Alternatives that spend at different times are compared on present value,
+  as OMB Circular A-94 requires, discounting constant dollars at a *real*
+  rate. There's no default rate: pass the current one from A-94 Appendix C
+  and it's recorded in `assumptions.json`. Discounting then-year dollars at a
+  real rate would count inflation twice, so the module never does.
+- **Uncertainty decides rankings.** Each alternative's lines are correlated
+  and simulated, so the answer is a distribution. `p_cheapest` is the share of
+  draws in which that alternative costs least, which says how firm a ranking
+  is; two alternatives a few percent apart on point estimates are often a coin
+  toss.
+- **Cost is half the question.** With effectiveness scores, the table gives
+  cost per unit of effectiveness and names any alternative that another beats
+  on both counts. In the example, buying commercial costs more than upgrading
+  in place and does less, so it's off the frontier.
+
+The spread on a line can come from history instead of judgement:
+`historical_growth` takes the SAR panel above and returns each program's
+latest unit cost growth against its original baseline, one observation per
+program, and `growth_factor` turns it into a distribution a cost line can
+carry.
+
+```python
+from cost_core.aoa import CostLine, growth_factor, historical_growth, spread
+history = historical_growth(panel.unit_cost, measure="APUC", max_quantity_change_pct=10)
+line = CostLine("Production", "Procurement", spread(4200, 2032, 8), growth_factor(history))
 ```
 
 ## Installation
@@ -599,6 +650,7 @@ cost_core/
   cer/                parametric CERs and diagnostics
   reporting/          charts, assumptions log, the Excel workbooks, end to end run
   public/             public SARs: fetch with provenance, catalogue, unit cost parser, panel
+  aoa/                life-cycle cost of alternatives, spec files, growth from SAR history
 tests/                property tests, see below
 ```
 

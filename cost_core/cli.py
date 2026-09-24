@@ -274,6 +274,41 @@ def run_full(args: argparse.Namespace) -> None:
         abort(f"Full run failed: {e}")
 
 
+def run_aoa(args) -> None:
+    """Evaluate an AoA spec file and write the comparison."""
+    import json
+    from pathlib import Path
+
+    from cost_core.aoa import AoAError
+    from cost_core.aoa.spec import run_spec
+
+    try:
+        result = run_spec(args.spec)
+    except (AoAError, OSError, KeyError, ValueError) as e:
+        abort(f"AoA failed: {e}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    result.summary.to_csv(out / "summary.csv", index=False)
+    result.lines.to_csv(out / "lines.csv", index=False)
+    result.s_curves().to_csv(out / "s_curves.csv")
+    (out / "assumptions.json").write_text(json.dumps(result.assumptions, indent=1, default=str),
+                                          encoding="utf-8")
+    try:
+        from cost_core.reporting.charts import plot_aoa_s_curves
+        plot_aoa_s_curves(result, out / "aoa_s_curves.png")
+        chart = "aoa_s_curves.png"
+    except ImportError:
+        chart = None
+    basis = result.assumptions["basis"].upper()
+    print(f"\nLife-cycle cost, {basis}, {result.assumptions['n_iter']:,} draws each:\n")
+    cols = [c for c in ("alternative", "by", "ty", "pv", "p50", "p80", "p_cheapest",
+                        "effectiveness", "cost_per_effectiveness", "dominated_by")
+            if c in result.summary]
+    print(result.summary[cols].to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
+    print(f"\nWrote summary.csv, lines.csv, s_curves.csv, assumptions.json"
+          f"{', ' + chart if chart else ''} to {out}")
+
+
 def run_sar_panel(args) -> None:
     """Build a unit cost panel from public SARs and write it as CSV."""
     try:
@@ -408,6 +443,16 @@ def main() -> None:
     p_run.add_argument("--clean", action="store_true",
                        help="Generate data with no reporting pathologies")
 
+    # Subcommand: aoa
+    p_aoa = sub.add_parser(
+        "aoa",
+        help="Life-cycle cost of alternatives, compared under uncertainty",
+    )
+    p_aoa.add_argument("--spec", required=True,
+                       help="JSON spec of the alternatives (see docs/aoa_example.json)")
+    p_aoa.add_argument("--out", default="aoa",
+                       help="Directory for the tables, assumptions and chart")
+
     # Subcommand: sar-panel
     p_sar = sub.add_parser(
         "sar-panel",
@@ -434,6 +479,7 @@ def main() -> None:
         "fit-lots": run_fit_lots,
         "full-run": run_full,
         "sar-panel": run_sar_panel,
+        "aoa": run_aoa,
     }
 
     dispatch[args.cmd](args)

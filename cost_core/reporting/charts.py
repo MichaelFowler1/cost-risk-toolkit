@@ -638,3 +638,54 @@ def plot_summary_table(
         ax.set_title(title, loc="left", pad=14)
         fig.tight_layout()
         return _finish(fig, path)
+
+
+# ==========================================================================
+# AoA: S-curves of the alternatives on one chart
+# ==========================================================================
+def plot_aoa_s_curves(
+    result,
+    path: str | Path,
+    *,
+    title: str = "Life-cycle cost by alternative",
+    subtitle: str | None = None,
+) -> Path:
+    """One cumulative distribution per alternative, P50 and P80 marked.
+
+    Overlapping curves are the point of the chart: where two alternatives'
+    S-curves cross, which one is cheaper depends on the confidence level the
+    decision is made at, which a table of point estimates hides.
+
+    Args:
+        result: A :class:`~cost_core.aoa.AoAResult`.
+    """
+    basis = {"pv": "present value", "by": "base-year dollars", "ty": "then-year dollars"}
+    colours = [PRIMARY, SECONDARY, ACCENT, "#5b8c5a", "#7a5195", INK]
+    with plt.rc_context(_STYLE):
+        fig, ax = plt.subplots(figsize=(9.0, 5.6))
+        for i, (name, draws) in enumerate(result.draws.items()):
+            ordered = np.sort(draws)
+            probability = np.arange(1, ordered.size + 1) / ordered.size * 100.0
+            colour = colours[i % len(colours)]
+            ax.plot(ordered, probability, color=colour, linewidth=2.2, label=name)
+            for q, marker in ((50, "o"), (80, "s")):
+                x = float(np.percentile(draws, q))
+                ax.plot([x], [q], marker=marker, color=colour, markersize=6)
+        ax.axhline(50, color=GRID, linewidth=1.0, zorder=0)
+        ax.axhline(80, color=GRID, linewidth=1.0, zorder=0)
+        ax.set_ylabel("Confidence (%)")
+        # Plain numbers labelled with the caller's units, never a dollar
+        # formatter: an AoA is usually entered in $M, and "$5K" on the axis
+        # would be a thousandfold misread.
+        units = result.assumptions.get("units", "as entered")
+        ax.set_xlabel(f"Life-cycle cost, {basis.get(result.assumptions.get('basis'), '')} "
+                      f"({units})")
+        ax.set_ylim(0, 100)
+        ax.xaxis.set_major_formatter(FuncFormatter(_plain))
+        ax.legend(frameon=False, loc="lower right")
+        a = result.assumptions
+        default_sub = (f"Base year {a.get('base_year')}, real discount rate "
+                       f"{a.get('discount_rate', 0) * 100:.1f}%, {a.get('n_iter'):,} draws each. "
+                       f"Circles mark P50, squares P80.")
+        _titles(ax, title, subtitle or default_sub)
+        return _finish(fig, path)
