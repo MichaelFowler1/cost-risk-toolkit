@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 # normalises "cost-core" and "cost_core" to the same artefact names, so the
 # hyphen is only what people type after `pip install`.
 name = "cost-core"
-version = "2.0.0"
+version = "2.1.0"
 description = "Cost-Estimation Core Library and CLI"
 readme = "README.md"
 # 3.9 is the floor because nothing here needs more. Every PEP 604 union in the
@@ -51,7 +51,8 @@ authors = [{ name = "Michael Fowler" }]
 # ships in the wheel beside LICENSE.
 license = "PolyForm-Noncommercial-1.0.0"
 license-files = ["LICENSE", "NOTICE"]
-keywords = ["cost-estimating", "monte-carlo", "learning-curve", "risk-analysis", "csdr"]
+keywords = ["cost-estimating", "monte-carlo", "learning-curve", "risk-analysis", "csdr",
+            "selected-acquisition-report", "analysis-of-alternatives", "portfolio-optimization"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",

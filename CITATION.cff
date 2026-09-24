@@ -10,8 +10,12 @@ abstract: >-
   MUPE and ZMPE, and runs correlated Monte Carlo risk simulation with discrete
   risks, tornado analysis and P50/P80/P90 thresholds. Every run emits an
   assumptions and provenance log organised around the four characteristics of a
-  reliable estimate in the GAO Cost Estimating and Assessment Guide. All data
-  used is synthetic; no real or proprietary contractor data is included.
+  reliable estimate in the GAO Cost Estimating and Assessment Guide. It also
+  reads DoD's public Selected Acquisition Reports into a program-by-year unit
+  cost panel with row-level provenance, costs alternatives over their life
+  cycle in base-year, then-year and present-value dollars, and chooses a
+  funding portfolio as an integer program. No proprietary contractor data is
+  included; the only real data is public-domain SAR text used as test fixtures.
 authors:
   - family-names: "Fowler"
     given-names: "Michael"
@@ -24,8 +28,11 @@ keywords:
   - learning-curve
   - risk-analysis
   - csdr
+  - selected-acquisition-report
+  - analysis-of-alternatives
+  - portfolio-optimization
 license: "PolyForm-Noncommercial-1.0.0"
-version: "2.0.0"
+version: "2.1.0"
 # CFF pairs `version` with `date-released`: together they describe the release
 # being cited, not the first commit. Each release moves both.
-date-released: "2026-09-23"
+date-released: "2026-09-24"

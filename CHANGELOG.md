@@ -10,6 +10,14 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-24
+
+Three new subpackages, and real programs to test on. Nothing the engine
+already produced changes: the lot models, the roll-up, the CERs, the risk
+simulation and the workbooks give the same numbers as 2.0.0, and the goldens
+pin that. Each new part that needs another library asks for it through an
+optional extra, so a plain `pip install cost-core` pulls in nothing new.
+
 ### Added
 
 - **`cost_core.public`: real programs from DoD's public Selected Acquisition
@@ -389,7 +397,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/releases/tag/v1.0.0
