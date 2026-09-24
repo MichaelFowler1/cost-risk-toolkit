@@ -274,6 +274,28 @@ def run_full(args: argparse.Namespace) -> None:
         abort(f"Full run failed: {e}")
 
 
+def run_sar_panel(args) -> None:
+    """Build a unit cost panel from public SARs and write it as CSV."""
+    try:
+        from cost_core.public import build_sar_panel, sar_catalog
+    except ImportError as e:
+        abort(str(e))
+    cat = sar_catalog()
+    if args.list_cycles:
+        counts = cat[cat["kind"] != "combined"].groupby("cycle", sort=False).size()
+        for cycle, n in counts.items():
+            print(f"  {cycle:10s} {n:4d} reports")
+        return
+    panel = build_sar_panel(catalog=cat, cycles=args.cycles, programs=args.programs,
+                            limit=args.limit, progress=print)
+    paths = panel.to_csv(args.out)
+    read = int((panel.reports["status"] == "read").sum())
+    print(f"\nRead {read} of {len(panel.reports)} reports, "
+          f"{len(panel.unit_cost)} unit cost rows.")
+    for name, path in paths.items():
+        print(f"  {name:10s} {path}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="CE Core CLI: Regression & Risk Engine")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -386,6 +408,22 @@ def main() -> None:
     p_run.add_argument("--clean", action="store_true",
                        help="Generate data with no reporting pathologies")
 
+    # Subcommand: sar-panel
+    p_sar = sub.add_parser(
+        "sar-panel",
+        help="Unit cost of real programs from public Selected Acquisition Reports",
+    )
+    p_sar.add_argument("--out", default="sar_panel",
+                       help="Directory for unit_cost.csv, reports.csv and checks.csv")
+    p_sar.add_argument("--cycles", nargs="+", default=None, metavar="CYCLE",
+                       help="Reporting cycles, e.g. 'Dec 2019' 'PB 2027' (default: all)")
+    p_sar.add_argument("--programs", nargs="+", default=None, metavar="NAME",
+                       help="Only programs whose file name contains one of these")
+    p_sar.add_argument("--limit", type=int, default=None,
+                       help="Stop after this many reports")
+    p_sar.add_argument("--list-cycles", action="store_true",
+                       help="List the cycles and report counts, fetch nothing")
+
     args = parser.parse_args()
 
     # Dispatcher map
@@ -395,6 +433,7 @@ def main() -> None:
         "simulate": run_simulate,
         "fit-lots": run_fit_lots,
         "full-run": run_full,
+        "sar-panel": run_sar_panel,
     }
 
     dispatch[args.cmd](args)

@@ -50,11 +50,13 @@ P50/P80/P90 thresholds (right). Regenerate with `python make_hero.py`, which
 reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 `*.csv`.*
 
-> **No real or proprietary data is committed to this repository.** You supply
-> your own for `fit-lots`, and nothing you pass in gets stored here. Everything
-> the repo ships with, and everything the test suite runs on, comes from a
-> seeded generator producing invented programs in the *shape* of CADE
-> submissions.
+> **No proprietary data is committed to this repository.** You supply your
+> own for `fit-lots`, and nothing you pass in gets stored here. The synthetic
+> pipeline and most of the test suite run on a seeded generator producing
+> invented programs in the *shape* of CADE submissions. The one exception is
+> public: `cost_core.public` reads DoD's released Selected Acquisition Reports,
+> and its tests carry the text of a few pages from five of them, which are
+> U.S. government works in the public domain.
 
 ## What it does
 
@@ -70,6 +72,56 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 | `cost_core.cer` | Parametric CERs, log log and linear, with leverage and influence diagnostics, extrapolation warnings, small sample guardrails |
 | `cost_core.monte_carlo` | Correlated WBS level risk: Gaussian copula or Iman Conover, PSD repair, discrete risks, tornado, convergence |
 | `cost_core.reporting` | S curve, tornado, cost improvement curve, CER diagnostics, and the assumptions log |
+| `cost_core.public` | **Real programs.** DoD's public Selected Acquisition Reports, 2010 to today, read into a program by year table of unit cost against the current and original baselines, with the source file and an arithmetic check behind every number |
+
+## Real programs from public SARs
+
+Every major defense program reports to Congress each year in a Selected
+Acquisition Report, and DoD releases them. Their unit cost pages are the
+longest public record of cost growth there is: what each program expected a
+unit to cost when it started, and what it expects now, in constant dollars.
+
+```bash
+pip install "cost-core[public]"
+ce-core sar-panel --list-cycles
+ce-core sar-panel --programs F-35 --out f35/
+```
+
+The second command reads the F-35's SARs from December 2010 to the FY 2027
+budget and writes three files: `unit_cost.csv` (PAUC and APUC, baseline beside
+current estimate, per subprogram and report), `reports.csv` (what was read and
+what wasn't, and why) and `checks.csv`. Leave off `--programs` for all of them,
+about a thousand reports, which takes an hour or two the first time and
+seconds after, since every download is cached.
+
+A few things worth knowing before you use the numbers:
+
+- **The files come from the Internet Archive.** The reading room that
+  publishes them (esd.whs.mil) refuses scripted downloads, so the library
+  asks the Wayback Machine for its copy of each official URL instead, and
+  records the capture it used and the file's SHA-256 beside every row.
+- **Three templates are read.** The SAR layout changed in 2021 and again for
+  the modernised MSAR in December 2023; all three parse, including scans
+  whose OCR text layer garbles the headers.
+- **Every row is checked against its own arithmetic.** Unit cost times
+  quantity has to come back to cost, and the printed percentage change has to
+  match the unit costs. On a sample of 133 reports from every cycle, 126 read
+  and 1,443 of 1,447 checks held. The four that failed were errors in the
+  SARs themselves (an OCR layer that dropped a decimal point, a printed
+  percentage that contradicts its own unit costs), and they stay in the table,
+  marked, rather than being quietly fixed.
+- **Base years differ between blocks.** A SAR can state its current baseline
+  in one base year and its original baseline in another (SDB II, December
+  2022: BY2015 and BY2010), so compare growth percentages across programs,
+  not dollars, unless you convert them.
+
+In Python:
+
+```python
+from cost_core.public import build_sar_panel
+panel = build_sar_panel(programs=["DDG 51"], progress=print)
+panel.unit_cost[["cycle", "measure", "comparison", "unit_cost_growth_pct"]]
+```
 
 ## Installation
 
@@ -546,6 +598,7 @@ cost_core/
   ingest/             crosswalk, inflation, normalization pipeline
   cer/                parametric CERs and diagnostics
   reporting/          charts, assumptions log, the Excel workbooks, end to end run
+  public/             public SARs: fetch with provenance, catalogue, unit cost parser, panel
 tests/                property tests, see below
 ```
 

@@ -10,6 +10,18 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Added
+
+- **`cost_core.public`: real programs from DoD's public Selected Acquisition
+  Reports.** It lists every SAR and MSAR released since December 2010 (about
+  a thousand), fetches each through the Internet Archive with its capture and
+  SHA-256 recorded, reads the unit cost section (PAUC and APUC against the
+  current and original baselines) from all three report templates, and
+  stacks them into a program by year panel. Every row is checked against its
+  own arithmetic and the result travels with it. `ce-core sar-panel` does
+  the same from the command line. Reading PDFs needs the new `public` extra
+  (pdfplumber); nothing else changes, and no engine number moves.
+
 ## [2.0.0] - 2026-09-23
 
 A license release. The engine, and every number it produces, is the same as

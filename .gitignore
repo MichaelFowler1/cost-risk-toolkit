@@ -22,6 +22,11 @@ __pycache__/
 # Documentation for the golden regression test: tolerances and exclusions, no data.
 !/tests/goldens/COMPARE_POLICY.json
 
+# Page text from five of DoD's released Selected Acquisition Reports, the
+# fixtures for tests/test_public.py. U.S. government works, public domain,
+# already published by DoD; nothing here is contractor data.
+!/tests/fixtures/sar/*.json
+
 # Editor run configurations. Portable -- every path is relative to the
 # workspace -- so they travel with the repo rather than being rebuilt by hand.
 !/.vscode/launch.json

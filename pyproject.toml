@@ -78,6 +78,10 @@ Changelog = "https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/CHANG
 # `monte_carlo.plot_distribution` -- needs this extra, and says so by name when
 # it is missing.
 plots = ["matplotlib>=3.8.0"]
+# pdfplumber reads the text of public PDFs (SARs) by position, which is what
+# cost_core.public parses. Only reading a PDF needs it: the parser itself runs
+# on text, and the tests run without it.
+public = ["pdfplumber>=0.11"]
 
 [project.scripts]
 ce-core = "cost_core.cli:main"
