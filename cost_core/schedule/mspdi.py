@@ -66,7 +66,8 @@ TASK_COLUMNS = (
     "duration_days", "remaining_days", "percent_complete", "start", "finish",
     "actual_start", "actual_finish", "baseline_start", "baseline_finish",
     "baseline_duration_days", "total_float_days", "free_float_days", "critical",
-    "constraint", "constraint_date", "deadline", "cost", "fixed_cost", "resources",
+    "constraint", "constraint_date", "deadline", "cost", "fixed_cost", "remaining_cost",
+    "resources",
     "elapsed_duration",
 )
 
@@ -192,6 +193,14 @@ class MspdiSchedule:
         ``FixedCost`` field is time-independent, and the rest of its
         ``Cost`` (the resources) is spread over its duration as a burn rate.
         On a finished task, or one with no duration, all of it is fixed.
+
+        With ``remaining``, what a task has already spent (its ``Cost``
+        less its ``RemainingCost``, or its percent complete of the cost
+        where the file gives no remaining cost) is certain, sunk and fixed,
+        and only the remaining cost varies with the remaining duration. So
+        the simulated total is still the whole program's, with nothing
+        counted twice. The fixed cost is taken to accrue in proportion to
+        progress, the Project default.
         """
         per_task = dict(per_task or {})
         month = self.days_per_month
@@ -211,12 +220,22 @@ class MspdiSchedule:
             if days <= 0:
                 spec = None
             cost, fixed = float(t.cost or 0.0), float(t.fixed_cost or 0.0)
+            sunk = 0.0
+            if remaining:
+                done = min(max(float(t.percent_complete or 0.0) / 100.0, 0.0), 1.0)
+                left = (float(t.remaining_cost) if pd.notna(t.remaining_cost)
+                        else cost * (1.0 - done))
+                left = min(max(left, 0.0), cost)
+                sunk = cost - left
+                fixed = fixed * (1.0 - done)
+                cost = left
             variable = max(cost - fixed, 0.0)
             months = days / month
             if months > 0:
                 burn = variable / months
             else:
                 burn, fixed = 0.0, fixed + variable
+            fixed += sunk
             acts.append(Activity(_act_id(t.uid), months, dict(spec) if spec else None,
                                  preds.get(int(t.uid), []), fixed_cost=fixed,
                                  burn_rate=burn, name=t.name or ""))
@@ -322,6 +341,8 @@ def read_mspdi(path) -> MspdiSchedule:
             "deadline": _date(g(t, "Deadline")),
             "cost": float(g(t, "Cost") or 0) / 100,
             "fixed_cost": float(g(t, "FixedCost") or 0) / 100,
+            "remaining_cost": (float(g(t, "RemainingCost")) / 100
+                               if g(t, "RemainingCost") is not None else None),
             "resources": resources.get(uid, 0),
             "elapsed_duration": fmt in _ELAPSED_FORMATS,
         })

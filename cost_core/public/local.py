@@ -33,7 +33,7 @@ from typing import Optional, Union
 
 import pandas as pd
 
-from cost_core.public.catalog import _FOLDER, CATALOG_COLUMNS, _program_guess
+from cost_core.public.catalog import CATALOG_COLUMNS, _program_guess, cycle_from_folder
 
 # A full month name may be glued to the program name before it
 # ("JLENSDecember2013SAR"); an abbreviation must not follow a letter, or
@@ -43,16 +43,6 @@ _MONTH = re.compile(
 _YEAR = re.compile(r"(?<!\d)((?:19|20)\d{2})(?!\d)")
 #: "PB", "PB2027", "PBv2": a President's Budget MSAR.
 _PB = re.compile(r"(?i)(?<![a-z])PB(?:v\d+)?(?![a-z])")
-
-
-def _cycle_from_folder(folder: str) -> "tuple[Optional[str], Optional[int]]":
-    m = _FOLDER.match(folder)
-    if not m:
-        return None, None
-    if m.group(1):
-        return f"Dec {m.group(1)}", int(m.group(1))
-    year = int(m.group(3))
-    return f"{'Jun' if m.group(2).lower() == 'june' else 'PB'} {year}", year
 
 
 def cycle_from_filename(filename: str) -> "tuple[Optional[str], Optional[int]]":
@@ -99,7 +89,7 @@ def local_catalog(directory: Union[str, Path]) -> pd.DataFrame:
         raise FileNotFoundError(f"no such folder: {root}")
     rows = []
     for path in sorted(p for p in root.rglob("*") if p.is_file() and p.suffix.lower() == ".pdf"):
-        cycle, year = _cycle_from_folder(path.parent.name)
+        cycle, year = cycle_from_folder(path.parent.name)
         if cycle is None:
             cycle, year = cycle_from_filename(path.name)
         kind = "MSAR" if "MSAR" in path.name.upper() else "SAR"

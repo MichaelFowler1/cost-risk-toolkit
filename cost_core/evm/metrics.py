@@ -68,6 +68,22 @@ def _div(a, b):
         return np.where(b != 0, a / np.where(b != 0, b, 1.0), np.nan)
 
 
+def _period_order(labels: pd.Series) -> np.ndarray:
+    """Positions that put period labels in time order.
+
+    Numbers sort as numbers and dates as dates, whatever their format
+    ("2026-01", "1/31/2026", a Timestamp); anything else sorts as text.
+    """
+    num = pd.to_numeric(labels, errors="coerce")
+    if num.notna().all():
+        return np.argsort(num.to_numpy(), kind="stable")
+    try:
+        dates = pd.to_datetime(labels.astype(str), errors="raise", format="mixed")
+        return np.argsort(dates.to_numpy(), kind="stable")
+    except (ValueError, TypeError):
+        return np.argsort(labels.astype(str).to_numpy(), kind="stable")
+
+
 def earned_schedule(pv_cum: Sequence[float], ev: Union[float, np.ndarray]):
     """The earned schedule of ``ev`` against a cumulative baseline.
 
@@ -175,20 +191,8 @@ class EvmData:
         if missing:
             raise EvmError(f"Missing column(s) {sorted(missing)}.")
         if account and account in df.columns:
-            accounts = {}
-            for key, part in df.groupby(account, sort=False):
-                accounts[str(key)] = cls.from_frame(part, cumulative=cumulative, name=str(key),
-                                                   period=period, account=None)
-            statuses = {k: a.status for k, a in accounts.items()}
-            if len(set(statuses.values())) > 1:
-                raise EvmError(f"Accounts end at different status periods: {statuses}.")
-            pieces = [a._frame() for a in accounts.values()]
-            total = pd.concat(pieces).groupby("period", sort=False).sum(min_count=1)
-            total = total.reindex(sorted(total.index))
-            out = cls._from_cumulative(total.index.tolist(), total, bac, name)
-            out.accounts = accounts
-            return out
-        d = df.sort_values(period)
+            return cls._from_accounts(df, cumulative, bac, name, period, account)
+        d = df.iloc[_period_order(df[period])]
         if d[period].duplicated().any():
             raise EvmError("A period appears twice; give one row per period "
                            "(or name the account column).")
@@ -199,6 +203,54 @@ class EvmData:
                 known = vals[c].notna()
                 vals.loc[known, c] = vals.loc[known, c].cumsum()
         return cls._from_cumulative(d[period].tolist(), vals, bac, name)
+
+    @classmethod
+    def _from_accounts(cls, df, cumulative, bac, name, period, account) -> "EvmData":
+        """Each account on the program's whole calendar, then their sum.
+
+        Accounts start and finish at different times, so each is laid on
+        every period any account has. Before an account's first row it has
+        nothing; after its last baseline period it plans nothing more; and
+        up to the program's status period a missing row means nothing was
+        earned or spent that period (cumulative values carry forward).
+        """
+        order = _period_order(df[period])
+        labels = list(dict.fromkeys(df[period].iloc[order]))
+        has = df["bcwp"].notna() & df["acwp"].notna()
+        if not has.any():
+            raise EvmError("No period has both BCWP and ACWP.")
+        status = max(labels.index(p) for p in df.loc[has, period]) + 1
+        accounts = {}
+        for key, part in df.groupby(account, sort=False):
+            if part[period].duplicated().any():
+                raise EvmError(f"Account {key}: a period appears twice.")
+            cols = ["bcws", "bcwp", "acwp"] + (["eac"] if "eac" in part.columns else [])
+            v = part.set_index(period)[cols].apply(pd.to_numeric, errors="coerce")
+            v = v.reindex(labels)
+            past = np.arange(len(labels)) < status
+            if cumulative:
+                for c in ("bcws", "bcwp", "acwp"):
+                    v[c] = v[c].ffill().fillna(0.0)
+            else:
+                v["bcws"] = v["bcws"].fillna(0.0)
+                for c in ("bcwp", "acwp"):
+                    v[c] = v[c].fillna(0.0)
+            v.loc[~past, ["bcwp", "acwp"]] = np.nan
+            if "eac" in v.columns:
+                v.loc[~past, "eac"] = np.nan
+            frame = v.rename_axis(period).reset_index()
+            accounts[str(key)] = cls.from_frame(frame, cumulative=cumulative, name=str(key),
+                                                period=period, account=None)
+        pieces = [a._frame() for a in accounts.values()]
+        # An EAC for the program only where every account gives one: a sum
+        # of some accounts' EACs is not an estimate for the whole.
+        total = pd.concat(pieces).groupby("period", sort=False).sum(min_count=len(pieces))
+        for c in ("bcws", "bcwp", "acwp"):
+            total[c] = pd.concat(pieces).groupby("period", sort=False)[c].sum(min_count=1)
+        total = total.reindex(labels)
+        out = cls._from_cumulative(labels, total, bac, name)
+        out.accounts = accounts
+        return out
 
     @classmethod
     def _from_cumulative(cls, periods, vals: pd.DataFrame, bac, name) -> "EvmData":
