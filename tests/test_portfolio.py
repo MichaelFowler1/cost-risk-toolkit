@@ -191,7 +191,7 @@ def test_an_aoa_feeds_the_portfolio_as_exclusive_alternatives():
 
 
 # ------------------------------------------------------------ spec + CLI ---
-EXAMPLE = __import__("pathlib").Path(__file__).resolve().parents[1] / "docs" / "portfolio_example.json"
+EXAMPLE = __import__("cost_core.examples", fromlist=["example_path"]).example_path("portfolio")
 
 
 def test_example_spec_loads_and_its_choice_respects_every_rule():

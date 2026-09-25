@@ -44,7 +44,7 @@ See :mod:`cost_core.schedule.mspdi` for how the schedule is read.
 A predecessor is an id (finish-to-start), ``[id, lag]`` for a lag in months,
 ``[id, lag, type]`` with ``type`` one of ``FS``, ``SS``, ``FF`` and ``SF``,
 or ``{"id": ..., "lag": ..., "type": ...}``. Durations are in
-months; costs in ``units``, which is only a label. ``docs/jcl_example.json``
+months; costs in ``units``, which is only a label. ``cost_core/examples/jcl_example.json`` (``ce-core template jcl``)
 is a complete one.
 """
 

@@ -33,10 +33,8 @@ include make_hero.py
 # from here, so the grafted suite needs it as much as it needs the goldens.
 include tools/sbom_licences.py
 
-# The worked examples the README runs, which the AoA, portfolio, JCL, EVM and
-# IPMDAR tests also read, so the suite in the sdist runs as it does here.
-include docs/aoa_example.json docs/portfolio_example.json docs/jcl_example.json
-include docs/evm_example.csv
+# The worked examples live in cost_core/examples and ship as package data
+# (pyproject.toml), so they reach the sdist and the wheel alike.
 
 # Build leftovers are not source.
 global-exclude *.py[cod]

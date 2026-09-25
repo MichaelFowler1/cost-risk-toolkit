@@ -33,6 +33,20 @@ def abort(message: str) -> NoReturn:
     log.error(message)
     sys.exit(1)
 
+def need_file(path, what: str, topic: str) -> None:
+    """Stop with a message a first-time user can act on when an input file is
+    not there: where it looked, and how to get one."""
+    p = Path(path)
+    if p.exists():
+        return
+    here = Path.cwd()
+    hint = ("How to save one from Microsoft Project: ce-core template schedule"
+            if topic == "schedule" else f"For a file to fill in: ce-core template {topic}")
+    abort(f"Can't find {what} '{path}' (looked in {here if not p.is_absolute() else p.parent}).\n"
+          f"  To see this command work first: ce-core demo {topic}\n"
+          f"  {hint}")
+
+
 def run_fit(args: argparse.Namespace) -> None:
     path = Path(args.csv)
     if not path.is_file():
@@ -282,6 +296,7 @@ def run_aoa(args) -> None:
     from cost_core.aoa import AoAError
     from cost_core.aoa.spec import run_spec
 
+    need_file(args.spec, "the AoA spec", "aoa")
     try:
         result = run_spec(args.spec)
     except (AoAError, OSError, KeyError, ValueError) as e:
@@ -305,7 +320,9 @@ def run_aoa(args) -> None:
                         "effectiveness", "cost_per_effectiveness", "dominated_by")
             if c in result.summary]
     print(result.summary[cols].to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
-    print(f"\nWrote summary.csv, lines.csv, s_curves.csv, assumptions.json"
+    from cost_core import plain
+    print(plain.show(plain.aoa(result, str(result.assumptions.get("units") or ""))))
+    print(f"Wrote summary.csv, lines.csv, s_curves.csv, assumptions.json"
           f"{', ' + chart if chart else ''} to {out}")
 
 
@@ -319,9 +336,13 @@ def run_portfolio(args) -> None:
         from cost_core.portfolio.spec import load_portfolio
     except ImportError as e:
         abort(str(e))
+    need_file(args.spec, "the portfolio spec", "portfolio")
     try:
         portfolio, settings = load_portfolio(args.spec)
         result = solve(portfolio)
+    except ImportError:
+        abort("Choosing a portfolio needs a solver, which comes with the optimize extra:\n"
+              '  pip install "cost-core[optimize]"')
     except (PortfolioError, OSError, KeyError, ValueError) as e:
         abort(f"Portfolio failed: {e}")
     out = Path(args.out)
@@ -348,6 +369,7 @@ def run_portfolio(args) -> None:
     written.append("frontier.csv")
     print("\nBest value at other budget levels:")
     print(fr.to_string(index=False, float_format=money))
+    risk = None
     if "growth" in settings:
         risk = budget_risk(portfolio, result.choice, settings["growth"],
                            n_iter=int(settings.get("n_iter", 20000)),
@@ -357,7 +379,9 @@ def run_portfolio(args) -> None:
         written.append("budget_risk.csv")
         print("\nChance each year breaks its budget once costs grow:")
         print(risk.to_string(index=False, float_format=money))
-    print(f"\nWrote {', '.join(written)} to {out}")
+    from cost_core import plain
+    print(plain.show(plain.portfolio(result, len(portfolio.candidates), risk, units)))
+    print(f"Wrote {', '.join(written)} to {out}")
 
 
 def run_jcl(args) -> None:
@@ -368,6 +392,7 @@ def run_jcl(args) -> None:
     from cost_core.schedule import ScheduleError, critical_path, simulate
     from cost_core.schedule.spec import load_project
 
+    need_file(args.spec, "the JCL spec", "jcl")
     try:
         project, settings = load_project(args.spec)
         result = simulate(project, n_iter=int(settings.get("n_iter", 20000)),
@@ -408,7 +433,9 @@ def run_jcl(args) -> None:
     print(summary.to_string(index=False, float_format=lambda v: f"{v:,.3f}"))
     print("\nWhere the schedule risk is:")
     print(result.criticality().to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
-    print(f"\nWrote {', '.join(written)} to {out}")
+    from cost_core import plain
+    print(plain.show(plain.jcl(result, conf, units)))
+    print(f"Wrote {', '.join(written)} to {out}")
 
 
 def run_evm(args) -> None:
@@ -420,14 +447,21 @@ def run_evm(args) -> None:
 
     from cost_core.evm import EvmData, EvmError, forecast
 
+    from cost_core.plain import units_label
+    args.units = units_label(args.units)
     try:
         if args.ipmdar:
             from cost_core.evm.ipmdar import read_ipmdar
+            for p in args.ipmdar:
+                need_file(p, "the IPMDAR dataset", "evm")
             data = read_ipmdar(args.ipmdar, bac=args.bac)
         elif args.data:
+            need_file(args.data, "the EVM data", "evm")
             data = EvmData.read(args.data, cumulative=args.cumulative, bac=args.bac)
         else:
-            abort("Give --data (CSV or Excel) or --ipmdar (one or more IPMDAR datasets).")
+            abort("Which data? Give --data my_evm.xlsx (a spreadsheet or CSV) or --ipmdar "
+                  "delivery.zip.\n  To see it work first: ce-core demo evm\n"
+                  "  For a spreadsheet to fill in: ce-core template evm")
         fc = forecast(data, n_iter=args.iters, seed=args.seed)
     except (EvmError, OSError, KeyError, ValueError) as e:
         abort(f"EVM failed: {e}")
@@ -476,7 +510,9 @@ def run_evm(args) -> None:
         print("\nWarning signs:")
         for r in raised.itertuples():
             print(f"  - {r.flag}. {r.detail}")
-    print(f"\nWrote {', '.join(written)} to {out}")
+    from cost_core import plain
+    print(plain.show(plain.evm(data, fc, args.units)))
+    print(f"Wrote {', '.join(written)} to {out}")
 
 
 def run_schedule_check(args) -> None:
@@ -489,6 +525,7 @@ def run_schedule_check(args) -> None:
     from cost_core.schedule.dcma import dcma_14_point
     from cost_core.schedule.mspdi import read_mspdi
 
+    need_file(args.mspdi, "the schedule", "schedule")
     try:
         sched = read_mspdi(args.mspdi)
         result = dcma_14_point(sched)
@@ -512,7 +549,70 @@ def run_schedule_check(args) -> None:
           f"{14 - result.passed - result.failed} not assessable from this file.")
     for note in sched.notes:
         print(f"  note: {note}")
-    print(f"\nWrote dcma.csv, dcma_tasks.csv, tasks.csv and links.csv to {out}")
+    from cost_core import plain
+    print(plain.show(plain.dcma(result, sched)))
+    print(f"Wrote dcma.csv, dcma_tasks.csv, tasks.csv and links.csv to {out}")
+
+
+#: What each demo runs, as the command line a user would type, with the
+#: example's path and the demo's output folder filled in.
+DEMOS = {
+    "evm": ["evm", "--data", "{path}", "--units", "thousands", "--out", "{out}"],
+    "schedule": ["schedule-check", "--mspdi", "{path}", "--out", "{out}"],
+    "jcl": ["jcl", "--spec", "{path}", "--out", "{out}"],
+    "aoa": ["aoa", "--spec", "{path}", "--out", "{out}"],
+    "portfolio": ["portfolio", "--spec", "{path}", "--out", "{out}"],
+}
+
+
+def run_demo(args) -> None:
+    """Run one command end to end on its bundled example."""
+    from pathlib import Path
+
+    from cost_core.examples import EXAMPLES, example_path
+
+    topic = args.topic
+    path = example_path(topic)
+    out = Path(args.out or Path("ce-core-demo") / topic)
+    argv = [a.format(path=path, out=out) for a in DEMOS[topic]]
+    print(f"Demo: {EXAMPLES[topic][1]}\nExample data: {path}\n"
+          f"Running: ce-core {' '.join(_quote(a) for a in argv)}")
+    main(argv)
+    mine = {"evm": "ce-core evm --data my_evm.xlsx",
+            "schedule": "ce-core schedule-check --mspdi my_schedule.xml",
+            "jcl": "ce-core jcl --spec my_jcl.json",
+            "aoa": "ce-core aoa --spec my_aoa.json",
+            "portfolio": "ce-core portfolio --spec my_portfolio.json"}[topic]
+    first = ("ce-core template schedule   (how to save one from Microsoft Project)"
+             if topic == "schedule" else f"ce-core template {topic}")
+    print(f"Everything above is in {out}.\n\nNow with your own data:\n  {first}\n  {mine}")
+
+
+def _quote(arg: str) -> str:
+    return f'"{arg}"' if (" " in arg or "$" in arg) else arg
+
+
+TEMPLATE_FILES = {"evm": "my_evm.xlsx", "jcl": "my_jcl.json", "aoa": "my_aoa.json",
+                  "portfolio": "my_portfolio.json", "lots": "my_lots.csv"}
+
+
+def run_template(args) -> None:
+    """Write a file to fill in, laid out the way the command reads it."""
+    from pathlib import Path
+
+    from cost_core import templates
+
+    topic = args.topic
+    if topic == "schedule":
+        print(templates.SCHEDULE_HOWTO)
+        return
+    out = Path(args.out or TEMPLATE_FILES[topic])
+    if out.exists() and not args.force:
+        abort(f"{out} already exists; choose another name with --out, or add --force "
+              "to replace it.")
+    written = templates.write(topic, out)
+    print(f"Wrote {written}.\n")
+    print(templates.NEXT_STEPS[topic].format(path=written))
 
 
 def run_sar_panel(args) -> None:
@@ -540,9 +640,12 @@ def run_sar_panel(args) -> None:
         print(f"  {name:10s} {path}")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="CE Core CLI: Regression & Risk Engine")
-    sub = parser.add_subparsers(dest="cmd", required=True)
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="ce-core",
+        description="Cost estimating, EVM and schedule analysis. Run with no arguments for "
+                    "a guide to what it can do.")
+    sub = parser.add_subparsers(dest="cmd")
 
     # Subcommand: fit
     # Long-form aliases (--quantity-col, --quantities, --n-iter,
@@ -658,7 +761,7 @@ def main() -> None:
         help="Life-cycle cost of alternatives, compared under uncertainty",
     )
     p_aoa.add_argument("--spec", required=True,
-                       help="JSON spec of the alternatives (see docs/aoa_example.json)")
+                       help="JSON spec of the alternatives (ce-core template aoa writes one)")
     p_aoa.add_argument("--out", default="aoa",
                        help="Directory for the tables, assumptions and chart")
 
@@ -669,7 +772,7 @@ def main() -> None:
     )
     p_port.add_argument("--spec", required=True,
                         help="JSON spec of the candidates and budget "
-                             "(see docs/portfolio_example.json)")
+                             "(ce-core template portfolio writes one)")
     p_port.add_argument("--out", default="portfolio",
                         help="Directory for the choice, spend, frontier and risk tables")
 
@@ -679,7 +782,7 @@ def main() -> None:
         help="Schedule risk and joint cost and schedule confidence (JCL)",
     )
     p_jcl.add_argument("--spec", required=True,
-                       help="JSON spec of the network (see docs/jcl_example.json), or one "
+                       help="JSON spec of the network (ce-core template jcl writes one), or one "
                             "naming a Microsoft Project XML file under \"mspdi\"")
     p_jcl.add_argument("--out", default="jcl",
                        help="Directory for the tables, the draws and the JCL chart")
@@ -693,7 +796,7 @@ def main() -> None:
     )
     p_evm.add_argument("--data", default=None,
                        help="CSV or Excel: period, bcws, bcwp, acwp, optional eac and wbs "
-                            "(see docs/evm_example.csv)")
+                            "(ce-core template evm writes one)")
     p_evm.add_argument("--ipmdar", nargs="+", default=None, metavar="DATASET",
                        help="IPMDAR Contract Performance Dataset(s): a folder, ZIP or JSON "
                             "file; several monthly ones rebuild the history")
@@ -704,7 +807,9 @@ def main() -> None:
     p_evm.add_argument("--iters", "--n-iter", dest="iters", type=int, default=20000,
                        help="Simulated completions")
     p_evm.add_argument("--seed", type=int, default=0, help="Random seed")
-    p_evm.add_argument("--units", default="as entered", help="Label for the money axis")
+    p_evm.add_argument("--units", default="as entered",
+                       help="What the money is in, for labels: dollars, thousands or millions "
+                            "(or any text); nothing is converted")
     p_evm.add_argument("--out", default="evm",
                        help="Directory for the tables, the draws and the chart")
 
@@ -737,7 +842,28 @@ def main() -> None:
     p_sar.add_argument("--list-cycles", action="store_true",
                        help="List the cycles and report counts, fetch nothing")
 
-    args = parser.parse_args()
+    # Subcommand: demo
+    p_demo = sub.add_parser(
+        "demo", help="See a command working on bundled example data, no files needed")
+    p_demo.add_argument("topic", choices=sorted(DEMOS),
+                        help="Which one: evm, schedule, jcl, aoa or portfolio")
+    p_demo.add_argument("--out", default=None,
+                        help="Folder for the results (default: ce-core-demo/<topic>)")
+
+    # Subcommand: template
+    p_tmpl = sub.add_parser(
+        "template", help="Write a file to fill in with your own data")
+    p_tmpl.add_argument("topic", choices=sorted(list(TEMPLATE_FILES) + ["schedule"]),
+                        help="Which one: evm, jcl, aoa, portfolio, lots or schedule")
+    p_tmpl.add_argument("--out", default=None,
+                        help="File to write (default: my_<topic> in this folder)")
+    p_tmpl.add_argument("--force", action="store_true", help="Replace the file if it exists")
+
+    args = parser.parse_args(argv)
+    if args.cmd is None:
+        from cost_core.plain import menu
+        print(menu())
+        return
 
     # Dispatcher map
     dispatch = {
@@ -752,6 +878,8 @@ def main() -> None:
         "aoa": run_aoa,
         "portfolio": run_portfolio,
         "jcl": run_jcl,
+        "demo": run_demo,
+        "template": run_template,
     }
 
     dispatch[args.cmd](args)

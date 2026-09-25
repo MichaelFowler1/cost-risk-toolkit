@@ -256,3 +256,8 @@ jobs:
           cd /tmp
           python -c "import cost_core, cost_core.public, cost_core.aoa, cost_core.portfolio, cost_core.lotmodel, cost_core.program; print('cost_core', cost_core.__version__, 'installed from the built wheel')"
           ce-core --help > /dev/null
+          # The examples have to be in the wheel, not only the repository, or
+          # `ce-core demo` fails for everyone who installed from PyPI.
+          ce-core demo evm --out /tmp/demo_evm | grep -q "What this means"
+          ce-core template evm --out /tmp/my_evm.xlsx > /dev/null
+          python -m cost_core | grep -q "What do you want to do"

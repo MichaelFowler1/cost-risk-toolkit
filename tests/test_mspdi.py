@@ -3,7 +3,8 @@
 
 """Reading Microsoft Project XML, and the DCMA 14-point check.
 
-``fixtures/schedule/small_ims.xml`` was written by hand for these tests: ten
+The schedule example, ``cost_core/examples/example_ims.xml``, was written by
+hand for these tests (and ships as the example ``ce-core demo`` runs): ten
 tasks under two summaries, with a finished task and one in progress, every
 link type, a lag, an elapsed lag, a percentage lag and a lead, a hard
 constraint, a baseline and a status date. Every expected number below was
@@ -18,9 +19,10 @@ import pytest
 
 from cost_core.schedule import ScheduleError, critical_path, simulate
 from cost_core.schedule.dcma import dcma_14_point
+from cost_core.examples import example_path
 from cost_core.schedule.mspdi import iso_duration_minutes, read_mspdi
 
-IMS = Path(__file__).parent / "fixtures" / "schedule" / "small_ims.xml"
+IMS = example_path("schedule")
 
 
 @pytest.fixture(scope="module")

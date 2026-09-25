@@ -97,6 +97,12 @@ optimize = ["pulp>=2.8", "highspy>=1.7"]
 [project.scripts]
 ce-core = "cost_core.cli:main"
 
+[tool.setuptools.package-data]
+# The worked examples `ce-core demo` runs and `ce-core template` copies. They
+# have to be in the wheel, not only the repository, or someone who installed
+# from PyPI has nothing to run before they have data of their own.
+"cost_core.examples" = ["*.json", "*.csv", "*.xml"]
+
 [tool.setuptools.packages.find]
 # "cost_core" alone does not match "cost_core.synth" and friends -- these
 # patterns are matched against the full dotted name, so the subpackages need
