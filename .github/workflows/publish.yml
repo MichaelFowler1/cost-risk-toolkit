@@ -80,3 +80,55 @@ jobs:
           path: dist/
 
       - uses: pypa/gh-action-pypi-publish@release/v1
+
+  sbom:
+    # The SBOM and licence table for exactly this release, attached to the
+    # GitHub release beside the source, so a reviewer approving a version has
+    # the list of what that version installs without building anything. Only
+    # for a real release: a manual run has no release to attach to. The check
+    # also runs on every push in tests.yml; here it has to pass again against
+    # whatever the dependencies' newest releases are on the day.
+    name: Attach the SBOM to the release
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # to upload release assets; nothing else
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+
+      - name: Install the built wheel with every extra, in an environment of its own
+        run: |
+          python -m venv /tmp/target
+          /tmp/target/bin/python -m pip install --upgrade pip
+          wheel=$(ls dist/*.whl)
+          /tmp/target/bin/pip install "${wheel}[plots,public,optimize]"
+          python -m pip install 'cyclonedx-bom>=7,<8'
+
+      - name: Write the SBOM and check the licences
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cyclonedx-py environment --pyproject pyproject.toml --mc-type library \
+            --of JSON -o "cost-core-${version}.cdx.json" /tmp/target/bin/python
+          python tools/sbom_licences.py "cost-core-${version}.cdx.json" \
+            --markdown "cost-core-${version}-licences.md"
+
+      - name: Attach them to the release
+        # Even when the check fails: a reviewer should see the table with the
+        # package marked for review, not a release with no table at all.
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release upload "$GITHUB_REF_NAME" --clobber \
+            "cost-core-${version}.cdx.json" "cost-core-${version}-licences.md"
