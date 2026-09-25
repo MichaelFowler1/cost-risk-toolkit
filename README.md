@@ -244,7 +244,7 @@ construction. The simulation carries it; the test suite checks it.
 
 Moving money between programs is a capital budgeting problem, and the
 spreadsheet version of it is Excel Solver with a binary cell per program. Here
-it's a mixed-integer program solved with CBC through PuLP:
+it's a mixed-integer program solved with HiGHS through PuLP:
 
 ```bash
 pip install "cost-core[optimize]"
