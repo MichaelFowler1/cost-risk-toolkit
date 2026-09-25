@@ -355,8 +355,15 @@ def read_mspdi(path) -> MspdiSchedule:
     task_df = pd.DataFrame(tasks, columns=list(TASK_COLUMNS))
     task_df["parent_uid"] = task_df["parent_uid"].astype("Int64")
     for col in ("duration_days", "remaining_days", "baseline_duration_days",
-                "total_float_days", "free_float_days"):
+                "total_float_days", "free_float_days", "percent_complete", "cost",
+                "fixed_cost", "remaining_cost"):
         task_df[col] = pd.to_numeric(task_df[col], errors="coerce").astype(float)
+    # Typed even when there are no tasks (a calendar- or resource-only file),
+    # so a filter on them is a filter and not a column selection.
+    for col in ("summary", "milestone", "critical", "elapsed_duration"):
+        task_df[col] = task_df[col].astype(bool)
+    for col in ("uid", "id", "outline_level", "resources"):
+        task_df[col] = task_df[col].astype(int)
     names = dict(zip(task_df["uid"], task_df["name"]))
     dur_by_uid = dict(zip(task_df["uid"], task_df["duration_days"]))
     links = []

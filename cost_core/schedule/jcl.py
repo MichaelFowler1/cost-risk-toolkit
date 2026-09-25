@@ -266,10 +266,19 @@ def critical_path(project: Project) -> pd.DataFrame:
 
     Returns one row per activity in network order: early and late start and
     finish, total float, and whether it is critical (zero float). The
-    project's deterministic finish is the largest early finish. No activity
-    starts before the project does, whatever its links allow: a finish-to-
-    finish link to a short predecessor does not pull a long successor's
-    start before month zero.
+    project's deterministic finish is the largest early finish.
+
+    Total float is the smaller of start float and finish float, the
+    conservative convention (Primavera's "smallest of start and finish
+    float"). The two differ only for an activity that holds up another
+    through its start alone, by a start-to-start or start-to-finish link:
+    there Microsoft Project reports the finish float, which is larger. On 72
+    tasks across Microsoft Project sample files the two agree exactly except
+    on those links, and on finished tasks, which Project gives no float.
+
+    No activity starts before the project does, whatever its links allow: a
+    finish-to-finish link to a short predecessor does not pull a long
+    successor's start before month zero.
     """
     acts = {a.id: a for a in project.activities}
     order = project.order()

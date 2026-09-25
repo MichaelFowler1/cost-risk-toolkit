@@ -40,7 +40,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-from cost_core.schedule.jcl import Activity, Project, critical_path
+from cost_core.schedule.jcl import Activity, Project, ScheduleError, critical_path
 from cost_core.schedule.mspdi import MspdiSchedule
 
 #: The hard constraints: ones that fix a date regardless of the logic.
@@ -81,6 +81,9 @@ def dcma_14_point(schedule: MspdiSchedule) -> DcmaResult:
     """Run the 14 checks on a schedule read by :func:`read_mspdi`."""
     t = schedule.tasks
     detail = t[~t["summary"]]
+    if not len(detail):
+        raise ScheduleError(f"{schedule.name}: the file has no tasks to assess (only "
+                            "summary tasks, or none at all). Is it the right schedule?")
     incomplete = detail[detail["percent_complete"] < 100]
     inc_uids = set(incomplete["uid"])
     names = dict(zip(t["uid"], t["name"]))
