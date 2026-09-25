@@ -10,6 +10,13 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-09-25
+
+A licence release. The code is the same as 2.3.0, and so is every number it
+produces; what changes is who may use it for what. Contractors can now use
+cost-core for government work, and the package carries the permission that
+says so, which the 2.3.0 on PyPI predates.
+
 ### Licence
 
 - **Contractors can use it for government work.** A new additional
@@ -24,6 +31,12 @@ housekeeping detail here, because someone may have put the old one in a budget.
   covers every version from 2.0.0 on, including 2.3.0; it ships in the wheel
   beside LICENSE and NOTICE, and NOTICE, the README and
   `docs/using-at-a-lab.md` summarise it.
+- **Deliverables count as government work.** Code, models or tools built on
+  cost-core that a government agreement calls for, delivered to the agency
+  under it, are part of performing the agreement rather than a product
+  offered to others, provided the licence files and the Required Notice go
+  with them. What stays commercial is offering them beyond the agreement: to
+  other customers, in a catalog or on a schedule, or after it ends.
 
 ## [2.3.0] - 2026-09-25
 
@@ -614,7 +627,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.0.0...v2.1.0
