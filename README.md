@@ -279,6 +279,11 @@ same best value.
 
 ## Installation
 
+Bringing it into a lab or a government office, behind a proxy, offline, or
+through a software approval review? [docs/using-at-a-lab.md](docs/using-at-a-lab.md)
+covers the licence question, the SBOM attached to every release, installing
+on a managed or air-gapped machine, and what touches the network.
+
 Python 3.9 or higher. The distribution name is `cost-core` and the import name
 is `cost_core`. It's on PyPI:
 
