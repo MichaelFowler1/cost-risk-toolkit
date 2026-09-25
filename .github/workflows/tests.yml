@@ -8,6 +8,15 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  # Weekly, with nothing changed here. Every lane installs the newest
+  # releases its bounds allow, so this is where someone else's release
+  # breaking the library shows up: PuLP 4.0.0 removed the solver the
+  # portfolio module called, on a day nothing was pushed, and a fresh
+  # install of the release on PyPI broke with it. Monday 06:17 UTC, off the
+  # hour to stay clear of the scheduler's busiest minute. GitHub pauses
+  # scheduled runs after 60 days without a push, and says so by email.
+  schedule:
+    - cron: "17 6 * * 1"
 
 jobs:
   test:
