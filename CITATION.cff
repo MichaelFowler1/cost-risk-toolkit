@@ -34,8 +34,10 @@ keywords:
   - portfolio-optimization
   - schedule-risk
   - joint-confidence-level
+  - earned-value-management
+  - earned-schedule
 license: "PolyForm-Noncommercial-1.0.0"
-version: "2.2.0"
+version: "2.3.0"
 # CFF pairs `version` with `date-released`: together they describe the release
 # being cited, not the first commit. Each release moves both.
 date-released: "2026-09-25"

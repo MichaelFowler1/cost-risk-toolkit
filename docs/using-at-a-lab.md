@@ -59,8 +59,8 @@ say:
   in free text. The PDFium binary it bundles carries permissive licences,
   listed under `BUILD_LICENSES` in the wheel.
 
-Portfolio optimisation uses the HiGHS solver (MIT). Before the unreleased
-version after 2.2.0 it used CBC, which is under the Eclipse Public License, a
+Portfolio optimisation uses the HiGHS solver (MIT). Up to 2.2.0 it used
+CBC, which is under the Eclipse Public License, a
 weak copyleft. If your review saw CBC on an earlier version, that is why it
 is gone.
 

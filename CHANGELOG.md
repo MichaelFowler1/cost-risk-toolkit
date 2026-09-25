@@ -10,6 +10,16 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-25
+
+Earned value management, Microsoft Project schedules and the DCMA 14-point
+check, and what it takes to bring the library into a lab: it runs with no
+internet, every dependency is permissively licensed, and each release
+carries an SBOM. Every number the engine already produced is unchanged: the
+goldens pin that, and a finish-to-start JCL network gives byte-identical
+draws to 2.2.0. The one exception is a JCL network with a lead longer than
+its predecessor, under Changed.
+
 ### Added
 
 - **`cost_core.evm`: earned value management.** CV, SV, CPI, SPI, TCPI,
@@ -37,7 +47,6 @@ housekeeping detail here, because someone may have put the old one in a budget.
   only on the periods known one by one. Tested on datasets written from the
   example program, which read back to exactly the CSV's numbers in every
   packaging.
-
 - **SAR panels from PDFs already on disk, with no network.**
   `ce-core sar-panel --dir FOLDER` and `cost_core.public.local_catalog`
   list a folder of SAR and MSAR PDFs in the same shape as the Wayback
@@ -47,6 +56,58 @@ housekeeping detail here, because someone may have put the old one in a budget.
   (`cycle_from_filename`); a file whose name gives none is read with no
   cycle. `fetch` now reads any local path or `file://` URL in place, with its
   SHA-256 recorded as for a download, and never copies it into the cache.
+- **Every link type in the schedule network.** An activity can now follow
+  another start-to-start, finish-to-finish or start-to-finish as well as
+  finish-to-start, each with a lag or lead: `("A", 2, "SS")` in Python,
+  `["A", 2, "SS"]` or `{"id": "A", "lag": 2, "type": "SS"}` in a JCL spec.
+  The critical path, the simulation and criticality all follow the type.
+  An activity is critical in a draw when the link from it set the start of
+  a critical successor, and on 40 random networks mixing all four types
+  that agrees with CPM's zero-float test. `Activity.relations()` gives each
+  link with its type; `links()` still gives `(id, lag)` pairs, as in 2.2.0.
+- **Microsoft Project schedules, and the DCMA 14-point check.**
+  `cost_core.schedule.read_mspdi` reads a schedule saved from Microsoft
+  Project as XML (MSPDI, which Primavera P6 and others also export) into
+  task and link tables, and `to_project` turns it into a JCL network. Links
+  keep their type and lag, summary-task links move onto the detail tasks
+  under them, in-progress tasks keep their remaining work with what they
+  have already spent sunk, and fixed and resource costs become fixed cost
+  and burn rate. A JCL spec can name the file under `"mspdi"`, with a
+  default duration uncertainty, per-task overrides and risks, naming tasks
+  by name or UID. `dcma_14_point` and `ce-core schedule-check` run the DCMA
+  14-point assessment and list each check's failing tasks. Checked against
+  a hand-built schedule with every answer worked by hand, and against
+  Microsoft Project's own float on published MSPDI samples.
+- **An SBOM with every release, and a licence check on every push.** CI
+  installs the package with every extra into a clean environment, writes a
+  CycloneDX SBOM of it, and fails if any dependency is copyleft or declares
+  no licence (`tools/sbom_licences.py`, which parses SPDX expressions with
+  their precedence; the two packages that declare none in a form the SBOM
+  carries, orloge and pypdfium2, are recorded with where their licence was
+  read). Each GitHub release gets the SBOM and a licence table attached.
+  With every extra installed, all 31 dependencies are permissively licensed.
+- `docs/using-at-a-lab.md`: using the library at a lab or government office,
+  covering the licence clause for research and government organisations, the
+  SBOM, installing behind a proxy, from a mirror or offline, and which parts
+  touch the network. Linked from the README's installation section.
+- `docs/ROADMAP.md`: proposals for what comes next, each with why it matters
+  and what makes it hard. Proposals, not commitments.
+
+### Changed
+
+- **Portfolio optimisation solves with HiGHS instead of CBC.** The
+  `optimize` extra now installs `highspy` (MIT) rather than `pulp[cbc]`.
+  CBC is under the Eclipse Public License, a weak copyleft that software
+  approval reviews flag, and it was the only dependency that was not
+  permissively licensed. HiGHS is asked for the exact optimum (a zero MIP
+  gap), as CBC gave, and matches brute force on the same 40 random
+  portfolios. An installation that has CBC and not highspy still solves
+  with CBC. Tested on PuLP 2.8.0 with highspy 1.7.1 (Python 3.9), and
+  PuLP 3.3 and 4.0 with highspy 1.15.
+- **No activity starts before the project does.** A lead longer than its
+  predecessor could before put an activity's start below month zero; it is
+  now held at zero, which a finish-to-finish link needs anyway. No network
+  without such a lead changes.
 
 ## [2.2.0] - 2026-09-25
 
@@ -473,7 +534,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.1...v2.0.0
