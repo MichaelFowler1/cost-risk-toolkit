@@ -76,6 +76,20 @@ def test_accounts_sum_to_the_program():
     assert data.accounts["1.2"].metrics().iloc[-1].acwp == 28
 
 
+def test_the_names_people_give_the_columns_are_understood():
+    df = HAND.rename(columns={"period": "Month", "bcws": "Planned Value ($K)", "bcwp": "EV",
+                              "acwp": "Actual Cost", "eac": "LRE"})
+    data = EvmData.from_frame(df)
+    m = data.metrics().iloc[-1]
+    assert (m.bcws, m.bcwp, m.acwp, m.eac) == (60, 45, 55, 110)
+    assert "'EV' as bcwp" in data.notes[0]
+    with pytest.raises(EvmError) as err:
+        EvmData.from_frame(df.drop(columns=["EV"]))
+    text = str(err.value)
+    assert "earned value (BCWP, EV)" in text and "Actual Cost" in text
+    assert "ce-core template evm" in text
+
+
 def test_accounts_that_start_and_end_at_different_times():
     # A runs periods 1-3 with its baseline over by 2; B starts in period 2.
     # Both are statused to period 3; B has no row for period 3 (nothing that
@@ -113,7 +127,7 @@ def test_a_program_eac_needs_every_account_to_give_one():
 def test_bad_data_is_refused():
     with pytest.raises(EvmError, match="blank before the status"):
         EvmData.from_frame(frame([10, 20, 30], [8, np.nan, 5], [10, 10, 10]))
-    with pytest.raises(EvmError, match="Missing column"):
+    with pytest.raises(EvmError, match="no column for"):
         EvmData.from_frame(pd.DataFrame({"period": [1], "bcws": [1]}))
     with pytest.raises(EvmError, match="falls"):
         EvmData.from_frame(frame([10, 5, 30], [8], [10]), cumulative=True)
@@ -255,7 +269,9 @@ def test_cli_writes_every_table_and_names_the_warning(tmp_path, monkeypatch, cap
 
     from cost_core import cli
 
-    example = Path(__file__).resolve().parents[1] / "docs" / "evm_example.csv"
+    from cost_core.examples import example_path
+
+    example = example_path("evm")
     monkeypatch.setattr("sys.argv", ["ce-core", "evm", "--data", str(example), "--iters", "2000",
                                      "--units", "$K", "--out", str(tmp_path)])
     cli.main()

@@ -23,7 +23,8 @@ spec.py - A portfolio decision written down as a JSON file.
 
 ``growth`` (optional) is the cost growth factor :func:`budget_risk` applies
 to each funded program; ``delta`` (optional) is the amount :func:`marginal_value`
-adds to each year. ``docs/portfolio_example.json`` is a complete one.
+adds to each year. ``cost_core/examples/portfolio_example.json`` (``ce-core template
+portfolio``) is a complete one.
 """
 
 from __future__ import annotations

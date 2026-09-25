@@ -214,7 +214,7 @@ def test_history_feeds_a_cost_line():
 
 
 # ------------------------------------------------------------ spec + CLI ---
-EXAMPLE = __import__("pathlib").Path(__file__).resolve().parents[1] / "docs" / "aoa_example.json"
+EXAMPLE = __import__("cost_core.examples", fromlist=["example_path"]).example_path("aoa")
 
 
 def test_example_spec_loads_and_runs():

@@ -5,16 +5,41 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/cost-core.svg)](https://pypi.org/project/cost-core/)
 [![License](https://img.shields.io/pypi/l/cost-core.svg)](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/LICENSE)
 
+Cost estimating, earned value and schedule analysis for defense programs, as
+one Python package and one command, `ce-core`. It forecasts a program's cost
+and finish from its EVM data or an IPMDAR delivery, checks a Microsoft Project
+schedule against the DCMA 14 points, runs joint cost and schedule confidence
+(JCL), compares alternatives on life-cycle cost, chooses a portfolio within a
+budget, fits learning curves and CERs, and reads real programs' unit costs out
+of public SARs. Every result says what it means in plain words, and writes
+down every assumption it made.
+
+## Start here
+
 ```bash
-pip install cost-core
+pip install "cost-core[plots]"   # the charts need the [plots] part
+ce-core                          # what it can do, in plain English
+ce-core demo evm                 # see it work on example data: no files needed
+ce-core template evm             # a spreadsheet to fill in with your own numbers
 ```
 
-A Python library and command line tool for defense cost estimating. Point it at
-your own production history, units and cost for each lot, and it fits a learning
-curve, tells you which lots it misses, forecasts the next buy with prediction
-intervals, and writes down every assumption it made along the way. It also
-carries a full synthetic CSDR/SRDR pipeline, parametric CERs, and correlated
-Monte Carlo risk analysis.
+If `ce-core` isn't found after installing (common on managed Windows PCs),
+`python -m cost_core` does exactly the same. [docs/getting-started.md](docs/getting-started.md)
+walks through each task from "what do I need" to "what does this tell me".
+
+| I want to... | Try it | Then with my data |
+| --- | --- | --- |
+| Forecast a program's final cost and finish from EVM | `ce-core demo evm` | `ce-core evm --data my_evm.xlsx` or `--ipmdar delivery.zip` |
+| Check a schedule's logic (DCMA 14-point) | `ce-core demo schedule` | `ce-core schedule-check --mspdi my_schedule.xml` |
+| Know the chance of meeting a budget *and* a date (JCL) | `ce-core demo jcl` | `ce-core jcl --spec my_jcl.json` |
+| Compare alternatives on life-cycle cost (AoA) | `ce-core demo aoa` | `ce-core aoa --spec my_aoa.json` |
+| Choose which programs to fund within a budget | `ce-core demo portfolio` | `ce-core portfolio --spec my_portfolio.json` |
+| Fit a learning curve to production lots | `ce-core template lots` | `ce-core fit-lots --csv my_lots.csv --dollar-year 2026` |
+| See how real programs' unit costs grew | | `ce-core sar-panel --programs F-35` |
+
+`ce-core template <topic>` writes the file to fill in for each one, and every
+command answers `--help`. The rest of this page is the reference: what each
+part does, how, and why.
 
 **Want a window instead of a terminal?** The desktop lot cost model lives in
 its own repository, [lot-cost-model](https://github.com/MichaelFowler1/lot-cost-model).
@@ -24,6 +49,8 @@ into one programme, and write the Excel workbook. Since its 3.0.0 it is a front
 end onto this library rather than a second copy of it: the fit, the roll-up, the
 risk and the workbooks all come from `cost_core`, and the window refuses to
 start without it.
+
+### Learning curves from your own lot data
 
 **Fit a curve to your own lot data in one command:**
 
@@ -72,8 +99,9 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 | `cost_core.cer` | Parametric CERs, log log and linear, with leverage and influence diagnostics, extrapolation warnings, small sample guardrails |
 | `cost_core.monte_carlo` | Correlated WBS level risk: Gaussian copula or Iman Conover, PSD repair, discrete risks, tornado, convergence |
 | `cost_core.reporting` | S curve, tornado, cost improvement curve, CER diagnostics, and the assumptions log |
+| `cost_core.evm` | **Earned value.** CPI, SPI, TCPI, the independent EACs and earned schedule from a spreadsheet or an IPMDAR delivery, the warning signs named, and the EAC and finish forecast as a calibrated range |
 | `cost_core.aoa` | **Analysis of alternatives.** Life-cycle cost of each alternative in base-year, then-year and present-value dollars, compared under correlated uncertainty: P50, P80, the chance each is cheapest, cost-effectiveness and which are dominated |
-| `cost_core.schedule` | **Schedule risk and JCL.** An activity network with uncertain durations, time-independent and time-dependent costs, a standing army and discrete risks, simulated jointly: the probability of meeting a budget and a date together, the 70% line, and how often each activity is critical |
+| `cost_core.schedule` | **Schedules, DCMA and JCL.** Microsoft Project XML read in and checked against the DCMA 14 points; an activity network with uncertain durations, time-independent and time-dependent costs, a standing army and discrete risks, simulated jointly: the probability of meeting a budget and a date together, the 70% line, and how often each activity is critical |
 | `cost_core.portfolio` | **Which programs to fund.** An integer program over candidates, funding options and yearly budgets, with mandatory programs, dependencies and exclusive alternatives; the marginal value of money by year, a value against budget frontier, and the chance the chosen portfolio breaks each year's budget |
 | `cost_core.public` | **Real programs.** DoD's public Selected Acquisition Reports, 2010 to today, read into a program by year table of unit cost against the current and original baselines, with the source file and an arithmetic check behind every number |
 
@@ -158,10 +186,10 @@ panel = build_sar_panel(catalog=local_catalog("path/to/sars"))
 
 An analysis of alternatives asks which way of meeting a need is worth its cost
 over the whole life of the thing. Write the alternatives down as a JSON file
-(`docs/aoa_example.json` is a complete one, with invented numbers) and run:
+(`ce-core template aoa` writes a complete one, with invented numbers) and run:
 
 ```bash
-ce-core aoa --spec docs/aoa_example.json --out aoa/
+ce-core aoa --spec my_aoa.json --out aoa/
 ```
 
 ```
@@ -213,7 +241,8 @@ major projects at the 70% joint cost and schedule confidence level (JCL): the
 probability of finishing at or under the cost *and* by the date.
 
 ```bash
-ce-core jcl --spec docs/jcl_example.json --out jcl/
+ce-core demo jcl                          # the example below
+ce-core jcl --spec my_jcl.json --out jcl/   # yours, from: ce-core template jcl
 ```
 
 The spec is an activity network in months: each activity has a most-likely
@@ -279,8 +308,13 @@ else simplified on the way in.
 ## Earned value: where the program is heading
 
 ```bash
-ce-core evm --data docs/evm_example.csv --units '$K' --out evm/
+ce-core demo evm                                # the example below
+ce-core evm --data my_evm.xlsx --units thousands --out evm/   # yours: ce-core template evm
 ```
+
+`ce-core template evm` writes a spreadsheet laid out for it, holding the
+example. Column names such as PV, EV, AC, "Planned Value" or "Month" are
+recognised as well, so an export from another tool often reads as it is.
 
 The data is the three numbers every EVM report carries, by period: BCWS,
 BCWP and ACWP, with the baseline running on past the status period and,
@@ -344,7 +378,7 @@ it's a mixed-integer program solved with HiGHS through PuLP:
 
 ```bash
 pip install "cost-core[optimize]"
-ce-core portfolio --spec docs/portfolio_example.json --out portfolio/
+ce-core portfolio --spec my_portfolio.json --out portfolio/   # ce-core template portfolio
 ```
 
 Each candidate has one or more funding options (full rate, minimum sustaining

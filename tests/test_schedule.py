@@ -237,7 +237,7 @@ def test_the_standing_army_charges_for_every_month():
 
 
 # ------------------------------------------------------------ spec + CLI ---
-EXAMPLE = __import__("pathlib").Path(__file__).resolve().parents[1] / "docs" / "jcl_example.json"
+EXAMPLE = __import__("cost_core.examples", fromlist=["example_path"]).example_path("jcl")
 
 
 def test_example_spec_loads():

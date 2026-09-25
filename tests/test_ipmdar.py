@@ -4,7 +4,7 @@
 """Reading the IPMDAR Contract Performance Dataset.
 
 Real CPDs are contractor data and not public, so the datasets here are
-written by the tests from ``docs/evm_example.csv`` using the table and field
+written by the tests from the EVM example (``cost_core/examples/evm_example.csv``) using the table and field
 names of the IPMDAR CPD Data Exchange Instructions (12 March 2020). The
 check is that reading the CPD gives exactly the numbers the same program
 gives from the CSV, whichever way it is packaged and delivered.
@@ -19,8 +19,9 @@ import pytest
 
 from cost_core.evm import EvmData, EvmError, forecast
 from cost_core.evm.ipmdar import load_dataset, read_ipmdar
+from cost_core.examples import example_path
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "docs" / "evm_example.csv"
+EXAMPLE = example_path("evm")
 STATUS = 14
 
 

@@ -68,6 +68,63 @@ def _div(a, b):
         return np.where(b != 0, a / np.where(b != 0, b, 1.0), np.nan)
 
 
+#: The names people give each column, reduced to lower-case letters and
+#: digits (so "Planned Value ($K)" and "planned_value" both read as
+#: "plannedvalue"), against the name used here.
+COLUMN_ALIASES = {
+    "period": ("period", "month", "date", "reportingperiod", "statusperiod", "periodending",
+               "periodend", "monthending", "fiscalmonth"),
+    "bcws": ("bcws", "pv", "plannedvalue", "budgetedcostofworkscheduled", "plan", "baseline",
+             "scheduled"),
+    "bcwp": ("bcwp", "ev", "earnedvalue", "budgetedcostofworkperformed", "earned"),
+    "acwp": ("acwp", "ac", "actualcost", "actualcostofworkperformed", "actuals", "actual",
+             "actualcosts"),
+    "eac": ("eac", "lre", "estimateatcompletion", "contractoreac", "latestrevisedestimate",
+            "estimatedcostatcompletion"),
+    "wbs": ("wbs", "controlaccount", "ca", "account", "wbselement", "wbsid", "controlaccountid"),
+}
+
+
+def _squash(name) -> str:
+    """A column name without units in brackets, case, spaces or punctuation."""
+    import re
+    name = re.sub(r"[\(\[].*?[\)\]]", "", str(name))
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+def standard_columns(df: pd.DataFrame, keep=()) -> "tuple[pd.DataFrame, Dict[str, str]]":
+    """Rename recognised columns to ``period``, ``bcws``, ``bcwp``, ``acwp``,
+    ``eac`` and ``wbs``; returns the frame and what was renamed from what.
+
+    A column already named exactly is left alone, as is any in ``keep``
+    (one the caller named, such as ``account="Control Account"``), and a
+    name that could mean two things is not guessed at.
+    """
+    lookup = {alias: std for std, aliases in COLUMN_ALIASES.items() for alias in aliases}
+    taken = set(df.columns)
+    candidates: Dict[str, list] = {}
+    for col in df.columns:
+        std = lookup.get(_squash(col))
+        if std and col != std and std not in taken and col not in keep:
+            candidates.setdefault(std, []).append(col)
+    # Two columns that could each be the period (Date and Month, say) are
+    # left for the caller to settle rather than one being picked.
+    renamed = {cols[0]: std for std, cols in candidates.items() if len(cols) == 1}
+    return df.rename(columns=renamed), renamed
+
+
+def _missing_message(missing, found) -> str:
+    wanted = {"period": "the reporting period (a month, date or number)",
+              "bcws": "planned value (BCWS, PV)", "bcwp": "earned value (BCWP, EV)",
+              "acwp": "actual cost (ACWP, AC)"}
+    order = list(wanted)
+    lines = [f"  - {wanted.get(m, repr(m))}"
+             for m in sorted(missing, key=lambda m: order.index(m) if m in order else -1)]
+    return ("The data has no column for:\n" + "\n".join(lines)
+            + f"\nColumns found: {', '.join(map(str, found))}.\n"
+            "Run `ce-core template evm` for a spreadsheet laid out the right way.")
+
+
 def _period_order(labels: pd.Series) -> np.ndarray:
     """Positions that put period labels in time order.
 
@@ -186,12 +243,25 @@ class EvmData:
                 the program is the sum of the accounts and each account is
                 kept in :attr:`accounts`.
         """
+        renamed: Dict[str, str] = {}
+        original = list(df.columns)
+        if period == "period":
+            df, renamed = standard_columns(df, keep=[account] if account else [])
         need = {period, "bcws", "bcwp", "acwp"}
         missing = need - set(df.columns)
         if missing:
-            raise EvmError(f"Missing column(s) {sorted(missing)}.")
+            raise EvmError(_missing_message(missing, original))
         if account and account in df.columns:
-            return cls._from_accounts(df, cumulative, bac, name, period, account)
+            out = cls._from_accounts(df, cumulative, bac, name, period, account)
+        else:
+            out = cls._from_rows(df, cumulative, bac, name, period)
+        if renamed:
+            out.notes.append("Read columns " + ", ".join(
+                f"{old!r} as {new}" for old, new in renamed.items()) + ".")
+        return out
+
+    @classmethod
+    def _from_rows(cls, df, cumulative, bac, name, period) -> "EvmData":
         d = df.iloc[_period_order(df[period])]
         if d[period].duplicated().any():
             raise EvmError("A period appears twice; give one row per period "

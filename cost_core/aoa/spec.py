@@ -22,7 +22,7 @@ fraction, required), ``inflation_rate`` (a constant annual rate for then-year
 dollars) or ``inflation_csv`` (an index table, see
 :class:`cost_core.ingest.InflationTable`), and optionally ``basis``,
 ``pv_year``, ``n_iter``, ``seed`` and ``units`` (a label such as "$M",
-printed on the chart; nothing is converted). ``docs/aoa_example.json`` is a complete
+printed on the chart; nothing is converted). ``cost_core/examples/aoa_example.json`` (``ce-core template aoa``) is a complete
 one.
 """
 
