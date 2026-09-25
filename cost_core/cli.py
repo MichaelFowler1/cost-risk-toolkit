@@ -510,6 +510,12 @@ def run_evm(args) -> None:
         print("\nWarning signs:")
         for r in raised.itertuples():
             print(f"  - {r.flag}. {r.detail}")
+    if data.notes:
+        title = ("How the IPMDAR was read (a preview reader: check these against the "
+                 "delivery's own totals):" if args.ipmdar else "How the data was read:")
+        print(f"\n{title}")
+        for note in data.notes:
+            print(f"  - {note}")
     from cost_core import plain
     print(plain.show(plain.evm(data, fc, args.units)))
     print(f"Wrote {', '.join(written)} to {out}")
@@ -798,8 +804,8 @@ def main(argv=None) -> None:
                        help="CSV or Excel: period, bcws, bcwp, acwp, optional eac and wbs "
                             "(ce-core template evm writes one)")
     p_evm.add_argument("--ipmdar", nargs="+", default=None, metavar="DATASET",
-                       help="IPMDAR Contract Performance Dataset(s): a folder, ZIP or JSON "
-                            "file; several monthly ones rebuild the history")
+                       help="IPMDAR Contract Performance Dataset(s) (preview): a folder, ZIP "
+                            "or JSON file; several monthly ones rebuild the history")
     p_evm.add_argument("--cumulative", action="store_true",
                        help="The values are cumulative to date, not per period")
     p_evm.add_argument("--bac", type=float, default=None,

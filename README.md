@@ -24,7 +24,7 @@ ce-core template evm             # a spreadsheet to fill in with your own number
 ```
 
 If `ce-core` isn't found after installing (common on managed Windows PCs),
-`python -m cost_core` does exactly the same. [docs/getting-started.md](docs/getting-started.md)
+`python -m cost_core` does exactly the same. [docs/getting-started.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/getting-started.md)
 walks through each task from "what do I need" to "what does this tell me".
 
 | I want to... | Try it | Then with my data |
@@ -65,7 +65,7 @@ LRIP 2,18,70200000
 FRP 1,25,90000000
 ```
 
-Two columns is the whole input. [Jump to the details](#fitting-a-curve-to-your-own-lot-data),
+Two columns is the whole input. [Jump to the details](https://github.com/MichaelFowler1/cost-risk-toolkit#fitting-a-curve-to-your-own-lot-data),
 including the four things that quietly ruin a lot fit and how the tool checks
 for each one.
 
@@ -352,8 +352,8 @@ data.flags()
 forecast(data, seed=1).summary()
 ```
 
-**Straight from the IPMDAR.** The Contract Performance Dataset, the JSON
-tables contractors deliver under DI-MGMT-81861, reads directly:
+**Straight from the IPMDAR (preview).** The Contract Performance Dataset,
+the JSON tables contractors deliver under DI-MGMT-81861, reads directly:
 
 ```bash
 ce-core evm --ipmdar cpd_2026_11.zip --out evm/
@@ -369,6 +369,15 @@ the whole history. One that reports them only cumulative to date gives a
 single point, so pass the monthly deliveries together and the history is
 rebuilt from them, with any missing month named. A folder or ZIP of one JSON
 file per table and a single JSON file keyed by table name both read.
+
+*This reader is a preview.* It follows the published Data Exchange
+Instructions and is tested on datasets written to them, but not yet on a real
+contractor delivery, and how the tables are packaged is still to be checked
+against the File Format Specification. Check the reconciliation note it prints
+against the delivery's own totals, and if a file does not read, please say so
+on [the issue tracker](https://github.com/MichaelFowler1/cost-risk-toolkit/issues)
+(describe the file's layout; never attach the data). Until it is confirmed, a
+CSV export of BCWS, BCWP and ACWP by period is the dependable route.
 
 ## Choosing a portfolio: which programs get funded
 
@@ -410,7 +419,7 @@ same best value.
 ## Installation
 
 Bringing it into a lab or a government office, behind a proxy, offline, or
-through a software approval review? [docs/using-at-a-lab.md](docs/using-at-a-lab.md)
+through a software approval review? [docs/using-at-a-lab.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/using-at-a-lab.md)
 covers the licence question, the SBOM attached to every release, installing
 on a managed or air-gapped machine, and what touches the network.
 
@@ -468,7 +477,7 @@ interval on the slope, and a per lot percentage error showing which lots the
 curve misses. With `--out` it also writes those tables as CSV and an
 `ASSUMPTIONS.md`; the one chart this command draws is the buy S-curve, and that
 needs `--simulate`. See
-[Fitting a curve to your own lot data](#fitting-a-curve-to-your-own-lot-data).
+[Fitting a curve to your own lot data](https://github.com/MichaelFowler1/cost-risk-toolkit#fitting-a-curve-to-your-own-lot-data).
 
 ### With generated data, to see the whole pipeline
 
@@ -967,7 +976,7 @@ raises instead of producing a plausible looking number.
 
 Versions 1.0.0 and 1.0.1 were released under the Apache License 2.0 and stay
 that way. Everything after them is under the
-[PolyForm Noncommercial License 1.0.0](LICENSE). In plain terms:
+[PolyForm Noncommercial License 1.0.0](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/LICENSE). In plain terms:
 
 - **Free for any noncommercial purpose**: personal study, research, teaching,
   hobby projects.
@@ -980,5 +989,5 @@ that way. Everything after them is under the
   [the issue tracker](https://github.com/MichaelFowler1/cost-risk-toolkit/issues).
 
 Anyone who passes on a copy of any part of it has to pass on the license terms
-and the `Required Notice:` line in [NOTICE](NOTICE) with it. This is a plain
+and the `Required Notice:` line in [NOTICE](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/NOTICE) with it. This is a plain
 summary; the LICENSE file is what governs.
