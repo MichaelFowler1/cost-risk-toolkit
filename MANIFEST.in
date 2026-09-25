@@ -29,6 +29,10 @@ include requirements.txt
 # is what makes it render on PyPI, where nothing from the sdist is served.
 include make_hero.py
 
+# The licence check CI runs on the SBOM. tests/test_sbom_licences.py loads it
+# from here, so the grafted suite needs it as much as it needs the goldens.
+include tools/sbom_licences.py
+
 # Build leftovers are not source.
 global-exclude *.py[cod]
 prune tests/__pycache__

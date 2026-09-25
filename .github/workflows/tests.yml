@@ -156,6 +156,56 @@ jobs:
           test -s /tmp/ce_run/charts/s_curve.png
           test -s /tmp/ce_run/charts/tornado.png
 
+  sbom:
+    # A software bill of materials: every package a full install pulls in,
+    # with its version and licence, in CycloneDX, the form software approval
+    # reviews take. Built from a clean environment with every extra, so it
+    # lists what a user who installs everything gets, and checked so a new
+    # dependency under a copyleft or undeclared licence stops the build here
+    # rather than surfacing in someone's review. It runs on the weekly
+    # schedule too, which is when a dependency's own new release would bring
+    # one in. 3.12 because that is what the release is built with, and the
+    # first Python PuLP 4 installs on.
+    name: SBOM and licences
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install the package with every extra, in an environment of its own
+        # Its own environment so the SBOM tool and pip's own packages are not
+        # listed as dependencies of the library.
+        run: |
+          python -m venv /tmp/target
+          /tmp/target/bin/python -m pip install --upgrade pip
+          /tmp/target/bin/pip install '.[plots,public,optimize]'
+          python -m pip install 'cyclonedx-bom>=7,<8'
+
+      - name: Write the SBOM
+        run: >
+          cyclonedx-py environment --pyproject pyproject.toml --mc-type library
+          --of JSON -o sbom.cdx.json /tmp/target/bin/python
+
+      - name: Check every dependency is permissively licensed
+        run: python tools/sbom_licences.py sbom.cdx.json --markdown licences.md
+
+      - name: Show the licence table on the run
+        if: always()
+        run: test -f licences.md && cat licences.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sbom
+          path: |
+            sbom.cdx.json
+            licences.md
+          retention-days: 30
+
   package:
     # The publish workflow builds the distributions in one job and uploads
     # them from another, passing them across with upload-artifact and
