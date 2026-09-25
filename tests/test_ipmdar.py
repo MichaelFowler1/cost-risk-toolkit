@@ -224,3 +224,39 @@ def test_cli_reads_a_cpd(tmp_path, monkeypatch, capsys):
     assert "a preview reader" in out and "reconcile" in out
     notes = json.loads((tmp_path / "o" / "assumptions.json").read_text())["import_notes"]
     assert any("reconcile" in n for n in notes)
+
+
+def test_one_cumulative_delivery_gives_the_metrics_and_no_forecast(tmp_path, capsys):
+    # A single cumulative-only delivery has no month-by-month history; the
+    # periods before it are spread evenly by the reader and must not be drawn
+    # from, or the forecast has no spread at all.
+    from cost_core import cli
+
+    path = write_folder(cpd_tables(status=14, time_phased=False), tmp_path / "one")
+    data = read_ipmdar(path)
+    assert data.first_observed == data.status + 1
+    with pytest.raises(EvmError, match="pass the earlier monthly deliveries"):
+        forecast(data, n_iter=200, seed=0)
+    cli.main(["evm", "--ipmdar", str(path), "--out", str(tmp_path / "o")])
+    out = capsys.readouterr().out
+    assert "No forecast of the final cost and finish" in out and "CPI" in out
+    assert (tmp_path / "o" / "metrics.csv").exists()
+
+
+def test_a_missing_month_does_not_speed_up_the_forecast(tmp_path):
+    # Deliveries every other month: each holds two months of progress, which
+    # is not one month's pace. Before, the P50 finish came ten periods early.
+    every = [write_folder(cpd_tables(status=s, time_phased=False), tmp_path / f"a{s}")
+             for s in range(4, 15)]
+    alternate = [write_folder(cpd_tables(status=s, time_phased=False), tmp_path / f"b{s}")
+                 for s in range(4, 15, 2)]
+    full = forecast(read_ipmdar(every), n_iter=3000, seed=1)
+    gappy_data = read_ipmdar(alternate)
+    assert gappy_data.unobserved == [5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+    with pytest.raises(EvmError):
+        forecast(gappy_data, n_iter=3000, seed=1)  # nothing a month apart to draw on
+    gaps = [p for p in every[:1] + every[2:]]  # one month missing: period 5
+    one_gap = read_ipmdar(gaps)
+    assert one_gap.unobserved == [5, 6]
+    f = forecast(one_gap, n_iter=3000, seed=1)
+    assert abs(np.quantile(f.finish, 0.5) - np.quantile(full.finish, 0.5)) < 1.0

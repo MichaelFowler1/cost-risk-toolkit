@@ -301,9 +301,10 @@ def read_ipmdar(paths: Union[str, Path, Iterable[Union[str, Path]]], *,
         eac[-1] = float(pmb["EAC_Dollars"])
     data.eac = eac if np.isfinite(eac[-1]) else None
     notes.extend(_reconcile(data, pmb))
-    if not per_period and len(sets) > 1:
+    if not per_period:
         # The first delivery's cumulative values lump every period before it;
-        # performance is known period by period only after it.
+        # performance is known period by period only after it. With one
+        # delivery that is none of them.
         data.first_observed = periods.index(sets[0].status_period) + 2
         notes.append(f"History starts at period {sets[0].status_period}, the first delivery; "
                      "its cumulative totals are spread evenly over the periods before it, "
@@ -311,8 +312,14 @@ def read_ipmdar(paths: Union[str, Path, Iterable[Union[str, Path]]], *,
         gaps = sorted(set(range(sets[0].status_period, status + 1))
                       - {d.status_period for d in sets})
         if gaps:
+            # A missing month shows no progress and the next delivery holds
+            # two months' worth; neither is one month's pace, so the
+            # forecast draws on neither.
+            after = [min(d.status_period for d in sets if d.status_period > g) for g in gaps]
+            data.unobserved = sorted({periods.index(p) + 1 for p in set(gaps) | set(after)})
             notes.append(f"No delivery for period(s) {gaps}; their performance is counted in "
-                         "the next delivery's period.")
+                         "the next delivery's period, and the forecast does not draw on "
+                         "either.")
     data.notes = notes
     return data
 

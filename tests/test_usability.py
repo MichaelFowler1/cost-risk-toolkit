@@ -148,7 +148,9 @@ def test_evm_in_plain_words_matches_the_numbers():
     fc = forecast(data, n_iter=2000, seed=0)
     lines = plain.evm(data, fc, "$K")
     cpi = data.metrics().iloc[-1].cpi
-    assert f"{cpi * 100:.0f} cents" in lines[0] and "over cost" in lines[0]
+    assert f"{cpi * 100:.0f} cents" in lines[0]
+    # The overrun is 1/CPI - 1 (at CPI 0.5 the work costs twice its budget).
+    assert f"{1 / cpi - 1:.0%} over its budget" in lines[0]
     assert f"${np.quantile(fc.eac, 0.5):,.0f}K" in lines[2]
     assert any("optimistic" in line for line in lines)
 
@@ -181,3 +183,28 @@ def test_columns_named_by_the_caller_and_ambiguous_ones():
     # A custom period name that is missing is reported, not a crash.
     with pytest.raises(EvmError, match="'When'"):
         EvmData.from_frame(base, period="When")
+
+
+def test_the_overrun_in_plain_words_is_one_over_cpi():
+    from types import SimpleNamespace
+
+    class Stub:
+        name, bac, planned_duration = "p", 100.0, 10
+
+        def metrics(self):
+            return pd.DataFrame([{"cpi": 0.5, "sv_t": 0.0}])
+
+        def flags(self):
+            return pd.DataFrame({"flag": [], "raised": [], "detail": []})
+
+    fc = SimpleNamespace(eac=np.array([200.0, 210.0]), finish=np.array([10.0, 10.0]),
+                         contractor_eac=None, confidence_of_cost=lambda c: 0.0)
+    assert "cost 100% over its budget" in plain.evm(Stub(), fc)[0]
+
+
+def test_a_schedule_that_is_not_xml_says_how_to_save_one(tmp_path, caplog):
+    mpp = tmp_path / "plan.mpp"
+    mpp.write_bytes(b"\xd0\xcf\x11\xe0 not xml")
+    with pytest.raises(SystemExit):
+        cli.main(["schedule-check", "--mspdi", str(mpp)])
+    assert "not an XML file" in caplog.text and "Save As > XML" in caplog.text

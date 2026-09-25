@@ -493,9 +493,15 @@ def run_evm(args) -> None:
             abort("Which data? Give --data my_evm.xlsx (a spreadsheet or CSV) or --ipmdar "
                   "delivery.zip.\n  To see it work first: ce-core demo evm\n"
                   "  For a spreadsheet to fill in: ce-core template evm")
-        fc = forecast(data, n_iter=args.iters, seed=args.seed)
     except (EvmError, OSError, KeyError, ValueError) as e:
         abort(f"EVM failed: {e}")
+    try:
+        fc = forecast(data, n_iter=args.iters, seed=args.seed)
+    except EvmError as e:
+        # The metrics and the warning signs need only the status; a forecast
+        # needs a history. Without one, report what can be reported.
+        _evm_without_forecast(data, Path(args.out), str(e))
+        return
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     data.metrics().to_csv(out / "metrics.csv", index=False)
@@ -555,6 +561,25 @@ def run_evm(args) -> None:
     from cost_core.reporting.brief import evm_brief
     written[1:1] = [w for w in [write_brief(evm_brief, data, fc, out, args.units)] if w]
     print(f"Wrote {', '.join(written)} to {out}")
+
+
+def _evm_without_forecast(data, out, why: str) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    data.metrics().to_csv(out / "metrics.csv", index=False)
+    data.flags().to_csv(out / "flags.csv", index=False)
+    data.summary().to_csv(out / "summary.csv", index=False)
+    print(f"\n{data.name}: status period {data.periods[data.status - 1]}.\n")
+    print(data.summary().to_string(index=False))
+    raised = data.flags()
+    raised = raised[raised["raised"]]
+    if len(raised):
+        print("\nWarning signs:")
+        for r in raised.itertuples():
+            print(f"  - {r.flag}. {r.detail}")
+    for note in data.notes:
+        print(f"  note: {note}")
+    print(f"\nNo forecast of the final cost and finish: {why}")
+    print(f"\nWrote metrics.csv, flags.csv and summary.csv to {out}")
 
 
 def run_schedule_check(args) -> None:

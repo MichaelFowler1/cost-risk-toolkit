@@ -139,10 +139,14 @@ def _observed_periods(data: EvmData, recent: Optional[int]) -> "tuple[np.ndarray
     d_ev, d_ac, d_es = np.diff(ev), np.diff(ac), np.diff(es)
     notes = []
     usable = (d_ev > 0) & (d_ac > 0)
-    lumped = np.arange(1, len(d_ev) + 1) < data.first_observed
-    if lumped.any():
+    number = np.arange(1, len(d_ev) + 1)
+    lumped = (number < data.first_observed) | np.isin(number, data.unobserved)
+    if (number < data.first_observed).any():
         notes.append(f"Periods before {data.first_observed} are known only in total and were "
                      "not drawn from.")
+    if np.isin(number, data.unobserved).any():
+        notes.append(f"Period(s) {sorted(set(data.unobserved))} span a missing delivery, so "
+                     "their own pace is not known; they were not drawn from.")
     usable &= ~lumped
     dropped = int((~usable).sum())
     if dropped:
@@ -211,8 +215,11 @@ def forecast(
         raise EvmError(f"Need at least 2 iterations; got {n_iter}.")
     d_es, eff, notes = _observed_periods(data, recent)
     if len(d_es) < min_periods:
+        why = (" Only cumulative totals were delivered, so there is no month-by-month "
+               "history; pass the earlier monthly deliveries too."
+               if data.first_observed > data.status else "")
         raise EvmError(f"Only {len(d_es)} usable periods; a forecast needs at least "
-                       f"{min_periods} to see how performance varies.")
+                       f"{min_periods} to see how performance varies.{why}")
     pv = data.bcws
     pd_ = data.planned_duration
     t0 = float(data.status)

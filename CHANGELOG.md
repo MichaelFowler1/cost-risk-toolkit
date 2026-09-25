@@ -10,35 +10,15 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
-### Added
-
-- **An Excel workbook from every run.** `ce-core evm`, `jcl`,
-  `schedule-check`, `aoa` and `portfolio` each write `report.xlsx`: a
-  Summary sheet with the plain-English reading and the key numbers, the
-  tables with frozen headers, filters and number formats, native Excel
-  charts, and an Assumptions sheet, set to print one page wide. In the EVM
-  workbook CV, SV, CPI, SPI, TCPI, percent complete, the CPI-based EAC and
-  SPI(t) are Excel formulas on the data beside them. Recalculated by
-  LibreOffice Calc, all 112 formula cells in the example match Python to
-  5e-15, and a CI job checks that on every push
-  (`cost_core.reporting.excel_report`). No new dependency.
-- **A PowerPoint briefing from every run.** With the `plots` extra, the same
-  commands also write `brief.pptx`: a widescreen deck that opens with the
-  bottom line and its key numbers, then the chart, the tables behind it
-  (the schedule check's failures in red, the tasks that break the dates
-  first) and the assumptions (`cost_core.reporting.brief`). The `plots`
-  extra now includes python-pptx (MIT; lxml and XlsxWriter under it, both
-  BSD); with every extra, all 34 dependencies are permissively licensed.
-- `EvmData.read` names the program after its file when no name is given.
-
 ## [2.3.0] - 2026-09-25
 
 Earned value management, Microsoft Project schedules and the DCMA 14-point
 check; a package anyone can pick up without a learning curve (`ce-core` on
-its own is a guide, `ce-core demo` runs every tool on bundled examples, and
-every result says what it means in plain words); and what it takes to bring
-the library into a lab: it runs with no internet, every dependency is
-permissively licensed, and each release carries an SBOM.
+its own is a guide, `ce-core demo` runs every tool on bundled examples, every
+result says what it means in plain words, and comes as an Excel workbook and
+a PowerPoint briefing); and what it takes to bring the library into a lab: it
+runs with no internet, every dependency is permissively licensed, and each
+release carries an SBOM.
 
 Every number the engine already produced is unchanged: the goldens pin
 that, and a finish-to-start JCL network gives byte-identical draws to 2.2.0.
@@ -69,7 +49,10 @@ under Changed.
   ACWP, the baseline and estimate to complete, and the PMB summary the
   control accounts are reconciled against. Several monthly deliveries with
   cumulative-only to-date values rebuild the history; the forecast draws
-  only on the periods known one by one. Tested on datasets written from the
+  only on the periods known one by one, leaving out a month with no delivery
+  and the one after it, which holds both months' progress. A single
+  cumulative-only delivery gives the metrics and warning signs and says why
+  there is no forecast. Tested on datasets written from the
   example program, which read back to exactly the CSV's numbers in every
   packaging, but not yet on a real contractor delivery, and the packaging is
   still to be checked against the File Format Specification: check the
@@ -112,7 +95,7 @@ under Changed.
   their precedence; the two packages that declare none in a form the SBOM
   carries, orloge and pypdfium2, are recorded with where their licence was
   read). Each GitHub release gets the SBOM and a licence table attached.
-  With every extra installed, all 31 dependencies are permissively licensed.
+  With every extra installed, all 34 dependencies are permissively licensed.
 - `docs/using-at-a-lab.md`: using the library at a lab or government office,
   covering the licence clause for research and government organisations, the
   SBOM, installing behind a proxy, from a mirror or offline, and which parts
@@ -144,6 +127,25 @@ under Changed.
   folder is not on the PATH.
 - `docs/getting-started.md`, task by task, and a "Start here" section at the
   top of the README.
+
+- **An Excel workbook from every run.** `ce-core evm`, `jcl`,
+  `schedule-check`, `aoa` and `portfolio` each write `report.xlsx`: a
+  Summary sheet with the plain-English reading and the key numbers, the
+  tables with frozen headers, filters and number formats, native Excel
+  charts, and an Assumptions sheet, set to print one page wide. In the EVM
+  workbook CV, SV, CPI, SPI, TCPI, percent complete, the CPI-based EAC and
+  SPI(t) are Excel formulas on the data beside them. Recalculated by
+  LibreOffice Calc, all 112 formula cells in the example match Python to
+  5e-15, and a CI job checks that on every push
+  (`cost_core.reporting.excel_report`). No new dependency.
+- **A PowerPoint briefing from every run.** With the `plots` extra, the same
+  commands also write `brief.pptx`: a widescreen deck that opens with the
+  bottom line and its key numbers, then the chart, the tables behind it
+  (the schedule check's failures in red, the tasks that break the dates
+  first) and the assumptions (`cost_core.reporting.brief`). The `plots`
+  extra now includes python-pptx (MIT; lxml and XlsxWriter under it, both
+  BSD); with every extra, all 34 dependencies are permissively licensed.
+- `EvmData.read` names the program after its file when no name is given.
 
 ### Changed
 

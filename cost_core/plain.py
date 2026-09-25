@@ -72,9 +72,13 @@ def evm(data, fc, units: str = "", where: str = "listed above") -> List[str]:
     signs are: above in the terminal, elsewhere in a workbook or a deck."""
     m = data.metrics().iloc[-1]
     out = []
-    cost_word = "over" if m.cpi < 1 else "under"
+    # Spending 1/CPI dollars for each dollar of planned work: at CPI 0.5 the
+    # work costs twice its budget, 100% over, not 50%.
+    overrun = 1.0 / m.cpi - 1.0
+    cost_word = "over" if overrun > 0 else "under"
     out.append(f"Each dollar spent so far has bought {m.cpi * 100:.0f} cents' worth of the "
-               f"planned work: the program is running {abs(1 - m.cpi):.0%} {cost_word} cost.")
+               f"planned work: the work done has cost {abs(overrun):.0%} {cost_word} its "
+               "budget.")
     months = -m.sv_t
     if abs(months) >= 0.05:
         out.append(f"It is {abs(months):.1f} reporting periods "
