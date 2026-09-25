@@ -22,6 +22,13 @@ housekeeping detail here, because someone may have put the old one in a budget.
   LibreOffice Calc, all 112 formula cells in the example match Python to
   5e-15, and a CI job checks that on every push
   (`cost_core.reporting.excel_report`). No new dependency.
+- **A PowerPoint briefing from every run.** With the `plots` extra, the same
+  commands also write `brief.pptx`: a widescreen deck that opens with the
+  bottom line and its key numbers, then the chart, the tables behind it
+  (the schedule check's failures in red, the tasks that break the dates
+  first) and the assumptions (`cost_core.reporting.brief`). The `plots`
+  extra now includes python-pptx (MIT; lxml and XlsxWriter under it, both
+  BSD); with every extra, all 34 dependencies are permissively licensed.
 - `EvmData.read` names the program after its file when no name is given.
 
 ## [2.3.0] - 2026-09-25

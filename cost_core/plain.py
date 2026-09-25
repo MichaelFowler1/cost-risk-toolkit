@@ -67,8 +67,9 @@ def show(lines: List[str], width: int = 88) -> str:
     return f"\nWhat this means:\n{body}\n"
 
 
-def evm(data, fc, units: str = "") -> List[str]:
-    """An EVM status and its forecast."""
+def evm(data, fc, units: str = "", where: str = "listed above") -> List[str]:
+    """An EVM status and its forecast. ``where`` says where the warning
+    signs are: above in the terminal, elsewhere in a workbook or a deck."""
     m = data.metrics().iloc[-1]
     out = []
     cost_word = "over" if m.cpi < 1 else "under"
@@ -96,9 +97,9 @@ def evm(data, fc, units: str = "") -> List[str]:
     raised = data.flags()
     raised = raised[raised["raised"]]
     if len(raised) == 1:
-        out.append("There is 1 warning sign, listed above; start with it.")
+        out.append(f"There is 1 warning sign, {where}; start with it.")
     elif len(raised) > 1:
-        out.append(f"There are {len(raised)} warning signs, listed above; start with those.")
+        out.append(f"There are {len(raised)} warning signs, {where}; start with those.")
     return out
 
 

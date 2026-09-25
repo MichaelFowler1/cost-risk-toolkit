@@ -79,8 +79,10 @@ Changelog = "https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/CHANG
 # --simulate --out` (the buy S-curve is the only chart that command writes, and
 # it needs `--simulate`), `cost_core.reporting.charts`,
 # `monte_carlo.plot_distribution` -- needs this extra, and says so by name when
-# it is missing.
-plots = ["matplotlib>=3.8.0"]
+# it is missing. python-pptx (MIT; lxml, XlsxWriter and Pillow under it, all
+# permissive) writes the PowerPoint briefing, which is made of those charts,
+# so it comes with the same extra rather than one more name to remember.
+plots = ["matplotlib>=3.8.0", "python-pptx>=0.6.21"]
 # pdfplumber reads the text of public PDFs (SARs) by position, which is what
 # cost_core.public parses. Only reading a PDF needs it: the parser itself runs
 # on text, and the tests run without it.

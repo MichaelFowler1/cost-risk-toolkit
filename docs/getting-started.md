@@ -45,6 +45,11 @@ workbook, CV, SV, CPI, SPI, TCPI and the CPI-based EAC are Excel formulas on
 the BCWS, BCWP and ACWP columns, so a reviewer can check them in Excel. The
 same tables are written as CSV files too, for other tools.
 
+With the `plots` extra installed, each run also writes `brief.pptx`, a short
+widescreen PowerPoint briefing. It opens with the bottom line and the key
+numbers, then shows the chart, the table behind it and the assumptions.
+It's a starting point for a briefing: copy the slides into your own template.
+
 ## 3. The tasks
 
 ### Forecast a program's final cost and finish from its EVM data
