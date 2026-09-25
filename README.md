@@ -989,10 +989,18 @@ that way. Everything after them is under the
   institutions, charities, and public safety, health and environmental
   organizations**, whatever their funding. A government cost office or a
   university research lab can use it as it stands.
-- **Commercial use needs a license from the author.** That includes using it in
-  paid work for clients or building it into a product. Ask through
+- **Free for government work, including for contractors.** An
+  [additional permission](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/LICENSE-GOVERNMENT-WORK.md)
+  lets anyone, commercial companies included, use it for work done for or
+  under a U.S. government contract, subcontract at any tier, grant or other
+  agreement: prime contractors running their own EVM and schedules, support
+  contractors in a government cost office, and the proposals and cost
+  estimates for such work.
+- **Other commercial use needs a license from the author.** That includes
+  selling the software, building it into a product or hosted service, and
+  work for commercial customers. Ask through
   [the issue tracker](https://github.com/MichaelFowler1/cost-risk-toolkit/issues).
 
 Anyone who passes on a copy of any part of it has to pass on the license terms
 and the `Required Notice:` line in [NOTICE](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/NOTICE) with it. This is a plain
-summary; the LICENSE file is what governs.
+summary; LICENSE and LICENSE-GOVERNMENT-WORK.md are what govern.

@@ -12,8 +12,16 @@ and the Required Notice line above along with it.
 Any noncommercial purpose is free, and so is use by a charitable organization,
 educational institution, public research organization, public safety or health
 organization, environmental protection organization or government institution,
-whatever its funding. Commercial use needs a separate license from the author:
-ask through https://github.com/MichaelFowler1/cost-risk-toolkit/issues.
+whatever its funding.
+
+Additional permission for Government Work (LICENSE-GOVERNMENT-WORK.md): anyone,
+commercial or not, may also use it for work done for or under a U.S.
+government contract, subcontract, grant or other agreement, including prime
+and support contractors, and the proposals for one. Selling the software, or
+building it into a product or service offered to others, is not covered.
+
+Other commercial use needs a separate license from the author: ask through
+https://github.com/MichaelFowler1/cost-risk-toolkit/issues.
 
 Earlier versions: cost-core 1.0.0 and 1.0.1, as tagged on GitHub and published
 on PyPI, were released under the Apache License 2.0 and stay under it. The

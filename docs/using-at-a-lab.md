@@ -25,7 +25,33 @@ division, a federal agency, or a public research organisation is covered even
 when the work is on a government contract. This page doesn't give legal
 advice. If your contracts or technology transfer office needs to confirm the
 lab is covered, give them the clause above. If the answer is no, for example
-because the use is by a commercial contractor, ask for a commercial licence
+because the organisation is a commercial company, see the next section.
+
+### Contractors: the additional permission for Government Work
+
+[LICENSE-GOVERNMENT-WORK.md](../LICENSE-GOVERNMENT-WORK.md) adds to the
+PolyForm licence. Anyone, commercial or not, may use `cost-core` for
+*Government Work*: work done for or under a contract, subcontract at any
+tier, task order, grant, cooperative agreement or other transaction with a
+U.S. federal, state, territorial, tribal or local government agency. That
+covers:
+
+| Who | Covered |
+|---|---|
+| A government office, university, UARC or other public research organisation | Yes, by the PolyForm licence itself |
+| A support contractor working in or for a government cost office | Yes, for that work |
+| A prime or subcontractor running EVM, schedules and estimates on its government contracts, including the IPMDAR and IMS it delivers | Yes, for that work |
+| A company preparing a proposal or cost estimate for government work | Yes |
+| The same company's work for commercial customers or its own commercial products | No: needs a commercial licence |
+| Selling the software, or building it into a product or hosted service offered to others | No: needs a commercial licence |
+
+Charging for your own time while using it is not charging for the software,
+and the results it produces (estimates, forecasts, workbooks, slides) are
+not restricted at all. The permission covers every version from 2.0.0 on,
+including releases published before it was written. The file itself governs;
+this table is a summary.
+
+For anything the permission does not cover, ask for a commercial licence
 through [the issue tracker](https://github.com/MichaelFowler1/cost-risk-toolkit/issues).
 
 Anyone who passes a copy on, even inside the organisation, has to pass on the

@@ -48,9 +48,11 @@ authors = [{ name = "Michael Fowler" }]
 # PolyForm Noncommercial for everything after 1.0.1; 1.0.0 and 1.0.1 were
 # released under Apache-2.0 and stay so. NOTICE carries the Required Notice
 # line the licence obliges anyone redistributing to pass on, which is why it
-# ships in the wheel beside LICENSE.
+# ships in the wheel beside LICENSE, as does the additional permission for
+# Government Work. That permission only widens the licence, so the SPDX
+# identifier stays the base licence's.
 license = "PolyForm-Noncommercial-1.0.0"
-license-files = ["LICENSE", "NOTICE"]
+license-files = ["LICENSE", "NOTICE", "LICENSE-GOVERNMENT-WORK.md"]
 keywords = ["cost-estimating", "monte-carlo", "learning-curve", "risk-analysis", "csdr",
             "selected-acquisition-report", "analysis-of-alternatives", "portfolio-optimization",
             "schedule-risk", "joint-confidence-level", "earned-value-management",
