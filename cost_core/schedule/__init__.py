@@ -20,13 +20,15 @@ Typical use::
 See :mod:`cost_core.schedule.jcl` for the model and the reasoning.
 """
 
-from cost_core.schedule.jcl import (Activity, JclResult, Project, Risk,
-                                    ScheduleError, critical_path,
+from cost_core.schedule.jcl import (LINK_TYPES, Activity, JclResult, Link,
+                                    Project, Risk, ScheduleError, critical_path,
                                     point_estimate, simulate)
 
 __all__ = [
+    "LINK_TYPES",
     "Activity",
     "JclResult",
+    "Link",
     "Project",
     "Risk",
     "ScheduleError",

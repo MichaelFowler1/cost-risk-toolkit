@@ -217,7 +217,8 @@ ce-core jcl --spec docs/jcl_example.json --out jcl/
 ```
 
 The spec is an activity network in months: each activity has a most-likely
-duration with an uncertainty factor, its predecessors (with lags or leads),
+duration with an uncertainty factor, its predecessors (finish-to-start,
+start-to-start, finish-to-finish or start-to-finish, with lags or leads),
 a time-independent cost (materials, a fixed-price contract) and a burn rate
 that costs more the longer it runs. The project carries a standing army, paid
 every month until it's done, and discrete risks that delay activities and add

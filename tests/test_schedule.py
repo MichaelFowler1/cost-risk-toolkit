@@ -57,6 +57,64 @@ def test_lags_and_leads_move_the_schedule():
     assert cpm.early_finish.max() == 9
 
 
+def test_every_link_type_matches_the_hand_calculation():
+    # A(10); B(5) starts 2 after A starts; C(4) finishes 3 after A finishes;
+    # D(5) finishes 12 after A starts. Early: B 2-7, C 9-13, D 7-12; finish 13.
+    # Late, back from 13: C 9-13 and A 0-10 critical (A's finish drives C);
+    # B can start as late as 8, D as late as 8.
+    p = Project([Activity("A", 10),
+                 Activity("B", 5, predecessors=[("A", 2, "SS")]),
+                 Activity("C", 4, predecessors=[{"id": "A", "lag": 3, "type": "ff"}]),
+                 Activity("D", 5, predecessors=[("A", 12, "SF")])])
+    cpm = critical_path(p).set_index("activity")
+    assert list(cpm.early_start) == [0, 2, 9, 7]
+    assert list(cpm.early_finish) == [10, 7, 13, 12]
+    assert list(cpm.total_float) == [0, 6, 0, 1]
+    assert list(cpm.index[cpm.critical]) == ["A", "C"]
+    assert p.activities[1].links() == [("A", 2.0)]
+    assert [r.type for a in p.activities for r in a.relations()] == ["SS", "FF", "SF"]
+
+
+def test_no_link_starts_an_activity_before_the_project():
+    p = Project([Activity("A", 1), Activity("B", 5, predecessors=[("A", 0, "FF")])])
+    cpm = critical_path(p).set_index("activity")
+    assert cpm.loc["B", "early_start"] == 0 and cpm.loc["B", "early_finish"] == 5
+    r = simulate(p, n_iter=10, seed=0)
+    assert (r.finish == 5).all()
+
+
+def _random_network(rng, n):
+    acts = []
+    for i in range(n):
+        preds = []
+        for j in rng.choice(i, size=min(i, int(rng.integers(0, 3))), replace=False) if i else []:
+            preds.append((f"a{j}", float(rng.integers(-2, 4)),
+                          str(rng.choice(["FS", "SS", "FF", "SF"]))))
+        acts.append(Activity(f"a{i}", float(rng.integers(0, 8)), None, preds))
+    return Project(acts)
+
+
+@pytest.mark.parametrize("seed", range(40))
+def test_simulation_agrees_with_cpm_on_random_networks_of_mixed_links(seed):
+    # Two independent routes to the same answer: CPM's zero-float test, and
+    # the simulation's walk back along the links that set each start. With
+    # certain durations they have to agree on the finish and on which
+    # activities are critical, whatever mix of link types and leads.
+    rng = np.random.default_rng(seed)
+    p = _random_network(rng, int(rng.integers(3, 12)))
+    cpm = critical_path(p)
+    r = simulate(p, n_iter=3, seed=0)
+    assert r.finish == pytest.approx([cpm.early_finish.max()] * 3)
+    by_id = dict(zip(r.activity_ids, r.critical[0]))
+    assert [by_id[a] for a in cpm.activity] == list(cpm.critical)
+    assert (cpm.total_float >= -1e-9).all()
+
+
+def test_an_unknown_link_type_is_refused():
+    with pytest.raises(ScheduleError, match="XS"):
+        Activity("B", 1, predecessors=[("A", 0, "XS")])
+
+
 def test_bad_networks_are_refused():
     with pytest.raises(ScheduleError, match="cycle"):
         Project([Activity("A", 1, predecessors=["B"]), Activity("B", 1, predecessors=["A"])])
@@ -191,6 +249,23 @@ def test_example_spec_loads():
     fsw = next(a for a in p.activities if a.id == "fsw")
     assert fsw.links() == [("design", -4.0)]
     assert critical_path(p).early_finish.max() == 43
+
+
+def test_spec_reads_link_types(tmp_path):
+    from cost_core.schedule.spec import load_project
+
+    spec = {"activities": [
+        {"id": "a", "duration": 4},
+        {"id": "b", "duration": 3, "predecessors": [["a", 1, "SS"]]},
+        {"id": "c", "duration": 2, "predecessors": [{"id": "b", "type": "FF"}, "a"]},
+    ]}
+    path = tmp_path / "s.json"
+    path.write_text(json.dumps(spec), encoding="utf-8")
+    p, _ = load_project(path)
+    rel = {a.id: a.relations() for a in p.activities}
+    assert [(r.pred, r.lag, r.type) for r in rel["b"]] == [("a", 1.0, "SS")]
+    assert [(r.pred, r.type) for r in rel["c"]] == [("b", "FF"), ("a", "FS")]
+    assert critical_path(p).early_finish.max() == 6
 
 
 def test_cli_writes_every_table_and_the_chart(tmp_path, monkeypatch, capsys):
