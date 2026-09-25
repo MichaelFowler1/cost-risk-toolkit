@@ -1,0 +1,36 @@
+{
+  "description": "Invented numbers, for illustration only: a small science spacecraft from design to launch, in months and $M.",
+  "name": "Example science mission",
+  "units": "$M",
+  "standing_army": 1.2,
+  "duration_correlation": 0.5,
+  "cost_correlation": 0.3,
+  "confidence": 0.7,
+  "n_iter": 20000,
+  "seed": 1,
+  "activities": [
+    {"id": "design", "name": "Design through CDR", "duration": 12, "burn_rate": 1.5,
+     "duration_uncertainty": {"type": "triangular", "left": 0.9, "mode": 1.0, "right": 1.4}},
+    {"id": "bus", "name": "Spacecraft bus build", "duration": 18, "predecessors": ["design"],
+     "fixed_cost": 40, "burn_rate": 1.0,
+     "duration_uncertainty": {"type": "triangular", "left": 0.9, "mode": 1.0, "right": 1.4},
+     "fixed_cost_uncertainty": {"type": "triangular", "left": 0.95, "mode": 1.0, "right": 1.3}},
+    {"id": "instrument", "name": "Instrument development", "duration": 20, "predecessors": ["design"],
+     "fixed_cost": 30, "burn_rate": 1.2,
+     "duration_uncertainty": {"type": "triangular", "left": 0.9, "mode": 1.0, "right": 1.7},
+     "fixed_cost_uncertainty": {"type": "triangular", "left": 0.95, "mode": 1.0, "right": 1.5}},
+    {"id": "fsw", "name": "Flight software", "duration": 16, "predecessors": [["design", -4]],
+     "burn_rate": 0.8,
+     "duration_uncertainty": {"type": "triangular", "left": 0.9, "mode": 1.0, "right": 1.6}},
+    {"id": "i&t", "name": "Integration and test", "duration": 8, "predecessors": ["bus", "instrument", "fsw"],
+     "burn_rate": 2.5,
+     "duration_uncertainty": {"type": "triangular", "left": 0.9, "mode": 1.0, "right": 1.8}},
+    {"id": "launch", "name": "Launch campaign", "duration": 3, "predecessors": ["i&t"],
+     "fixed_cost": 12, "burn_rate": 1.0}
+  ],
+  "risks": [
+    {"name": "Detector yield below plan", "probability": 0.3, "activities": ["instrument"],
+     "delay": {"type": "triangular", "left": 2, "mode": 3, "right": 6}, "cost": 6},
+    {"name": "Thermal vacuum retest", "probability": 0.2, "activities": ["i&t"], "delay": 2, "cost": 3}
+  ]
+}

@@ -50,3 +50,4 @@ results*/
 # The worked AoA spec the README points at. Invented numbers, no program data.
 !/docs/aoa_example.json
 !/docs/portfolio_example.json
+!/docs/jcl_example.json

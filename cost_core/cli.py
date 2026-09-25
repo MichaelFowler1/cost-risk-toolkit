@@ -360,6 +360,56 @@ def run_portfolio(args) -> None:
     print(f"\nWrote {', '.join(written)} to {out}")
 
 
+def run_jcl(args) -> None:
+    """Simulate a JCL spec and write the joint confidence tables and chart."""
+    import json
+    from pathlib import Path
+
+    from cost_core.schedule import ScheduleError, critical_path, simulate
+    from cost_core.schedule.spec import load_project
+
+    try:
+        project, settings = load_project(args.spec)
+        result = simulate(project, n_iter=int(settings.get("n_iter", 20000)),
+                          seed=settings.get("seed", 0))
+    except (ScheduleError, OSError, KeyError, ValueError) as e:
+        abort(f"JCL failed: {e}")
+    conf = float(args.confidence or settings.get("confidence", 0.7))
+    units = settings.get("units", "as entered")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    summary = result.summary(conf)
+    summary.to_csv(out / "summary.csv", index=False)
+    critical_path(project).to_csv(out / "critical_path.csv", index=False)
+    result.criticality().to_csv(out / "criticality.csv", index=False)
+    result.frontier(conf, points=40).to_csv(out / "frontier.csv", index=False)
+    import pandas as pd
+    pd.DataFrame({"finish_months": result.finish, "cost": result.cost}).to_csv(
+        out / "draws.csv", index=False)
+    (out / "assumptions.json").write_text(json.dumps({
+        "project": project.name, "units": units, "confidence": conf,
+        "n_iter": result.n_iter, "seed": result.seed,
+        "standing_army_per_month": project.standing_army,
+        "duration_correlation": project.duration_correlation,
+        "cost_correlation": project.cost_correlation,
+        "cross_correlation": project.cross_correlation,
+        "risks": [r.name for r in project.risks], "notes": result.notes,
+    }, indent=1), encoding="utf-8")
+    written = ["summary.csv", "critical_path.csv", "criticality.csv", "frontier.csv",
+               "draws.csv", "assumptions.json"]
+    try:
+        from cost_core.reporting.charts import plot_jcl
+        plot_jcl(result, out / "jcl.png", confidence=conf, units=units)
+        written.append("jcl.png")
+    except ImportError:
+        pass
+    print(f"\n{project.name}: {result.n_iter:,} simulated projects, costs in {units}.\n")
+    print(summary.to_string(index=False, float_format=lambda v: f"{v:,.3f}"))
+    print("\nWhere the schedule risk is:")
+    print(result.criticality().to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
+    print(f"\nWrote {', '.join(written)} to {out}")
+
+
 def run_sar_panel(args) -> None:
     """Build a unit cost panel from public SARs and write it as CSV."""
     try:
@@ -515,6 +565,18 @@ def main() -> None:
     p_port.add_argument("--out", default="portfolio",
                         help="Directory for the choice, spend, frontier and risk tables")
 
+    # Subcommand: jcl
+    p_jcl = sub.add_parser(
+        "jcl",
+        help="Schedule risk and joint cost and schedule confidence (JCL)",
+    )
+    p_jcl.add_argument("--spec", required=True,
+                       help="JSON spec of the network (see docs/jcl_example.json)")
+    p_jcl.add_argument("--out", default="jcl",
+                       help="Directory for the tables, the draws and the JCL chart")
+    p_jcl.add_argument("--confidence", type=float, default=None,
+                       help="Joint confidence to report against (default: the spec's, else 0.7)")
+
     # Subcommand: sar-panel
     p_sar = sub.add_parser(
         "sar-panel",
@@ -543,6 +605,7 @@ def main() -> None:
         "sar-panel": run_sar_panel,
         "aoa": run_aoa,
         "portfolio": run_portfolio,
+        "jcl": run_jcl,
     }
 
     dispatch[args.cmd](args)

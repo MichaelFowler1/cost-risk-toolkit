@@ -73,6 +73,7 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 | `cost_core.monte_carlo` | Correlated WBS level risk: Gaussian copula or Iman Conover, PSD repair, discrete risks, tornado, convergence |
 | `cost_core.reporting` | S curve, tornado, cost improvement curve, CER diagnostics, and the assumptions log |
 | `cost_core.aoa` | **Analysis of alternatives.** Life-cycle cost of each alternative in base-year, then-year and present-value dollars, compared under correlated uncertainty: P50, P80, the chance each is cheapest, cost-effectiveness and which are dominated |
+| `cost_core.schedule` | **Schedule risk and JCL.** An activity network with uncertain durations, time-independent and time-dependent costs, a standing army and discrete risks, simulated jointly: the probability of meeting a budget and a date together, the 70% line, and how often each activity is critical |
 | `cost_core.portfolio` | **Which programs to fund.** An integer program over candidates, funding options and yearly budgets, with mandatory programs, dependencies and exclusive alternatives; the marginal value of money by year, a value against budget frontier, and the chance the chosen portfolio breaks each year's budget |
 | `cost_core.public` | **Real programs.** DoD's public Selected Acquisition Reports, 2010 to today, read into a program by year table of unit cost against the current and original baselines, with the source file and an arithmetic check behind every number |
 
@@ -184,6 +185,42 @@ from cost_core.aoa import CostLine, growth_factor, historical_growth, spread
 history = historical_growth(panel.unit_cost, measure="APUC", max_quantity_change_pct=10)
 line = CostLine("Production", "Procurement", spread(4200, 2032, 8), growth_factor(history))
 ```
+
+## Cost and schedule together: JCL
+
+A cost S-curve says what money buys 70% confidence and nothing about when.
+For a project that carries a team for its whole life the two are one
+question, since every month of slip is a month of salaries. NASA budgets its
+major projects at the 70% joint cost and schedule confidence level (JCL): the
+probability of finishing at or under the cost *and* by the date.
+
+```bash
+ce-core jcl --spec docs/jcl_example.json --out jcl/
+```
+
+The spec is an activity network in months: each activity has a most-likely
+duration with an uncertainty factor, its predecessors (with lags or leads),
+a time-independent cost (materials, a fixed-price contract) and a burn rate
+that costs more the longer it runs. The project carries a standing army, paid
+every month until it's done, and discrete risks that delay activities and add
+cost when they happen. The example, a small spacecraft with invented numbers,
+shows the three things a JCL analysis is for:
+
+- **The point estimate is almost never met.** The plan of 43 months and
+  $229M has under 1% joint confidence.
+- **Separate P70s aren't a 70% plan.** Budgeting at the cost P70 and
+  scheduling at the schedule P70 reaches only 66% jointly, because the two
+  have to hold at once. The frontier gives the budget and date pairs that
+  really do reach 70%, and `jcl.png` draws them over the cloud of simulated
+  outcomes.
+- **The long pole isn't always the critical path.** The instrument is on the
+  deterministic critical path and critical in 95% of runs; the criticality
+  table is where management attention should go.
+
+Schedule uncertainty in merging paths is what a deterministic plan misses
+most: two uncertain paths into one milestone finish later on average than
+either does alone (merge bias), so the critical path method is optimistic by
+construction. The simulation carries it; the test suite checks it.
 
 ## Choosing a portfolio: which programs get funded
 
@@ -700,6 +737,7 @@ cost_core/
   public/             public SARs: fetch with provenance, catalogue, unit cost parser, panel
   aoa/                life-cycle cost of alternatives, spec files, growth from SAR history
   portfolio/          which programs to fund: integer program, marginal value, budget risk
+  schedule/           activity networks, schedule risk and joint cost and schedule confidence
 tests/                property tests, see below
 ```
 

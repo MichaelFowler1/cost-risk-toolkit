@@ -689,3 +689,60 @@ def plot_aoa_s_curves(
                        f"Circles mark P50, squares P80.")
         _titles(ax, title, subtitle or default_sub)
         return _finish(fig, path)
+
+
+# ==========================================================================
+# JCL: the joint cost and schedule scatter
+# ==========================================================================
+def plot_jcl(
+    result,
+    path: str | Path,
+    *,
+    confidence: float = 0.7,
+    units: str = "as entered",
+    title: str = "Joint cost and schedule confidence",
+    subtitle: str | None = None,
+    max_points: int = 5000,
+) -> Path:
+    """The JCL chart: every simulated outcome, and the line that buys confidence.
+
+    Each dot is one simulated project, its finish against its cost. The curve
+    is the set of budget and date pairs that reach ``confidence`` jointly; the
+    dashed lines are the separate cost and schedule percentiles at the same
+    level, whose crossing sits below the curve because joint confidence is
+    always lower than either marginal. The point estimate is marked with its
+    own joint confidence, which is usually the number that starts the
+    conversation.
+
+    Args:
+        result: A :class:`~cost_core.schedule.JclResult`.
+        units: What the costs are in, for the axis label. Nothing is
+            converted.
+    """
+    pct = f"{confidence * 100:.0f}%"
+    rng = np.random.default_rng(0)
+    n = result.n_iter
+    take = rng.choice(n, size=min(n, max_points), replace=False)
+    front = result.frontier(confidence, points=60)
+    cost_p = float(np.quantile(result.cost, confidence))
+    fin_p = float(np.quantile(result.finish, confidence))
+    with plt.rc_context(_STYLE):
+        fig, ax = plt.subplots(figsize=(9.0, 6.0))
+        ax.scatter(result.finish[take], result.cost[take], s=5, color=PRIMARY,
+                   alpha=0.18, linewidths=0, rasterized=True, label="simulated outcomes")
+        ax.plot(front["finish"], front["cost"], color=SECONDARY, linewidth=2.4,
+                label=f"{pct} joint confidence")
+        ax.axvline(fin_p, color=MUTED, linestyle="--", linewidth=1.2)
+        ax.axhline(cost_p, color=MUTED, linestyle="--", linewidth=1.2,
+                   label=f"schedule and cost P{confidence * 100:.0f} on their own")
+        ax.plot([result.point_finish], [result.point_cost], marker="D", color=ACCENT,
+                markersize=9, markeredgecolor=INK, linestyle="none",
+                label=f"point estimate ({result.point_jcl:.0%} joint)")
+        ax.set_xlabel("Finish, months from start")
+        ax.set_ylabel(f"Cost ({units})")
+        ax.yaxis.set_major_formatter(FuncFormatter(_plain))
+        ax.legend(frameon=False, loc="upper left", fontsize=9.5)
+        default_sub = (f"{n:,} simulated projects. Separately, the P{confidence * 100:.0f}s "
+                       f"reach only {result.joint(cost_p, fin_p):.0%} jointly.")
+        _titles(ax, title, subtitle or default_sub)
+        return _finish(fig, path)

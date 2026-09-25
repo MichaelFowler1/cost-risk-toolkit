@@ -10,6 +10,20 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Added
+
+- **`cost_core.schedule`: schedule risk and joint cost and schedule
+  confidence (JCL).** An activity network with most-likely durations and
+  uncertainty on them, finish-to-start links with lags, time-independent and
+  time-dependent costs, a project standing army and discrete risks, simulated
+  together with correlated durations and costs. The result gives the joint
+  confidence of any budget and date, the frontier of pairs that reach a
+  chosen joint confidence, the joint confidence of the point estimate, and
+  how often each activity is critical. `critical_path` gives the
+  deterministic schedule and float. `ce-core jcl --spec file.json` writes the
+  tables, every draw and the JCL chart; `docs/jcl_example.json` is a worked
+  example. No new dependency.
+
 ## [2.1.0] - 2026-09-24
 
 Three new subpackages, and real programs to test on. Nothing the engine
