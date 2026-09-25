@@ -217,3 +217,31 @@ def test_cli_writes_every_table(tmp_path, monkeypatch, capsys):
         assert (tmp_path / name).is_file(), name
     out = capsys.readouterr().out
     assert "Fleet sustainment" in out and "breaks its budget" in out
+
+
+# --------------------------------------------------------------- solver ---
+def test_highs_is_the_solver_when_installed():
+    from cost_core.portfolio.optimize import _solver
+
+    pytest.importorskip("highspy")
+    solver = _solver(pulp, 5)
+    assert type(solver).__name__ == "HiGHS"
+    # Asked for the optimum itself, not HiGHS's default 0.01% gap.
+    assert solver.gapRel == 0.0
+
+
+def test_no_solver_says_how_to_install_one():
+    from types import SimpleNamespace
+
+    from cost_core.portfolio.optimize import _solver
+
+    class Missing:
+        def __init__(self, **kw):
+            pass
+
+        def available(self):
+            return False
+
+    bare = SimpleNamespace(__version__="4.0.0", HiGHS=Missing, COIN_CMD=Missing)
+    with pytest.raises(ImportError, match=r"cost-core\[optimize\]"):
+        _solver(bare, None)

@@ -9,7 +9,7 @@ fundable in one of a few ways (fully, at a reduced rate, deferred) or not at
 all, each way costing a known amount in each fiscal year and buying some value,
 and a budget in each year that the chosen set has to fit under. Maximise value.
 In a spreadsheet that is Excel Solver with a binary constraint per cell; here
-it is written out as a mixed-integer program and solved with CBC through PuLP.
+it is written out as a mixed-integer program and solved with HiGHS through PuLP.
 
 The formulation, with one binary ``x[c, o]`` per candidate ``c`` and option ``o``:
 
@@ -194,18 +194,32 @@ def _binary(pulp, prob, name):
 
 
 def _solver(pulp, time_limit):
-    """The CBC solver, wherever this PuLP keeps it.
+    """HiGHS, or CBC when that is all this installation has.
 
-    PuLP 4 ships no solver at all: CBC comes from the ``cbc`` extra (the
-    ``cbcbox`` package) and is reached through ``COIN_CMD``, which is what
-    ``cost-core[optimize]`` installs. PuLP 2.x and 3.x bundle a CBC binary
-    behind ``PULP_CBC_CMD`` (deprecated in 3.3). Use the separate one when it
-    is there, the bundled one when that is all there is, and say how to fix
-    it when there is neither, rather than failing on a missing attribute.
+    HiGHS (MIT licence, through the ``highspy`` package) is what
+    ``cost-core[optimize]`` installs, on every PuLP from 2.8 to 4. CBC is
+    kept as a fallback for an installation that already has it and not
+    highspy: PuLP 2.x and 3.x bundle a CBC binary behind ``PULP_CBC_CMD``,
+    and under PuLP 4 it comes from the ``cbc`` extra through ``COIN_CMD``.
+    CBC is under the Eclipse Public License, a weak copyleft that some
+    software approval processes flag, which is why it is no longer the
+    default.
+
+    HiGHS stops by default within 0.01% of the optimum. It is asked for the
+    optimum itself here, as CBC gave, since a portfolio's value can hinge on
+    one program and the tests hold it to brute force.
     """
     kwargs = {"msg": False}
     if time_limit is not None:
         kwargs["timeLimit"] = time_limit
+    highs = getattr(pulp, "HiGHS", None)
+    if highs is not None:
+        try:
+            solver = highs(gapRel=0.0, gapAbs=0.0, **kwargs)
+            if solver.available():
+                return solver
+        except Exception:  # noqa: BLE001 - try CBC next
+            pass
     coin = getattr(pulp, "COIN_CMD", None)
     if coin is not None:
         try:
@@ -218,11 +232,12 @@ def _solver(pulp, time_limit):
     if bundled is not None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
-            return bundled(**kwargs)
+            solver = bundled(**kwargs)
+        if solver.available():
+            return solver
     raise ImportError(
-        f"PuLP {getattr(pulp, '__version__', '')} found no CBC solver. PuLP 4 no longer "
-        "bundles one; install it with: pip install \"cost-core[optimize]\" "
-        "(or pip install \"pulp[cbc]\")."
+        f"PuLP {getattr(pulp, '__version__', '')} found no solver. Install HiGHS with: "
+        "pip install \"cost-core[optimize]\" (or pip install highspy)."
     )
 
 
