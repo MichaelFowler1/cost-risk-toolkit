@@ -1,0 +1,91 @@
+period,wbs,bcws,bcwp,acwp,eac
+2025-10,1.1 Air vehicle,18.9,14.5,16.2,9000.0
+2025-11,1.1 Air vehicle,54.9,24.8,25.5,9030.8
+2025-12,1.1 Air vehicle,97.0,51.5,56.7,9061.5
+2026-01,1.1 Air vehicle,142.5,77.3,84.7,9092.3
+2026-02,1.1 Air vehicle,189.6,112.5,127.5,9123.1
+2026-03,1.1 Air vehicle,236.8,161.8,177.2,9153.8
+2026-04,1.1 Air vehicle,283.0,192.8,216.4,9184.6
+2026-05,1.1 Air vehicle,326.9,230.6,272.0,9215.4
+2026-06,1.1 Air vehicle,367.6,246.4,274.5,9246.2
+2026-07,1.1 Air vehicle,404.2,275.3,342.2,9276.9
+2026-08,1.1 Air vehicle,435.9,290.8,329.5,9307.7
+2026-09,1.1 Air vehicle,462.1,319.3,366.1,9338.5
+2026-10,1.1 Air vehicle,482.2,383.4,388.1,9369.2
+2026-11,1.1 Air vehicle,495.8,359.5,353.6,9400.0
+2026-12,1.1 Air vehicle,502.7,,,
+2027-01,1.1 Air vehicle,502.7,,,
+2027-02,1.1 Air vehicle,495.8,,,
+2027-03,1.1 Air vehicle,482.2,,,
+2027-04,1.1 Air vehicle,462.1,,,
+2027-05,1.1 Air vehicle,435.9,,,
+2027-06,1.1 Air vehicle,404.2,,,
+2027-07,1.1 Air vehicle,367.6,,,
+2027-08,1.1 Air vehicle,326.9,,,
+2027-09,1.1 Air vehicle,283.0,,,
+2027-10,1.1 Air vehicle,236.8,,,
+2027-11,1.1 Air vehicle,189.6,,,
+2027-12,1.1 Air vehicle,142.5,,,
+2028-01,1.1 Air vehicle,97.0,,,
+2028-02,1.1 Air vehicle,54.9,,,
+2028-03,1.1 Air vehicle,18.9,,,
+2025-10,1.2 Software,8.4,5.5,6.8,4000.0
+2025-11,1.2 Software,24.4,9.1,10.3,4026.9
+2025-12,1.2 Software,43.1,19.4,21.5,4053.8
+2026-01,1.2 Software,63.3,29.6,33.3,4080.8
+2026-02,1.2 Software,84.3,37.3,45.6,4107.7
+2026-03,1.2 Software,105.3,53.2,62.0,4134.6
+2026-04,1.2 Software,125.8,67.6,85.1,4161.5
+2026-05,1.2 Software,145.3,73.9,84.3,4188.5
+2026-06,1.2 Software,163.4,94.6,107.7,4215.4
+2026-07,1.2 Software,179.6,137.4,173.0,4242.3
+2026-08,1.2 Software,193.7,180.1,185.2,4269.2
+2026-09,1.2 Software,205.4,198.1,212.5,4296.2
+2026-10,1.2 Software,214.3,169.4,183.8,4323.1
+2026-11,1.2 Software,220.4,158.5,184.4,4350.0
+2026-12,1.2 Software,223.4,,,
+2027-01,1.2 Software,223.4,,,
+2027-02,1.2 Software,220.4,,,
+2027-03,1.2 Software,214.3,,,
+2027-04,1.2 Software,205.4,,,
+2027-05,1.2 Software,193.7,,,
+2027-06,1.2 Software,179.6,,,
+2027-07,1.2 Software,163.4,,,
+2027-08,1.2 Software,145.3,,,
+2027-09,1.2 Software,125.8,,,
+2027-10,1.2 Software,105.3,,,
+2027-11,1.2 Software,84.3,,,
+2027-12,1.2 Software,63.3,,,
+2028-01,1.2 Software,43.1,,,
+2028-02,1.2 Software,24.4,,,
+2028-03,1.2 Software,8.4,,,
+2025-10,1.3 Systems engineering,5.2,4.9,5.0,2500.0
+2025-11,1.3 Systems engineering,15.2,16.9,18.3,2503.8
+2025-12,1.3 Systems engineering,27.0,24.7,28.4,2507.7
+2026-01,1.3 Systems engineering,39.6,32.1,39.3,2511.5
+2026-02,1.3 Systems engineering,52.7,38.3,39.6,2515.4
+2026-03,1.3 Systems engineering,65.8,46.9,48.1,2519.2
+2026-04,1.3 Systems engineering,78.6,49.3,50.6,2523.1
+2026-05,1.3 Systems engineering,90.8,49.5,54.1,2526.9
+2026-06,1.3 Systems engineering,102.1,95.2,106.5,2530.8
+2026-07,1.3 Systems engineering,112.3,117.3,123.2,2534.6
+2026-08,1.3 Systems engineering,121.1,118.0,130.0,2538.5
+2026-09,1.3 Systems engineering,128.4,143.5,156.5,2542.3
+2026-10,1.3 Systems engineering,133.9,165.0,186.2,2546.2
+2026-11,1.3 Systems engineering,137.7,152.9,161.1,2550.0
+2026-12,1.3 Systems engineering,139.6,,,
+2027-01,1.3 Systems engineering,139.6,,,
+2027-02,1.3 Systems engineering,137.7,,,
+2027-03,1.3 Systems engineering,133.9,,,
+2027-04,1.3 Systems engineering,128.4,,,
+2027-05,1.3 Systems engineering,121.1,,,
+2027-06,1.3 Systems engineering,112.3,,,
+2027-07,1.3 Systems engineering,102.1,,,
+2027-08,1.3 Systems engineering,90.8,,,
+2027-09,1.3 Systems engineering,78.6,,,
+2027-10,1.3 Systems engineering,65.8,,,
+2027-11,1.3 Systems engineering,52.7,,,
+2027-12,1.3 Systems engineering,39.6,,,
+2028-01,1.3 Systems engineering,27.0,,,
+2028-02,1.3 Systems engineering,15.2,,,
+2028-03,1.3 Systems engineering,5.2,,,
