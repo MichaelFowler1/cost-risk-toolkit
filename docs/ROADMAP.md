@@ -11,10 +11,10 @@ Status markers: **[started]** work exists on a branch; **[idea]** nothing yet.
 
 The package had nothing for EVM specialists.
 
-- **[done, unreleased] EVM metrics and forecasting** (`cost_core.evm`): CV, SV, CPI,
+- **[done, 2.3.0] EVM metrics and forecasting** (`cost_core.evm`): CV, SV, CPI,
   SPI, TCPI, the standard independent EACs, and earned schedule (ES, SPI(t),
   IEAC(t)), since SPI drifts back to 1.0 near the end of a late program.
-- **[done, unreleased] Probabilistic EAC and completion date.** Calibration
+- **[done, 2.3.0] Probabilistic EAC and completion date.** Calibration
   measured on synthetic programs: P80 holds 79 to 82% with independent
   periods, 72 to 77% with strongly persistent ones; the persistent case is
   the thing to improve (a short record cannot pin down persistence). Resample the
@@ -22,7 +22,7 @@ The package had nothing for EVM specialists.
   that narrows as the program matures, plus a joint cost and date confidence
   in the same form as the JCL. Flag the classic warning signs: TCPI more than
   0.10 above the cumulative CPI (Christensen), and an EAC below the IEAC range.
-- **[done, unreleased] IPMDAR reader** (`cost_core.evm.ipmdar`), built from
+- **[done, 2.3.0] IPMDAR reader** (`cost_core.evm.ipmdar`), built from
   the CPD Data Exchange Instructions (March 2020). Still to confirm against
   the File Format Specification: how the tables are packaged (both a folder
   or ZIP of per-table JSON files and one keyed JSON file are read), and
