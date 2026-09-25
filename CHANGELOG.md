@@ -10,6 +10,14 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-25
+
+Schedule risk and joint cost and schedule confidence, and a fix anyone using
+portfolio optimisation on 2.1.0 needs. PuLP 4.0.0 came out the day after
+2.1.0, and on Python 3.12 and up a fresh `pip install "cost-core[optimize]"`
+of 2.1.0 picks it up and fails the first time a portfolio is solved. Upgrade
+to 2.2.0. As before, every number the engine already produced is unchanged.
+
 ### Added
 
 - **`cost_core.schedule`: schedule risk and joint cost and schedule
@@ -33,6 +41,12 @@ housekeeping detail here, because someone may have put the old one in a budget.
   `pulp[cbc]`, which installs CBC under PuLP 4, the status is read the way
   each PuLP version reports it, and a PuLP with no solver gets a message
   saying how to install one. Tested on PuLP 2.9.0, 3.3.2 and 4.0.0.
+
+### Changed
+
+- CI also runs every Monday with nothing pushed, so a dependency's new
+  release breaking the library shows up within a week rather than when a
+  user installs it. That is how the PuLP 4 break would have been caught.
 
 ## [2.1.0] - 2026-09-24
 
@@ -421,7 +435,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.1...v2.0.0
 [1.0.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v1.0.0...v1.0.1

@@ -13,8 +13,9 @@ abstract: >-
   reliable estimate in the GAO Cost Estimating and Assessment Guide. It also
   reads DoD's public Selected Acquisition Reports into a program-by-year unit
   cost panel with row-level provenance, costs alternatives over their life
-  cycle in base-year, then-year and present-value dollars, and chooses a
-  funding portfolio as an integer program. No proprietary contractor data is
+  cycle in base-year, then-year and present-value dollars, chooses a funding
+  portfolio as an integer program, and simulates schedule and cost together
+  for joint cost and schedule confidence (JCL). No proprietary contractor data is
   included; the only real data is public-domain SAR text used as test fixtures.
 authors:
   - family-names: "Fowler"
@@ -31,8 +32,10 @@ keywords:
   - selected-acquisition-report
   - analysis-of-alternatives
   - portfolio-optimization
+  - schedule-risk
+  - joint-confidence-level
 license: "PolyForm-Noncommercial-1.0.0"
-version: "2.1.0"
+version: "2.2.0"
 # CFF pairs `version` with `date-released`: together they describe the release
 # being cited, not the first commit. Each release moves both.
-date-released: "2026-09-24"
+date-released: "2026-09-25"
