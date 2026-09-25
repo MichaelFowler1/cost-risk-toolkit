@@ -43,6 +43,7 @@ covers:
 | A prime or subcontractor running EVM, schedules and estimates on its government contracts, including the IPMDAR and IMS it delivers | Yes, for that work |
 | A company preparing a proposal or cost estimate for government work | Yes |
 | The same company's work for commercial customers or its own commercial products | No: needs a commercial licence |
+| Delivering code, a model or a tool built on it to the government customer as a deliverable the contract calls for | Yes, with the licence files and notice passed on |
 | Selling the software, or building it into a product or hosted service offered to others | No: needs a commercial licence |
 
 Charging for your own time while using it is not charging for the software,

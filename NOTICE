@@ -18,7 +18,9 @@ Additional permission for Government Work (LICENSE-GOVERNMENT-WORK.md): anyone,
 commercial or not, may also use it for work done for or under a U.S.
 government contract, subcontract, grant or other agreement, including prime
 and support contractors, and the proposals for one. Selling the software, or
-building it into a product or service offered to others, is not covered.
+building it into a product or service offered to others, is not covered;
+a deliverable a government agreement calls for, delivered under it, is not
+such a product.
 
 Other commercial use needs a separate license from the author: ask through
 https://github.com/MichaelFowler1/cost-risk-toolkit/issues.

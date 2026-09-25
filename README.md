@@ -997,8 +997,10 @@ that way. Everything after them is under the
   contractors in a government cost office, and the proposals and cost
   estimates for such work.
 - **Other commercial use needs a license from the author.** That includes
-  selling the software, building it into a product or hosted service, and
-  work for commercial customers. Ask through
+  selling the software, building it into a product or hosted service offered
+  beyond a government agreement, and work for commercial customers. A
+  deliverable a government contract calls for, delivered under it, counts as
+  government work. Ask through
   [the issue tracker](https://github.com/MichaelFowler1/cost-risk-toolkit/issues).
 
 Anyone who passes on a copy of any part of it has to pass on the license terms

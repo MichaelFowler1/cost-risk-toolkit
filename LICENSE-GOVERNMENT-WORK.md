@@ -63,6 +63,17 @@ https://github.com/MichaelFowler1/cost-risk-toolkit/issues.
   PolyForm license put no limits on them.
 - The permission reaches every individual doing Government Work: employees,
   consultants and support contractors alike.
+- **Deliverables are Government Work.** Code, models, tools or analyses built
+  on the software that a Government Agreement calls for, delivered to the
+  Government Agency under that agreement, are part of performing it, not a
+  product offered to others under item 2 of "What stays commercial". The
+  delivery has to pass on LICENSE, this permission and the Required Notice
+  line, as the PolyForm license's Notices terms already require, and the
+  Government Agency may then use what it received for its own Government
+  Work under them. What item 2 reserves is offering something beyond the
+  agreement: selling or licensing it to other customers, listing it in a
+  catalog or on a schedule, or continuing to offer it after the agreement
+  that called for it ends.
 
 ## Versions
 
