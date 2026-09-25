@@ -24,7 +24,9 @@ spec.py - A JCL model written down as a JSON file.
       ]
     }
 
-A predecessor is an id, or ``[id, lag]`` for a lag in months. Durations are in
+A predecessor is an id (finish-to-start), ``[id, lag]`` for a lag in months,
+``[id, lag, type]`` with ``type`` one of ``FS``, ``SS``, ``FF`` and ``SF``,
+or ``{"id": ..., "lag": ..., "type": ...}``. Durations are in
 months; costs in ``units``, which is only a label. ``docs/jcl_example.json``
 is a complete one.
 """
@@ -46,7 +48,9 @@ def load_project(path) -> Tuple[Project, Dict[str, Any]]:
         raise ScheduleError(f"{path.name}: missing 'activities'.")
     acts = []
     for a in spec["activities"]:
-        preds = [p if isinstance(p, str) else (str(p[0]), float(p[1]))
+        # Activity reads every predecessor form itself: an id, [id, lag],
+        # [id, lag, type] or {"id", "lag", "type"}.
+        preds = [p if isinstance(p, (str, dict)) else tuple(p)
                  for p in a.get("predecessors", [])]
         acts.append(Activity(
             id=a["id"], duration=float(a["duration"]),

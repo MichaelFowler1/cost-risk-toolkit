@@ -15,7 +15,8 @@ the 70% JCL (NASA Cost Estimating Handbook v4.0, Appendix J).
 **What a JCL model holds.** Following that appendix:
 
 * a network of activities, each with a most-likely duration and an
-  uncertainty on it, linked finish-to-start with optional lags;
+  uncertainty on it, linked finish-to-start, start-to-start,
+  finish-to-finish or start-to-finish, with optional lags;
 * costs split by how they behave: *time-independent* (materials, a fixed-price
   subcontract) that do not care how long the work takes, and *time-dependent*
   (a team's burn rate) that grow with every month the activity runs;
@@ -46,7 +47,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -59,7 +60,38 @@ class ScheduleError(ValueError):
     """Raised on a network or analysis that cannot be built or evaluated."""
 
 
-Predecessor = Union[str, Tuple[str, float]]
+#: The four ways one activity can hold up another, as scheduling tools name
+#: them: finish-to-start (the successor starts after the predecessor
+#: finishes, the usual one), start-to-start, finish-to-finish and
+#: start-to-finish.
+LINK_TYPES = ("FS", "SS", "FF", "SF")
+
+Predecessor = Union[str, Tuple[str, float], Tuple[str, float, str], Mapping[str, Any]]
+
+
+class Link(NamedTuple):
+    """One predecessor relationship: ``pred`` holds up the activity by
+    ``type`` with ``lag`` months (negative for a lead)."""
+
+    pred: str
+    lag: float = 0.0
+    type: str = "FS"
+
+
+def _link(p: Predecessor) -> Link:
+    if isinstance(p, str):
+        return Link(p)
+    if isinstance(p, Mapping):
+        pred, lag, kind = p["id"], p.get("lag", 0.0), p.get("type", "FS")
+    else:
+        parts = tuple(p)
+        pred = parts[0]
+        lag = parts[1] if len(parts) > 1 else 0.0
+        kind = parts[2] if len(parts) > 2 else "FS"
+    kind = str(kind).upper()
+    if kind not in LINK_TYPES:
+        raise ScheduleError(f"Link type {kind!r} from {pred!r}: use one of {', '.join(LINK_TYPES)}.")
+    return Link(str(pred), float(lag), kind)
 
 
 # ------------------------------------------------------------------- inputs ---
@@ -74,8 +106,10 @@ class Activity:
             :func:`cost_core.monte_carlo.make_distribution` describing a
             multiplicative factor on the duration (1.0 is the most likely).
             None means the duration is certain.
-        predecessors: Activities that must finish first: an id, or
-            ``(id, lag)`` for a lag in months (negative for a lead).
+        predecessors: Activities that hold this one up: an id (finish-to-
+            start), ``(id, lag)`` for a lag in months (negative for a lead),
+            ``(id, lag, type)`` with ``type`` one of :data:`LINK_TYPES`, or
+            a mapping with keys ``id``, ``lag`` and ``type``.
         fixed_cost: Time-independent cost.
         fixed_cost_uncertainty: Factor spec on the fixed cost.
         burn_rate: Time-dependent cost per month while the activity runs.
@@ -96,10 +130,19 @@ class Activity:
             raise ScheduleError(f"{self.id}: duration must be >= 0; got {self.duration}.")
         if self.burn_rate < 0 or self.fixed_cost < 0:
             raise ScheduleError(f"{self.id}: costs must be >= 0.")
+        self.relations()  # raises on an unknown link type
+
+    def relations(self) -> List[Link]:
+        """Every predecessor as a :class:`Link`, with its type."""
+        return [_link(p) for p in self.predecessors]
 
     def links(self) -> List[Tuple[str, float]]:
-        return [(p, 0.0) if isinstance(p, str) else (str(p[0]), float(p[1]))
-                for p in self.predecessors]
+        """``(id, lag)`` for every predecessor, without the link type.
+
+        Kept for code written against 2.2.0, when every link was
+        finish-to-start; :meth:`relations` has the type as well.
+        """
+        return [(r.pred, r.lag) for r in self.relations()]
 
 
 @dataclass(frozen=True)
@@ -193,28 +236,59 @@ class Project:
 
 
 # ------------------------------------------------------------ critical path ---
+def _earliest_start(link: Link, start_p, finish_p, duration):
+    """The earliest start a link allows its successor, given the
+    predecessor's start and finish and the successor's own duration.
+    Works on floats and on arrays of iterations alike."""
+    if link.type == "FS":
+        return finish_p + link.lag
+    if link.type == "SS":
+        return start_p + link.lag
+    if link.type == "FF":
+        return finish_p + link.lag - duration
+    return start_p + link.lag - duration  # SF
+
+
+def _latest_finish(link: Link, late_start_s, late_finish_s, duration_p):
+    """The latest finish a link allows its predecessor, given the
+    successor's late dates and the predecessor's own duration."""
+    if link.type == "FS":
+        return late_start_s - link.lag
+    if link.type == "SS":
+        return late_start_s - link.lag + duration_p
+    if link.type == "FF":
+        return late_finish_s - link.lag
+    return late_finish_s - link.lag + duration_p  # SF
+
+
 def critical_path(project: Project) -> pd.DataFrame:
     """The deterministic schedule on most-likely durations (CPM).
 
     Returns one row per activity in network order: early and late start and
     finish, total float, and whether it is critical (zero float). The
-    project's deterministic finish is the largest early finish.
+    project's deterministic finish is the largest early finish. No activity
+    starts before the project does, whatever its links allow: a finish-to-
+    finish link to a short predecessor does not pull a long successor's
+    start before month zero.
     """
     acts = {a.id: a for a in project.activities}
     order = project.order()
     es, ef = {}, {}
     for i in order:
-        es[i] = max([ef[p] + lag for p, lag in acts[i].links()], default=0.0)
-        ef[i] = es[i] + acts[i].duration
+        d = acts[i].duration
+        es[i] = max([0.0] + [_earliest_start(r, es[r.pred], ef[r.pred], d)
+                             for r in acts[i].relations()])
+        ef[i] = es[i] + d
     finish = max(ef.values())
-    succs: Dict[str, List[Tuple[str, float]]] = {i: [] for i in order}
+    succs: Dict[str, List[Tuple[str, Link]]] = {i: [] for i in order}
     for i in order:
-        for p, lag in acts[i].links():
-            succs[p].append((i, lag))
+        for r in acts[i].relations():
+            succs[r.pred].append((i, r))
     lf, ls = {}, {}
     for i in reversed(order):
-        lf[i] = min([ls[s] - lag for s, lag in succs[i]], default=finish)
-        ls[i] = lf[i] - acts[i].duration
+        d = acts[i].duration
+        lf[i] = min([finish] + [_latest_finish(r, ls[s], lf[s], d) for s, r in succs[i]])
+        ls[i] = lf[i] - d
     rows = [{"activity": i, "name": acts[i].name or i, "duration": acts[i].duration,
              "early_start": es[i], "early_finish": ef[i], "late_start": ls[i],
              "late_finish": lf[i], "total_float": ls[i] - es[i],
@@ -415,25 +489,31 @@ def simulate(project: Project, n_iter: int = 20_000, seed: Optional[int] = 0) ->
     fin = np.zeros_like(durations)
     for a in order:
         j = col[a]
-        links = acts[a].links()
-        if links:
-            start[:, j] = np.max(np.column_stack([fin[:, col[p]] + lag for p, lag in links]), axis=1)
+        for r in acts[a].relations():
+            k = col[r.pred]
+            np.maximum(start[:, j], _earliest_start(r, start[:, k], fin[:, k], durations[:, j]),
+                       out=start[:, j])
         fin[:, j] = start[:, j] + durations[:, j]
     finish = fin.max(axis=1)
 
-    # Critical in an iteration: ends the project, or drives the start of a
-    # successor that is itself critical.
-    succs: Dict[str, List[Tuple[str, float]]] = {a: [] for a in order}
+    # Critical in an iteration: ends the project, or drives a successor that
+    # is itself critical, meaning the link from it is the one that set the
+    # successor's start.
+    succs: Dict[str, List[Tuple[str, Link]]] = {a: [] for a in order}
     for a in order:
-        for p, lag in acts[a].links():
-            succs[p].append((a, lag))
+        for r in acts[a].relations():
+            succs[r.pred].append((a, r))
     crit = np.zeros_like(durations, dtype=bool)
     tol = 1e-9 * max(1.0, float(finish.max()))
     for a in reversed(order):
         j = col[a]
         c = np.isclose(fin[:, j], finish, atol=tol, rtol=0)
-        for s, lag in succs[a]:
-            c |= crit[:, col[s]] & np.isclose(start[:, col[s]], fin[:, j] + lag, atol=tol, rtol=0)
+        for s, r in succs[a]:
+            k = col[s]
+            drives = np.isclose(start[:, k],
+                                _earliest_start(r, start[:, j], fin[:, j], durations[:, k]),
+                                atol=tol, rtol=0)
+            c |= crit[:, k] & drives
         crit[:, j] = c
 
     rates = np.array([acts[a].burn_rate for a in order], dtype=float)
