@@ -109,6 +109,10 @@ class EvmData:
         name: Label for reports.
         accounts: The same, per control account or WBS element, when the
             data was given at that level.
+        first_observed: The first period whose own performance is known.
+            Later than 1 when the history was rebuilt from cumulative
+            deliveries, the first of which lumps every period before it.
+        notes: How the data was read, and anything assumed on the way.
     """
 
     periods: List
@@ -119,6 +123,8 @@ class EvmData:
     eac: Optional[np.ndarray] = None
     name: str = "program"
     accounts: Dict[str, "EvmData"] = field(default_factory=dict)
+    first_observed: int = 1
+    notes: List[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.bcws = np.asarray(self.bcws, dtype=float)

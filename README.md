@@ -318,9 +318,23 @@ data.flags()
 forecast(data, seed=1).summary()
 ```
 
-Reading IPMDAR's JSON directly is next, once the official file format
-specification is in hand; until then, export the time-phased BCWS, BCWP and
-ACWP to CSV.
+**Straight from the IPMDAR.** The Contract Performance Dataset, the JSON
+tables contractors deliver under DI-MGMT-81861, reads directly:
+
+```bash
+ce-core evm --ipmdar cpd_2026_11.zip --out evm/
+ce-core evm --ipmdar cpd_2026_*.zip --out evm/     # cumulative-only deliveries
+```
+
+Table and field names follow the CPD Data Exchange Instructions (March
+2020). Work packages roll up into their control accounts, the baseline to
+complete and the contractor's estimate to complete come from their own
+tables, and the control accounts are reconciled against the PMB summary,
+with any gap stated. A dataset whose to-date values are time-phased holds
+the whole history. One that reports them only cumulative to date gives a
+single point, so pass the monthly deliveries together and the history is
+rebuilt from them, with any missing month named. A folder or ZIP of one JSON
+file per table and a single JSON file keyed by table name both read.
 
 ## Choosing a portfolio: which programs get funded
 

@@ -27,6 +27,16 @@ housekeeping detail here, because someone may have put the old one in a budget.
   time (72 to 77% under strong persistence). `ce-core evm` writes the
   tables, the draws and a chart; `docs/evm_example.csv` is an invented
   three-account program. No new dependency.
+- **IPMDAR Contract Performance Datasets read directly.**
+  `cost_core.evm.ipmdar.read_ipmdar` and `ce-core evm --ipmdar` read the CPD
+  JSON tables by the names in the CPD Data Exchange Instructions (OUSD, 12
+  March 2020): control accounts and work packages, to-date BCWS, BCWP and
+  ACWP, the baseline and estimate to complete, and the PMB summary the
+  control accounts are reconciled against. Several monthly deliveries with
+  cumulative-only to-date values rebuild the history; the forecast draws
+  only on the periods known one by one. Tested on datasets written from the
+  example program, which read back to exactly the CSV's numbers in every
+  packaging.
 
 - **SAR panels from PDFs already on disk, with no network.**
   `ce-core sar-panel --dir FOLDER` and `cost_core.public.local_catalog`

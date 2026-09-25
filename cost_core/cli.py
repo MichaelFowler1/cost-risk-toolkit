@@ -424,7 +424,13 @@ def run_evm(args) -> None:
     from cost_core.evm import EvmData, EvmError, forecast
 
     try:
-        data = EvmData.read(args.data, cumulative=args.cumulative, bac=args.bac)
+        if args.ipmdar:
+            from cost_core.evm.ipmdar import read_ipmdar
+            data = read_ipmdar(args.ipmdar, bac=args.bac)
+        elif args.data:
+            data = EvmData.read(args.data, cumulative=args.cumulative, bac=args.bac)
+        else:
+            abort("Give --data (CSV or Excel) or --ipmdar (one or more IPMDAR datasets).")
         fc = forecast(data, n_iter=args.iters, seed=args.seed)
     except (EvmError, OSError, KeyError, ValueError) as e:
         abort(f"EVM failed: {e}")
@@ -446,7 +452,8 @@ def run_evm(args) -> None:
                 "ieac_cpi", "eac")}})
         pd.DataFrame(rows).to_csv(out / "accounts.csv", index=False)
     (out / "assumptions.json").write_text(json.dumps({
-        "data": str(args.data), "cumulative_input": args.cumulative, "bac": data.bac,
+        "data": [str(p) for p in args.ipmdar] if args.ipmdar else str(args.data),
+        "cumulative_input": args.cumulative, "bac": data.bac, "import_notes": data.notes,
         "status_period": str(data.periods[data.status - 1]), "n_iter": fc.n_iter,
         "seed": fc.seed, "notes": fc.notes}, indent=1), encoding="utf-8")
     written = ["metrics.csv", "flags.csv", "summary.csv", "forecast_percentiles.csv",
@@ -462,7 +469,7 @@ def run_evm(args) -> None:
             return "" if v != v else f"{v:,.3f}"
         return str(v)
 
-    print(f"\n{Path(args.data).name}: status period {data.periods[data.status - 1]}, "
+    print(f"\n{data.name}: status period {data.periods[data.status - 1]}, "
           f"costs in {args.units}.\n")
     shown = summary.assign(value=summary["value"].map(fmt))
     print(shown.to_string(index=False, justify="left"))
@@ -687,9 +694,12 @@ def main() -> None:
         "evm",
         help="Earned value metrics, warning signs and the forecast at completion",
     )
-    p_evm.add_argument("--data", required=True,
+    p_evm.add_argument("--data", default=None,
                        help="CSV or Excel: period, bcws, bcwp, acwp, optional eac and wbs "
                             "(see docs/evm_example.csv)")
+    p_evm.add_argument("--ipmdar", nargs="+", default=None, metavar="DATASET",
+                       help="IPMDAR Contract Performance Dataset(s): a folder, ZIP or JSON "
+                            "file; several monthly ones rebuild the history")
     p_evm.add_argument("--cumulative", action="store_true",
                        help="The values are cumulative to date, not per period")
     p_evm.add_argument("--bac", type=float, default=None,

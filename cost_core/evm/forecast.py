@@ -139,6 +139,11 @@ def _observed_periods(data: EvmData, recent: Optional[int]) -> "tuple[np.ndarray
     d_ev, d_ac, d_es = np.diff(ev), np.diff(ac), np.diff(es)
     notes = []
     usable = (d_ev > 0) & (d_ac > 0)
+    lumped = np.arange(1, len(d_ev) + 1) < data.first_observed
+    if lumped.any():
+        notes.append(f"Periods before {data.first_observed} are known only in total and were "
+                     "not drawn from.")
+    usable &= ~lumped
     dropped = int((~usable).sum())
     if dropped:
         notes.append(f"{dropped} period(s) with no earned value or no actual cost (or a "
