@@ -746,3 +746,76 @@ def plot_jcl(
                        f"reach only {result.joint(cost_p, fin_p):.0%} jointly.")
         _titles(ax, title, subtitle or default_sub)
         return _finish(fig, path)
+
+
+def plot_evm(
+    data,
+    forecast,
+    path: str | Path,
+    *,
+    units: str = "as entered",
+    title: str = "Earned value and the forecast at completion",
+    subtitle: str | None = None,
+) -> Path:
+    """Cumulative BCWS, BCWP and ACWP, and where the program is heading.
+
+    The lines are the baseline, earned value and actual cost to date. At the
+    right, the forecast: the band of simulated final costs (P10 to P90) over
+    the band of simulated finishes, with the P50 marked, against the BAC, the
+    planned duration and the contractor's EAC. A contractor EAC sitting at the
+    bottom of the band is the picture the numbers in ``flags`` describe.
+
+    Args:
+        data: An :class:`~cost_core.evm.EvmData`.
+        forecast: Its :class:`~cost_core.evm.EvmForecast`.
+    """
+    t_all = np.arange(0, len(data.bcws) + 1)
+    t_now = np.arange(0, data.status + 1)
+    pv = np.concatenate([[0.0], data.bcws])
+    ev = np.concatenate([[0.0], data.bcwp])
+    ac = np.concatenate([[0.0], data.acwp])
+    q = lambda a, p: float(np.quantile(a, p))  # noqa: E731
+    e10, e50, e90 = q(forecast.eac, 0.1), q(forecast.eac, 0.5), q(forecast.eac, 0.9)
+    f10, f50, f90 = q(forecast.finish, 0.1), q(forecast.finish, 0.5), q(forecast.finish, 0.9)
+    with plt.rc_context(_STYLE):
+        fig, ax = plt.subplots(figsize=(9.5, 6.0))
+        ax.plot(t_all, pv, color=MUTED, linewidth=2.0, label="baseline (BCWS)")
+        ax.plot(t_now, ev, color=PRIMARY, linewidth=2.4, label="earned value (BCWP)")
+        ax.plot(t_now, ac, color=SECONDARY, linewidth=2.4, label="actual cost (ACWP)")
+        # The forecast: the rest of the baseline's work, re-timed to finish
+        # at the P50 finish and re-priced to cost the P50 EAC, so the
+        # projection keeps the baseline's shape rather than a straight line.
+        es0 = float(np.atleast_1d(data.earned_schedule())[-1])
+        tau = np.linspace(data.status, f50, 60)
+        es_path = es0 + (tau - data.status) / max(f50 - data.status, 1e-9) * (
+            data.planned_duration - es0)
+        pv_path = np.interp(es_path, t_all, pv)
+        span = max(pv_path[-1] - ev[-1], 1e-9)
+        ax.plot(tau, ev[-1] + (pv_path - ev[-1]) * (data.bac - ev[-1]) / span,
+                color=PRIMARY, linewidth=1.6, linestyle="--")
+        ax.plot(tau, ac[-1] + (pv_path - ev[-1]) * (e50 - ac[-1]) / span, color=SECONDARY,
+                linewidth=1.6, linestyle="--", label="forecast to the P50")
+        ax.fill_between([f10, f90], e10, e90, color=SECONDARY, alpha=0.15,
+                        label="P10 to P90 finish and cost")
+        ax.plot([f50], [e50], marker="o", color=SECONDARY, markersize=8,
+                markeredgecolor=INK, linestyle="none")
+        ax.axhline(data.bac, color=INK, linewidth=1.0, linestyle=":")
+        ax.axvline(data.planned_duration, color=INK, linewidth=1.0, linestyle=":")
+        ax.axvline(data.status, color=MUTED, linewidth=1.0)
+        if forecast.contractor_eac is not None and np.isfinite(forecast.contractor_eac):
+            conf = forecast.confidence_of_cost(forecast.contractor_eac)
+            where = "below P1" if conf < 0.01 else f"P{conf * 100:.0f}"
+            ax.axhline(forecast.contractor_eac, color=ACCENT, linewidth=1.8,
+                       label=f"contractor EAC ({where} of the forecast)")
+        ax.set_xlabel("Reporting period")
+        ax.set_ylabel(f"Cumulative cost ({units})")
+        ax.yaxis.set_major_formatter(FuncFormatter(_plain))
+        ax.set_xlim(0, max(len(data.bcws), f90) * 1.03)
+        ax.text(0, data.bac, "BAC ", va="center", ha="right", fontsize=9,
+                transform=ax.get_yaxis_transform())
+        ax.legend(frameon=False, loc="lower right", fontsize=9.5)
+        default_sub = (f"Status period {data.status}. EAC P50 {e50:,.0f}, P80 "
+                       f"{q(forecast.eac, 0.8):,.0f}; finish P50 period {f50:.1f} "
+                       f"against {data.planned_duration} planned.")
+        _titles(ax, title, subtitle or default_sub)
+        return _finish(fig, path)

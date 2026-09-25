@@ -276,6 +276,52 @@ resource cost becomes a burn rate. Calendars and date constraints are not
 modelled, and the run's `assumptions.json` says so, along with everything
 else simplified on the way in.
 
+## Earned value: where the program is heading
+
+```bash
+ce-core evm --data docs/evm_example.csv --units '$K' --out evm/
+```
+
+The data is the three numbers every EVM report carries, by period: BCWS,
+BCWP and ACWP, with the baseline running on past the status period and,
+optionally, the contractor's EAC and a control account column. From them come
+CV, SV, CPI, SPI, TCPI, the standard independent EACs, and earned schedule.
+SPI(t) and the IEAC(t) completion date are what to watch late in a program,
+since SPI drifts back to 1.0 as the last work is earned, however late.
+
+Two things go further than the formulas:
+
+- **The EAC and the finish as a range.** Every independent EAC formula
+  assumes some future efficiency, and they disagree by as much as the
+  program's performance has varied. `forecast` runs the rest of the program
+  many times on its own record: each simulated period earns schedule and
+  spends at a pace and efficiency drawn, as a pair, from the periods so far,
+  with runs of good and bad periods lasting as long as they did. The result
+  is an EAC and a completion date with a P50 and a P80, their joint
+  confidence, and where the contractor's EAC and each formula fall on it.
+  On synthetic programs whose outcome is known, the P80 holds the true cost
+  and finish 79 to 82% of the time (72 to 77% when performance is strongly
+  persistent), and the test suite holds it to that.
+- **The warning signs, stated.** A contractor EAC whose TCPI is more than
+  0.10 above the CPI, one below every independent EAC, one that needs the CPI
+  to recover more than 0.10 after 20% complete (Christensen's finding on DoD
+  contracts), and an SPI that has recovered while SPI(t) has not.
+
+In the example, three invented control accounts at 32% complete, the
+contractor's EAC of $16.3M sits below the P1 of the forecast, whose P50 is
+$17.0M.
+
+```python
+from cost_core.evm import EvmData, forecast
+data = EvmData.read("cpr.csv")            # period, bcws, bcwp, acwp[, eac][, wbs]
+data.flags()
+forecast(data, seed=1).summary()
+```
+
+Reading IPMDAR's JSON directly is next, once the official file format
+specification is in hand; until then, export the time-phased BCWS, BCWP and
+ACWP to CSV.
+
 ## Choosing a portfolio: which programs get funded
 
 Moving money between programs is a capital budgeting problem, and the

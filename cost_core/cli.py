@@ -414,6 +414,67 @@ def run_jcl(args) -> None:
     print(f"\nWrote {', '.join(written)} to {out}")
 
 
+def run_evm(args) -> None:
+    """EVM metrics, warning signs and the forecast at completion."""
+    import json
+    from pathlib import Path
+
+    import pandas as pd
+
+    from cost_core.evm import EvmData, EvmError, forecast
+
+    try:
+        data = EvmData.read(args.data, cumulative=args.cumulative, bac=args.bac)
+        fc = forecast(data, n_iter=args.iters, seed=args.seed)
+    except (EvmError, OSError, KeyError, ValueError) as e:
+        abort(f"EVM failed: {e}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    data.metrics().to_csv(out / "metrics.csv", index=False)
+    data.flags().to_csv(out / "flags.csv", index=False)
+    summary = pd.concat([data.summary(), fc.summary()], ignore_index=True)
+    summary.to_csv(out / "summary.csv", index=False)
+    fc.percentiles().to_csv(out / "forecast_percentiles.csv", index=False)
+    pd.DataFrame({"eac": fc.eac, "finish_periods": fc.finish}).to_csv(
+        out / "forecast_draws.csv", index=False)
+    if data.accounts:
+        rows = []
+        for name, acct in data.accounts.items():
+            r = acct.metrics().iloc[-1]
+            rows.append({"account": name, "bac": acct.bac, **{k: r[k] for k in (
+                "bcws", "bcwp", "acwp", "cv", "sv", "cpi", "spi", "spi_t", "tcpi_bac",
+                "ieac_cpi", "eac")}})
+        pd.DataFrame(rows).to_csv(out / "accounts.csv", index=False)
+    (out / "assumptions.json").write_text(json.dumps({
+        "data": str(args.data), "cumulative_input": args.cumulative, "bac": data.bac,
+        "status_period": str(data.periods[data.status - 1]), "n_iter": fc.n_iter,
+        "seed": fc.seed, "notes": fc.notes}, indent=1), encoding="utf-8")
+    written = ["metrics.csv", "flags.csv", "summary.csv", "forecast_percentiles.csv",
+               "forecast_draws.csv", "assumptions.json"] + (["accounts.csv"] if data.accounts else [])
+    try:
+        from cost_core.reporting.charts import plot_evm
+        plot_evm(data, fc, out / "evm.png", units=args.units)
+        written.append("evm.png")
+    except ImportError:
+        pass
+    def fmt(v):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return "" if v != v else f"{v:,.3f}"
+        return str(v)
+
+    print(f"\n{Path(args.data).name}: status period {data.periods[data.status - 1]}, "
+          f"costs in {args.units}.\n")
+    shown = summary.assign(value=summary["value"].map(fmt))
+    print(shown.to_string(index=False, justify="left"))
+    raised = data.flags()
+    raised = raised[raised["raised"]]
+    if len(raised):
+        print("\nWarning signs:")
+        for r in raised.itertuples():
+            print(f"  - {r.flag}. {r.detail}")
+    print(f"\nWrote {', '.join(written)} to {out}")
+
+
 def run_schedule_check(args) -> None:
     """Read a Microsoft Project XML schedule and run the DCMA 14-point check."""
     from pathlib import Path
@@ -621,6 +682,25 @@ def main() -> None:
     p_jcl.add_argument("--confidence", type=float, default=None,
                        help="Joint confidence to report against (default: the spec's, else 0.7)")
 
+    # Subcommand: evm
+    p_evm = sub.add_parser(
+        "evm",
+        help="Earned value metrics, warning signs and the forecast at completion",
+    )
+    p_evm.add_argument("--data", required=True,
+                       help="CSV or Excel: period, bcws, bcwp, acwp, optional eac and wbs "
+                            "(see docs/evm_example.csv)")
+    p_evm.add_argument("--cumulative", action="store_true",
+                       help="The values are cumulative to date, not per period")
+    p_evm.add_argument("--bac", type=float, default=None,
+                       help="Budget at completion (default: the baseline's total)")
+    p_evm.add_argument("--iters", "--n-iter", dest="iters", type=int, default=20000,
+                       help="Simulated completions")
+    p_evm.add_argument("--seed", type=int, default=0, help="Random seed")
+    p_evm.add_argument("--units", default="as entered", help="Label for the money axis")
+    p_evm.add_argument("--out", default="evm",
+                       help="Directory for the tables, the draws and the chart")
+
     # Subcommand: schedule-check
     p_dcma = sub.add_parser(
         "schedule-check",
@@ -661,6 +741,7 @@ def main() -> None:
         "full-run": run_full,
         "sar-panel": run_sar_panel,
         "schedule-check": run_schedule_check,
+        "evm": run_evm,
         "aoa": run_aoa,
         "portfolio": run_portfolio,
         "jcl": run_jcl,

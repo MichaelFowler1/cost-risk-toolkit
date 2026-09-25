@@ -53,7 +53,8 @@ license = "PolyForm-Noncommercial-1.0.0"
 license-files = ["LICENSE", "NOTICE"]
 keywords = ["cost-estimating", "monte-carlo", "learning-curve", "risk-analysis", "csdr",
             "selected-acquisition-report", "analysis-of-alternatives", "portfolio-optimization",
-            "schedule-risk", "joint-confidence-level"]
+            "schedule-risk", "joint-confidence-level", "earned-value-management",
+            "earned-schedule", "dcma-14-point"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
