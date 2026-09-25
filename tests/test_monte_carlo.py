@@ -369,7 +369,10 @@ ANALYTIC_PERCENTILES = {
 #: pyproject.toml was found, and leaves all four sets of percentiles exactly
 #: where they were, which was measured under Linux. The platform is read from
 #: COMPARE_POLICY, which names it for the whole suite, and anywhere else the
-#: byte test reports itself skipped rather than passed.
+#: byte test reports itself skipped rather than passed. The totals' bytes hold
+#: on any Windows machine tried, CI runners included; the element draws' bytes
+#: hold only on the machine that froze them, so on a CI runner the element
+#: check is ANALYTIC_ELEMENTS, at 1e-12, which runs on every platform.
 ANALYTIC_BYTES_PLATFORM = json.loads(
     (Path(__file__).resolve().parent / "goldens" / "COMPARE_POLICY.json").read_text(encoding="utf-8")
 )["expected_to_move_across_platforms"]["captured_on_platform"]
@@ -389,6 +392,47 @@ ANALYTIC_BYTES = {
     "iman_conover|20000|3": (
         "cd259251a5654508071edc4d664b8186e4ecd2cd097079ff62abde12d3aab970",
         "0de07890abfa1273b0acac9484397eabc0537aa9a6c070b13a1642f44787da9e",
+    ),
+}
+
+
+#: Each element's mean, P50 and P90 in the same four simulations, held at
+#: 1e-12 relative on every platform. The byte hash below can only see the
+#: element draws on the machine that froze them; this sees them everywhere.
+#: Measured, not assumed: across numpy 1.26 to 2.4 and scipy 1.11 to 1.17 on
+#: Linux these moved by at most 3.7e-15.
+ANALYTIC_ELEMENTS = {
+    "gaussian_copula|20000|3": (
+        (101527967.00944327, 99855730.5208134, 125977537.61548305),
+        (108766356.12155223, 106808581.39803839, 135574508.6295986),
+        (116245208.21857703, 113817966.51271537, 147344224.5820705),
+        (123576233.87465246, 120783392.53869501, 157766693.52961788),
+        (131217944.17650427, 127994780.48459154, 169590264.6007614),
+        (138716339.3991968, 135023929.1464259, 181223014.99250364),
+    ),
+    "gaussian_copula|8000|11": (
+        (101859853.63957031, 100765738.44743611, 125491977.67718954),
+        (108868872.30182746, 107000603.9853889, 136067073.71154395),
+        (116178952.69438156, 114356388.4406861, 146295431.38624758),
+        (123365676.30456418, 120576788.97019506, 158204918.65323576),
+        (131483758.57282776, 128236612.5630945, 170374199.8756375),
+        (138492274.48647887, 134896522.54743725, 182284024.22153458),
+    ),
+    "iman_conover|20000|3": (
+        (101515670.3850188, 99942277.8402395, 125910852.21459696),
+        (109117593.60591751, 107225164.57057375, 136701065.76933485),
+        (116025259.90525496, 113914463.73133552, 147267473.2801346),
+        (123493454.73768428, 120744158.53149346, 157823416.567335),
+        (131310677.4802364, 128205248.95818111, 170202945.66344714),
+        (138822869.29875925, 135348990.57122877, 181622884.27992007),
+    ),
+    "iman_conover|8000|11": (
+        (101316598.8611247, 99511306.91731799, 125374805.04604238),
+        (108818961.62808192, 106652639.82063659, 136258591.13201436),
+        (116242951.88846277, 113783746.19275242, 147329807.64829642),
+        (123590522.14921711, 120987573.01234752, 158335527.4478533),
+        (131407971.8668966, 128198476.18054199, 170471402.88458636),
+        (139039010.51403254, 135826573.51294026, 181639919.56175148),
     ),
 }
 
@@ -435,6 +479,26 @@ def test_an_analytic_model_still_reproduces_its_frozen_percentiles(key):
     ), _analytic_moved(key)
 
 
+@pytest.mark.parametrize("key", sorted(ANALYTIC_ELEMENTS))
+def test_an_analytic_model_still_reproduces_each_elements_draws(key):
+    result = _analytic_result(key)
+    s = result.element_samples
+    got = [(float(np.mean(s[:, j])), float(np.quantile(s[:, j], 0.5)),
+            float(np.quantile(s[:, j], 0.9))) for j in range(s.shape[1])]
+    for element, (g, want) in enumerate(zip(got, ANALYTIC_ELEMENTS[key])):
+        assert g == pytest.approx(want, rel=1e-12), f"element {element}: " + _analytic_moved(key)
+
+
+def _on_capture_machine() -> bool:
+    """The machine that froze the bytes: its platform, outside CI. A CI
+    runner's CPU differs from run to run, and numpy's vectorised maths picks
+    instructions by CPU, so the last bits of some element draws differ there
+    (the totals did not, on any runner tried)."""
+    import os
+
+    return sys.platform == ANALYTIC_BYTES_PLATFORM and not os.environ.get("CI")
+
+
 @pytest.mark.skipif(
     sys.platform != ANALYTIC_BYTES_PLATFORM,
     reason=f"the draws' bytes are frozen on {ANALYTIC_BYTES_PLATFORM} only",
@@ -444,11 +508,11 @@ def test_an_analytic_model_still_reproduces_its_frozen_draws(key):
     import hashlib
 
     result = _analytic_result(key)
-    got = (
-        hashlib.sha256(result.totals.tobytes()).hexdigest(),
-        hashlib.sha256(result.element_samples.tobytes()).hexdigest(),
-    )
-    assert got == ANALYTIC_BYTES[key], _analytic_moved(key)
+    totals = hashlib.sha256(result.totals.tobytes()).hexdigest()
+    assert totals == ANALYTIC_BYTES[key][0], _analytic_moved(key)
+    if _on_capture_machine():
+        elements = hashlib.sha256(result.element_samples.tobytes()).hexdigest()
+        assert elements == ANALYTIC_BYTES[key][1], _analytic_moved(key)
 
 
 #: The same guard for the mixed model, held at the percentiles rather than at

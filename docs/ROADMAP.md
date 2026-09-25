@@ -83,12 +83,12 @@ The package had nothing for EVM specialists.
   a 1e-9 tolerance. Not a regression; the engine is unchanged since 2.0 and
   CI never installs the floors. Options: a CI lane at the floors with a
   measured allowance, or raise the floors.
-- **The frozen draws on another Windows machine.** On GitHub's Windows
-  runner with the pinned stack, the risk model's totals hash matches but the
-  per-element samples hash does not, so the byte freeze holds for the
-  capture machine, not for Windows as a platform (most likely CPU-dependent
-  vectorised maths in numpy). Options: freeze only the totals, compare the
-  samples within a tolerance, or record the capture CPU and skip elsewhere.
+- **[decided] Exactness on Windows is per machine.** GitHub's Windows
+  runners moved the learning-curve golden block by up to 5e-9 relative and
+  the frozen element draws' bytes, a different CPU each run. Decided: a CI
+  runner is never the capture machine, so it gets the Linux allowance; the
+  totals hash stays exact on every Windows machine; element draws are held
+  at 1e-12 everywhere and byte-exact on the capture machine only.
 
 ## Cautions
 

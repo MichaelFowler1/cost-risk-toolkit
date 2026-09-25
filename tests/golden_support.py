@@ -2153,6 +2153,31 @@ def _platform_carve_out(path=None) -> dict:
         "expected_to_move_across_platforms"]
 
 
+def _in_ci() -> bool:
+    """True on a CI runner (GitHub Actions and most others set ``CI``)."""
+    return bool(os.environ.get("CI"))
+
+
+def _on_capture(entry, platform=None) -> bool:
+    """Whether to hold every leaf exactly, as on the machine that captured
+    the goldens.
+
+    The policy names that machine by its platform, but what it really
+    identifies is one machine: numpy's vectorised maths picks instructions
+    by CPU, so the last bits of an iterative fit can differ between two
+    Windows machines. GitHub's Windows runners, a different CPU on each run,
+    moved the learning-curve block by up to 5e-9 relative (OLS converging in
+    4 iterations rather than 5 on one of them), which is what the allowance
+    below is for. So a CI runner is never taken for the capture machine,
+    even on its platform; a Windows PC outside CI still is. An explicit
+    ``platform`` (the tests of this module use it) compares the platform
+    alone.
+    """
+    if platform is not None:
+        return platform == entry["captured_on_platform"]
+    return sys.platform == entry["captured_on_platform"] and not _in_ci()
+
+
 def _build_platform_overrides(path=None, *, platform=None) -> dict:
     """The cross-platform allowance, expanded from COMPARE_POLICY into path globs.
 
@@ -2164,7 +2189,7 @@ def _build_platform_overrides(path=None, *, platform=None) -> dict:
     which the second glob reaches element by element.
     """
     entry = _platform_carve_out(path)
-    if (platform or sys.platform) == entry["captured_on_platform"]:
+    if _on_capture(entry, platform):
         return {}
     block = entry["block"]
     out = {}
@@ -2183,7 +2208,7 @@ def _build_platform_exclusions(path=None, *, platform=None) -> list:
     """The leaves the cross-platform entry stops comparing, as (pattern, why)
     pairs. Empty on the capture platform, like the allowance."""
     entry = _platform_carve_out(path)
-    if (platform or sys.platform) == entry["captured_on_platform"]:
+    if _on_capture(entry, platform):
         return []
     return [(rf"^{re.escape(entry['block'])}/[^/]+/ok/fits/({'|'.join(spec['fits'])})/{re.escape(field)}$",
              f"{spec['why']} (COMPARE_POLICY expected_to_move_across_platforms.not_compared_off_platform)")
@@ -2194,7 +2219,7 @@ def _build_platform_zero_sign(path=None, *, platform=None) -> list:
     """The printed cells whose zero is compared without its sign, as path
     patterns. Empty on the capture platform, like the allowance."""
     entry = _platform_carve_out(path)
-    if (platform or sys.platform) == entry["captured_on_platform"]:
+    if _on_capture(entry, platform):
         return []
     return list(entry["printed_zero_sign"]["paths"])
 
@@ -2214,9 +2239,10 @@ def _build_platform_zero_sign(path=None, *, platform=None) -> list:
 #: _build_exclusions and _build_platform_exclusions.
 OVERRIDES: dict = {**_build_overrides(), **_build_platform_overrides()}
 
-#: Whether this run is on the platform the goldens were captured on. Every
-#: cross-platform allowance in this module is empty when it is.
-ON_CAPTURE_PLATFORM: bool = sys.platform == _platform_carve_out()["captured_on_platform"]
+#: Whether this run is on the machine the goldens were captured on: its
+#: platform, outside CI (see _on_capture). Every cross-platform allowance in
+#: this module is empty when it is.
+ON_CAPTURE_PLATFORM: bool = _on_capture(_platform_carve_out())
 
 #: The three cases whose iteration bookkeeping IS golden -- they exist to pin
 #: the loop counter itself (COMPARE_POLICY exclude_from_step2, second item).
