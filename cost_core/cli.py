@@ -394,11 +394,8 @@ def run_jcl(args) -> None:
         "cost_correlation": project.cost_correlation,
         "cross_correlation": project.cross_correlation,
         "risks": [r.name for r in project.risks], "notes": result.notes,
+        **({"schedule_import_notes": settings["notes"]} if settings.get("notes") else {}),
     }, indent=1), encoding="utf-8")
-    if settings.get("notes"):
-        data = json.loads((out / "assumptions.json").read_text(encoding="utf-8"))
-        data["schedule_import_notes"] = settings["notes"]
-        (out / "assumptions.json").write_text(json.dumps(data, indent=1), encoding="utf-8")
     written = ["summary.csv", "critical_path.csv", "criticality.csv", "frontier.csv",
                "draws.csv", "assumptions.json"]
     try:

@@ -172,6 +172,24 @@ def test_a_missing_month_is_named(tmp_path):
     assert any("[12]" in n for n in read_ipmdar(paths).notes)
 
 
+def test_the_time_phased_flag_as_text(tmp_path):
+    tables = cpd_tables(status=14, time_phased=False)
+    tables["DatasetConfiguration"][0]["ToDate_TimePhased"] = "false"
+    assert not load_dataset(write_folder(tables, tmp_path / "s")).time_phased
+    tables["DatasetConfiguration"][0]["ToDate_TimePhased"] = "true"
+    assert load_dataset(write_folder(tables, tmp_path / "t")).time_phased
+
+
+def test_an_account_with_no_records_is_left_out_and_named(tmp_path, csv_data):
+    tables = cpd_tables()
+    tables["ControlAccounts"].append({"ID": "CA99", "Name": "Closed account",
+                                      "IsSummaryLevelPlanningPackage": False})
+    data = read_ipmdar(write_folder(tables, tmp_path / "c"))
+    _same(data, csv_data)
+    assert "CA99" not in data.accounts
+    assert any("Closed account" in n for n in data.notes)
+
+
 def test_detail_that_does_not_match_the_pmb_is_reported(tmp_path):
     data = read_ipmdar(write_folder(cpd_tables(pmb_shift=400.0), tmp_path / "x"))
     assert any("BCWP" in n and "against the PMB" in n for n in data.notes)

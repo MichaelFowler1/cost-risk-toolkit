@@ -212,3 +212,35 @@ def test_an_unknown_task_in_a_spec_is_named(tmp_path):
         {"name": "r", "probability": 0.1, "activities": ["No such task"]}]}), encoding="utf-8")
     with pytest.raises(ScheduleError, match="No such task"):
         load_project(path)
+
+
+@pytest.mark.parametrize("remaining_cost", ["<RemainingCost>10000000</RemainingCost>", ""])
+def test_money_already_spent_is_sunk_not_spread_again(tmp_path, remaining_cost):
+    # A 10-month task (200 days), 90% complete, $1M in all, $100K of it
+    # left, whether the file says so or it follows from percent complete.
+    # The $900K spent is fixed and certain; the $100K left burns over the
+    # remaining month. Before, the whole $1M burned over that one month.
+    xml = ('<Project xmlns="http://schemas.microsoft.com/project"><Tasks>'
+           '<Task><UID>1</UID><Name>Build</Name><OutlineLevel>1</OutlineLevel>'
+           '<Duration>PT1600H0M0S</Duration><RemainingDuration>PT160H0M0S</RemainingDuration>'
+           f'<PercentComplete>90</PercentComplete><Cost>100000000</Cost>{remaining_cost}'
+           '</Task></Tasks></Project>')
+    path = tmp_path / "p.xml"
+    path.write_text(xml, encoding="utf-8")
+    sched = read_mspdi(path)
+    (act,) = sched.to_project().activities
+    assert act.duration == pytest.approx(1.0)
+    assert act.fixed_cost == pytest.approx(900_000) and act.burn_rate == pytest.approx(100_000)
+    (full,) = sched.to_project(remaining=False).activities
+    assert full.burn_rate == pytest.approx(100_000) and full.duration == pytest.approx(10)
+
+
+def test_critical_path_test_follows_start_to_start_links():
+    # A drives B through a start-to-start link, and B drives the finish.
+    # Lengthening A would not move the finish; starting it later does.
+    from cost_core.schedule import Activity, Project
+    from cost_core.schedule.dcma import _critical_path_test
+
+    p = Project([Activity("A", 2), Activity("B", 10, None, [("A", 1, "SS")])])
+    bad, note = _critical_path_test(p, {})
+    assert bad == [] and "moved the finish 30 months" in note

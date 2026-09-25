@@ -34,6 +34,10 @@ def _c(name, *licences, expression=None):
     ("EPL-2.0", False), ("GPL-3.0-or-later", False), ("MPL-2.0", False),
     ("MIT AND LGPL-2.1-only", False), ("GPL-2.0-only OR MIT", True),
     ("Eclipse Public License 2.0", False), ("Proprietary", False),
+    ("(MIT OR Apache-2.0) AND GPL-3.0-only", False),
+    ("(MIT OR GPL-3.0-only) AND BSD-3-Clause", True),
+    ("GPL-2.0-only WITH Classpath-exception-2.0", False),
+    ("Apache-2.0 WITH LLVM-exception", True), ("(MIT OR", False),
 ])
 def test_licences_are_classified(licence, ok):
     assert sbom_licences.is_permissive(licence) is ok

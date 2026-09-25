@@ -53,6 +53,18 @@ def _program_guess(filename: str) -> str:
     return name.replace("_", " ").strip(" -")
 
 
+def cycle_from_folder(folder: str) -> "tuple[Optional[str], Optional[int]]":
+    """The cycle a reading room folder holds, e.g. ``("Dec 2014", 2014)``
+    for ``FY_2014_SARS``, or ``(None, None)`` for any other folder."""
+    m = _FOLDER.match(folder)
+    if not m:
+        return None, None
+    if m.group(1):
+        return f"Dec {m.group(1)}", int(m.group(1))
+    year = int(m.group(3))
+    return f"{'Jun' if m.group(2).lower() == 'june' else 'PB'} {year}", year
+
+
 def sar_catalog(opener: Optional[Opener] = None) -> pd.DataFrame:
     """List every SAR and MSAR the Wayback Machine holds from the reading room.
 
@@ -75,14 +87,9 @@ def sar_catalog(opener: Optional[Opener] = None) -> pd.DataFrame:
         if "/" not in rel:
             continue
         folder, filename = rel.split("/", 1)
-        m = _FOLDER.match(folder)
-        if not m or not filename.lower().endswith(".pdf"):
+        cycle, year = cycle_from_folder(folder)
+        if cycle is None or not filename.lower().endswith(".pdf"):
             continue
-        if m.group(1):
-            year, cycle = int(m.group(1)), f"Dec {m.group(1)}"
-        else:
-            year = int(m.group(3))
-            cycle = f"{'Jun' if m.group(2).lower() == 'june' else 'PB'} {year}"
         kind = "MSAR" if "MSAR" in filename.upper() else "SAR"
         if "combined" in filename.lower():
             # FY 2016's cycle was released as three bound volumes of many

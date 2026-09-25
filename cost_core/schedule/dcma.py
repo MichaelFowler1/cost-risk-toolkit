@@ -25,9 +25,10 @@ Two choices the assessment leaves open, made explicitly here:
   predecessor, and the one with the latest finish and no successor), since
   every network has to begin and end somewhere.
 * **The critical path test** (check 12) is run on the network as
-  :func:`cost_core.schedule.critical_path` computes it: a long delay is added
-  to the earliest critical task and the project finish has to move by
-  exactly that much, so the delay has to travel the whole path.
+  :func:`cost_core.schedule.critical_path` computes it: the earliest
+  critical task is started a long time later and the project finish has to
+  move by exactly that much, so the delay has to travel the whole path,
+  through links of every type.
   A break in the logic (a constraint or a dangling task holding the finish)
   shows up as the finish not moving.
 """
@@ -215,13 +216,25 @@ def _critical_path_test(project: Project, names):
     probe = crit.sort_values("early_start", kind="stable").iloc[0]["activity"]
     finish = float(cpm["early_finish"].max())
     delay = 30.0  # months: far longer than any float, so it has to show
-    acts = [Activity(a.id, a.duration + (delay if a.id == probe else 0.0), None,
-                     a.predecessors) for a in project.activities]
+    # Delay the task's start, not its length: a later start moves both of its
+    # ends, so the delay travels through every kind of link, where a longer
+    # task would not pass through a start-to-start one. Every incoming lag
+    # grows by the delay, and a new predecessor as long as the delay holds it
+    # off the project start.
+    acts = []
+    for a in project.activities:
+        links = a.relations()
+        if a.id == probe:
+            links = [(r.pred, r.lag + delay, r.type) for r in links] + [("__delay__", 0.0, "FS")]
+        acts.append(Activity(a.id, a.duration, None, links))
+    acts.append(Activity("__delay__", delay))
     moved = float(critical_path(Project(acts))["early_finish"].max()) - finish
     ok = abs(moved - delay) < 1e-6
-    label = names.get(int(probe[1:]), probe)
-    return ([] if ok else [int(probe[1:])],
-            f"{delay:g} months added to {label!r} moved the finish {moved:g} months")
+    # Activities read from MSPDI are "T<uid>"; report the task by its UID.
+    key = int(probe[1:]) if probe[:1] == "T" and probe[1:].isdigit() else probe
+    label = names.get(key, probe)
+    return ([] if ok else [key],
+            f"starting {label!r} {delay:g} months later moved the finish {moved:g} months")
 
 
 def _cpli(schedule: MspdiSchedule, project: Project):

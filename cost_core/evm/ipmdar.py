@@ -193,7 +193,7 @@ def load_dataset(path: Union[str, Path]) -> IpmdarDataset:
     if not len(md) or "ReportingPeriodID" not in md.columns:
         raise EvmError(f"{path.name}: DatasetMetadata has no ReportingPeriodID.")
     cfg = tables.get("DatasetConfiguration", pd.DataFrame())
-    phased = bool(cfg["ToDate_TimePhased"].iloc[0]) if len(cfg) and \
+    phased = cfg["ToDate_TimePhased"].iloc[0] if len(cfg) and \
         "ToDate_TimePhased" in cfg.columns else "ReportingPeriodID" in tables["BCWP_ToDate"]
     return IpmdarDataset(tables=tables, status_period=int(md["ReportingPeriodID"].iloc[0]),
                          time_phased=_truthy(phased), source=path.name,
@@ -201,7 +201,9 @@ def load_dataset(path: Union[str, Path]) -> IpmdarDataset:
 
 
 def _truthy(v) -> bool:
-    return v if isinstance(v, bool) else str(v).strip().lower() in ("true", "1", "yes")
+    if isinstance(v, (bool, np.bool_)):
+        return bool(v)
+    return str(v).strip().lower() in ("true", "1", "yes")
 
 
 def read_ipmdar(paths: Union[str, Path, Iterable[Union[str, Path]]], *,
@@ -273,6 +275,14 @@ def read_ipmdar(paths: Union[str, Path, Iterable[Union[str, Path]]], *,
             past = ~future
             frame.loc[past, col] = frame[past].groupby("wbs")[col].diff().fillna(frame.loc[past, col])
     frame["period"] = frame["period"].astype(str).str[:10]
+    # An account with nothing in any table (closed, or never budgeted) has
+    # no numbers to analyse; say so rather than fail on its zero budget.
+    empty = [ca for ca, g in frame.groupby("wbs")
+             if not g[["bcws", "bcwp", "acwp"]].fillna(0.0).abs().to_numpy().any()]
+    if empty:
+        frame = frame[~frame["wbs"].isin(empty)]
+        notes.append(f"{len(empty)} control account(s) with no budget, earned value or cost "
+                     f"were left out: {', '.join(accounts.get(c, c) for c in empty[:10])}.")
     data = EvmData.from_frame(frame.drop(columns="pid"), bac=bac, name=_program_name(latest))
     for ca, acct in data.accounts.items():
         acct.name = accounts.get(ca, ca)

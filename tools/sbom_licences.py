@@ -76,8 +76,52 @@ def _term_permissive(term: str) -> bool:
     return bool(_PERMISSIVE_NAMES.search(term))
 
 
+def _tokens(expression: str) -> "list[str]":
+    return re.findall(r"\(|\)|[^\s()]+", expression)
+
+
+def _parse(tokens: "list[str]", pos: int = 0) -> "tuple[bool, int]":
+    """``expr := term (OR term)*``; OR binds loosest, as SPDX defines."""
+    ok, pos = _parse_and(tokens, pos)
+    while pos < len(tokens) and tokens[pos].upper() == "OR":
+        right, pos = _parse_and(tokens, pos + 1)
+        ok = ok or right
+    return ok, pos
+
+
+def _parse_and(tokens, pos):
+    """``term := factor (AND factor)*``."""
+    ok, pos = _parse_factor(tokens, pos)
+    while pos < len(tokens) and tokens[pos].upper() == "AND":
+        right, pos = _parse_factor(tokens, pos + 1)
+        ok = ok and right
+    return ok, pos
+
+
+def _parse_factor(tokens, pos):
+    """``factor := ( expr ) | id [WITH exception]``. An exception only adds
+    permissions, so ``X WITH Y`` is as permissive as ``X``."""
+    if pos >= len(tokens):
+        raise ValueError("expression ends early")
+    if tokens[pos] == "(":
+        ok, pos = _parse(tokens, pos + 1)
+        if pos >= len(tokens) or tokens[pos] != ")":
+            raise ValueError("unbalanced parenthesis")
+        pos += 1
+    else:
+        ok, pos = _term_permissive(tokens[pos]), pos + 1
+    if pos < len(tokens) and tokens[pos].upper() == "WITH":
+        pos += 2
+    return ok, pos
+
+
 def is_permissive(licence: str) -> bool:
     """True when an SPDX expression or licence name is permissive.
+
+    An SPDX expression is parsed with SPDX's precedence (WITH, then AND,
+    then OR, with parentheses), so ``(MIT OR Apache-2.0) AND GPL-3.0-only``
+    is not permissive. A free-text name or trove classifier, which is not
+    an expression, is judged on its words. Anything unparseable fails.
 
     >>> is_permissive("Apache-2.0 OR BSD-3-Clause")
     True
@@ -85,14 +129,23 @@ def is_permissive(licence: str) -> bool:
     True
     >>> is_permissive("MIT AND LGPL-2.1-only")
     False
+    >>> is_permissive("(MIT OR Apache-2.0) AND GPL-3.0-only")
+    False
     >>> is_permissive("EPL-2.0")
     False
     >>> is_permissive("License :: OSI Approved :: BSD License")
     True
     """
-    if re.search(r"\sOR\s", licence):
-        return any(is_permissive(part) for part in re.split(r"\s+OR\s+", licence))
-    return all(_term_permissive(part) for part in re.split(r"\s+AND\s+|\s+WITH\s+", licence))
+    tokens = _tokens(licence)
+    is_expression = any(t.upper() in ("AND", "OR", "WITH") or t in "()" for t in tokens) \
+        and "::" not in licence
+    if not is_expression:
+        return _term_permissive(licence)
+    try:
+        ok, pos = _parse(tokens)
+    except ValueError:
+        return False
+    return ok and pos == len(tokens)
 
 
 def review(sbom: dict) -> "list[dict]":

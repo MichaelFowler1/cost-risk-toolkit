@@ -76,6 +76,40 @@ def test_accounts_sum_to_the_program():
     assert data.accounts["1.2"].metrics().iloc[-1].acwp == 28
 
 
+def test_accounts_that_start_and_end_at_different_times():
+    # A runs periods 1-3 with its baseline over by 2; B starts in period 2.
+    # Both are statused to period 3; B has no row for period 3 (nothing that
+    # month, as omitted zeros).
+    a = pd.DataFrame({"period": [1, 2, 3], "wbs": "A", "bcws": [10, 10, 0],
+                      "bcwp": [8, 9, 3], "acwp": [9, 10, 3]})
+    b = pd.DataFrame({"period": [2, 4, 5], "wbs": "B", "bcws": [5, 5, 5],
+                      "bcwp": [4, None, None], "acwp": [6, None, None]})
+    data = EvmData.from_frame(pd.concat([a, b]))
+    assert data.status == 3 and data.periods == [1, 2, 3, 4, 5]
+    assert list(data.bcws) == [10, 25, 25, 30, 35]
+    assert list(data.bcwp) == [8, 21, 24] and list(data.acwp) == [9, 25, 28]
+    assert list(data.accounts["B"].bcwp) == [0, 4, 4]
+
+
+def test_periods_sort_as_dates_whatever_their_format():
+    df = frame([10, 20, 30], [8, 15], [9, 17])
+    df["period"] = ["1/31/2024", "2/29/2024", "10/31/2024"]
+    shuffled = df.iloc[[2, 0, 1]]
+    data = EvmData.from_frame(shuffled)
+    assert data.periods == ["1/31/2024", "2/29/2024", "10/31/2024"]
+    assert list(data.bcwp) == [8, 23]
+
+
+def test_a_program_eac_needs_every_account_to_give_one():
+    a = frame([5, 10, 15], [4, 7], [5, 9], eac=[None, 31], wbs=["a"] * 3)
+    b = frame([5, 10, 15], [4, 8], [5, 9], wbs=["b"] * 3)
+    data = EvmData.from_frame(pd.concat([a, b]))
+    assert data.eac is None
+    assert data.accounts["a"].eac[-1] == 31
+    both = EvmData.from_frame(pd.concat([a, b.assign(eac=[None, 32, None])]))
+    assert both.eac[-1] == 63
+
+
 def test_bad_data_is_refused():
     with pytest.raises(EvmError, match="blank before the status"):
         EvmData.from_frame(frame([10, 20, 30], [8, np.nan, 5], [10, 10, 10]))
@@ -83,10 +117,6 @@ def test_bad_data_is_refused():
         EvmData.from_frame(pd.DataFrame({"period": [1], "bcws": [1]}))
     with pytest.raises(EvmError, match="falls"):
         EvmData.from_frame(frame([10, 5, 30], [8], [10]), cumulative=True)
-    a = frame([5, 10], [4, 7], [5, 9], wbs=["a", "a"])
-    b = frame([5, 10], [4], [5], wbs=["b", "b"])
-    with pytest.raises(EvmError, match="different status"):
-        EvmData.from_frame(pd.concat([a, b]))
 
 
 def test_flags_catch_an_optimistic_eac():
