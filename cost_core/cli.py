@@ -314,6 +314,8 @@ def run_aoa(args) -> None:
         chart = "aoa_s_curves.png"
     except ImportError:
         chart = None
+    from cost_core.reporting.excel_report import aoa_workbook
+    aoa_workbook(result, out / "report.xlsx")
     basis = result.assumptions["basis"].upper()
     print(f"\nLife-cycle cost, {basis}, {result.assumptions['n_iter']:,} draws each:\n")
     cols = [c for c in ("alternative", "by", "ty", "pv", "p50", "p80", "p_cheapest",
@@ -322,7 +324,7 @@ def run_aoa(args) -> None:
     print(result.summary[cols].to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
     from cost_core import plain
     print(plain.show(plain.aoa(result, str(result.assumptions.get("units") or ""))))
-    print(f"Wrote summary.csv, lines.csv, s_curves.csv, assumptions.json"
+    print(f"Wrote report.xlsx, summary.csv, lines.csv, s_curves.csv, assumptions.json"
           f"{', ' + chart if chart else ''} to {out}")
 
 
@@ -381,6 +383,12 @@ def run_portfolio(args) -> None:
         print(risk.to_string(index=False, float_format=money))
     from cost_core import plain
     print(plain.show(plain.portfolio(result, len(portfolio.candidates), risk, units)))
+    from cost_core.reporting.excel_report import portfolio_workbook
+    extra = {"Value against budget": fr}
+    if delta:
+        extra["Marginal value"] = mv
+    portfolio_workbook(result, portfolio, out / "report.xlsx", units, extra, risk)
+    written.insert(0, "report.xlsx")
     print(f"Wrote {', '.join(written)} to {out}")
 
 
@@ -423,6 +431,10 @@ def run_jcl(args) -> None:
     }, indent=1), encoding="utf-8")
     written = ["summary.csv", "critical_path.csv", "criticality.csv", "frontier.csv",
                "draws.csv", "assumptions.json"]
+    from cost_core.reporting.excel_report import jcl_workbook
+    jcl_workbook(result, project, conf, out / "report.xlsx", units,
+                 critical_path=critical_path(project))
+    written.insert(0, "report.xlsx")
     try:
         from cost_core.reporting.charts import plot_jcl
         plot_jcl(result, out / "jcl.png", confidence=conf, units=units)
@@ -489,6 +501,9 @@ def run_evm(args) -> None:
         "seed": fc.seed, "notes": fc.notes}, indent=1), encoding="utf-8")
     written = ["metrics.csv", "flags.csv", "summary.csv", "forecast_percentiles.csv",
                "forecast_draws.csv", "assumptions.json"] + (["accounts.csv"] if data.accounts else [])
+    from cost_core.reporting.excel_report import evm_workbook
+    evm_workbook(data, fc, out / "report.xlsx", args.units)
+    written.insert(0, "report.xlsx")
     try:
         from cost_core.reporting.charts import plot_evm
         plot_evm(data, fc, out / "evm.png", units=args.units)
@@ -544,6 +559,8 @@ def run_schedule_check(args) -> None:
                  columns=["check", "task"]).to_csv(out / "dcma_tasks.csv", index=False)
     sched.tasks.to_csv(out / "tasks.csv", index=False)
     sched.links.to_csv(out / "links.csv", index=False)
+    from cost_core.reporting.excel_report import dcma_workbook
+    dcma_workbook(result, sched, out / "report.xlsx")
     shown = result.table.assign(
         result=result.table["passed"].map({True: "pass", False: "FAIL"}).fillna("n/a"),
         value=result.table["value"].map(lambda v: "" if pd.isna(v) else f"{v:.3f}"),
@@ -557,7 +574,7 @@ def run_schedule_check(args) -> None:
         print(f"  note: {note}")
     from cost_core import plain
     print(plain.show(plain.dcma(result, sched)))
-    print(f"Wrote dcma.csv, dcma_tasks.csv, tasks.csv and links.csv to {out}")
+    print(f"Wrote report.xlsx, dcma.csv, dcma_tasks.csv, tasks.csv and links.csv to {out}")
 
 
 #: What each demo runs, as the command line a user would type, with the

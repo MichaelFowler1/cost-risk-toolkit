@@ -37,9 +37,13 @@ Each task works the same way, in three steps:
 3. **Run it on yours:** the command the template prints.
 
 Every run prints its tables, then **What this means**: the result in a few
-plain sentences. It also writes its tables as CSV files (which open in
-Excel), and most commands add a chart and an `assumptions.json` that records
-every setting used, for the basis of estimate.
+plain sentences. Everything is also in one Excel workbook, `report.xlsx`, in
+the output folder: a Summary sheet with that reading and the key numbers, a
+sheet per table, live Excel charts, and an Assumptions sheet recording every
+setting used, for the basis of estimate. It prints one page wide. In the EVM
+workbook, CV, SV, CPI, SPI, TCPI and the CPI-based EAC are Excel formulas on
+the BCWS, BCWP and ACWP columns, so a reviewer can check them in Excel. The
+same tables are written as CSV files too, for other tools.
 
 ## 3. The tasks
 

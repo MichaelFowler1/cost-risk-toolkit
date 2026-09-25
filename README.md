@@ -38,7 +38,10 @@ walks through each task from "what do I need" to "what does this tell me".
 | See how real programs' unit costs grew | | `ce-core sar-panel --programs F-35` |
 
 `ce-core template <topic>` writes the file to fill in for each one, and every
-command answers `--help`. The rest of this page is the reference: what each
+command answers `--help`. Every result also comes as one Excel workbook,
+`report.xlsx`, with a plain-English summary, the tables, live charts and the
+assumptions; in the EVM workbook the metrics are Excel formulas, so a
+reviewer can click any CPI and see how it was made. The rest of this page is the reference: what each
 part does, how, and why.
 
 **Want a window instead of a terminal?** The desktop lot cost model lives in
