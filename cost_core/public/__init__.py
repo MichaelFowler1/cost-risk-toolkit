@@ -9,14 +9,17 @@ seeded synthetic generator. This subpackage is where real programs come in:
 DoD's Selected Acquisition Reports, read into tidy tables with the source file,
 page and an arithmetic check behind every number.
 
-Reading PDFs needs the optional extra::
+Reports come from the Wayback Machine's copy of the WHS reading room, or
+from a folder of PDFs already on disk (:func:`local_catalog`) on a machine
+with no internet access. Reading PDFs needs the optional extra::
 
     pip install "cost-core[public]"
 """
 
 from cost_core.public.catalog import CATALOG_COLUMNS, sar_catalog
 from cost_core.public.fetch import (Fetched, FetchError, cache_dir, fetch,
-                                    wayback_listing)
+                                    is_local, wayback_listing)
+from cost_core.public.local import cycle_from_filename, local_catalog
 from cost_core.public.sar import (UNIT_COST_COLUMNS, SarParseError, SarReport,
                                   check_unit_cost, parse_sar_pages, pdf_pages,
                                   read_sar)
@@ -33,7 +36,10 @@ __all__ = [
     "build_sar_panel",
     "cache_dir",
     "check_unit_cost",
+    "cycle_from_filename",
     "fetch",
+    "is_local",
+    "local_catalog",
     "parse_sar_pages",
     "pdf_pages",
     "read_sar",
