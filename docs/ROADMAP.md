@@ -74,6 +74,22 @@ The package had nothing for EVM specialists.
 - **[idea] Worked tutorials on public data**: one real program from its SARs
   to a CER, an estimate, schedule risk and a JCL.
 
+## Found in pre-release testing (2026-09-25), not yet decided
+
+- **Goldens at the dependency floors.** With every dependency at the oldest
+  version pyproject allows (numpy 1.26.0, pandas 2.1.0, scipy 1.11.1,
+  Python 3.9), 7 golden tests fail: 52 prediction-interval bounds differ
+  from the goldens by at most 2.0e-9 relative (a median of 1.2e-9), against
+  a 1e-9 tolerance. Not a regression; the engine is unchanged since 2.0 and
+  CI never installs the floors. Options: a CI lane at the floors with a
+  measured allowance, or raise the floors.
+- **The frozen draws on another Windows machine.** On GitHub's Windows
+  runner with the pinned stack, the risk model's totals hash matches but the
+  per-element samples hash does not, so the byte freeze holds for the
+  capture machine, not for Windows as a platform (most likely CPU-dependent
+  vectorised maths in numpy). Options: freeze only the totals, compare the
+  samples within a tolerance, or record the capture CPU and skip elsewhere.
+
 ## Cautions
 
 - Contractor cost and EVM data is not public. The CSDR and IPMDAR readers can

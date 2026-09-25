@@ -144,6 +144,8 @@ under Changed.
   install with it: `ce-core demo` works for anyone who installed from PyPI.
 - A missing input file says where it looked and how to get one, rather than
   printing the operating system's error.
+- `ce-core sar-panel` with no route to the Internet Archive says so and
+  points to `--dir` for PDFs already on disk, rather than a traceback.
 - A Microsoft Project file with no tasks (calendar- or resource-only) is
   refused with a plain message by the DCMA check, rather than a KeyError:
   found by running every MSPDI sample in MPXJ's test collection through the
