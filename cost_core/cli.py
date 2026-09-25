@@ -627,10 +627,15 @@ def run_sar_panel(args) -> None:
         from cost_core.public import build_sar_panel, local_catalog, sar_catalog
     except ImportError as e:
         abort(str(e))
+    from cost_core.public import FetchError
     try:
         cat = local_catalog(args.dir) if args.dir else sar_catalog()
     except FileNotFoundError as e:
         abort(str(e))
+    except FetchError:
+        abort("Couldn't reach the Internet Archive, where the SARs are listed and fetched "
+              "from.\n  No internet on this machine, or a proxy in the way? Copy the SAR "
+              "PDFs into a folder and run:\n    ce-core sar-panel --dir that_folder")
     if args.list_cycles:
         counts = cat[cat["kind"] != "combined"].groupby("cycle", sort=False, dropna=False).size()
         for cycle, n in counts.items():

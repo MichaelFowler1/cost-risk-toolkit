@@ -114,6 +114,20 @@ def test_a_missing_file_says_how_to_get_one(argv, topic, tmp_path, monkeypatch, 
     assert "ce-core template" in message
 
 
+def test_no_internet_for_the_sar_panel_points_to_the_offline_route(monkeypatch, caplog):
+    import cost_core.public.catalog as catalog
+    from cost_core.public import FetchError
+
+    def offline(*a, **k):
+        raise FetchError("Wayback CDX listing failed (no response)")
+
+    monkeypatch.setattr(catalog, "wayback_listing", offline)
+    with pytest.raises(SystemExit):
+        cli.main(["sar-panel", "--list-cycles"])
+    assert "Couldn't reach the Internet Archive" in caplog.text
+    assert "ce-core sar-panel --dir" in caplog.text
+
+
 def test_plain_words_read_as_sentences():
     assert plain._chance(0.0).startswith("almost no chance")
     assert plain._chance(0.004) == "less than a 1% chance"
