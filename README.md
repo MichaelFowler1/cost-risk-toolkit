@@ -241,6 +241,41 @@ most: two uncertain paths into one milestone finish later on average than
 either does alone (merge bias), so the critical path method is optimistic by
 construction. The simulation carries it; the test suite checks it.
 
+### From a Microsoft Project schedule
+
+The network doesn't have to be retyped. Save the integrated master schedule
+from Microsoft Project as XML (MSPDI, which Primavera P6 and most other
+tools also export), check it's fit to simulate, then point a spec at it:
+
+```bash
+ce-core schedule-check --mspdi ims.xml --out check/
+ce-core jcl --spec ims_jcl.json --out jcl/
+```
+
+`schedule-check` runs the DCMA 14-point assessment on the incomplete detail
+tasks: missing logic, leads, lags, relationship types, hard constraints,
+high and negative float, high duration, invalid dates, resources, missed
+tasks, the critical path test, CPLI and BEI. It writes each check with its
+threshold and every task that failed it, since a JCL run on dangling logic
+and hard constraints is confident about nothing.
+
+The spec names the file, with an uncertainty for every task and overrides
+for the ones you know more about; tasks are named by their name or UID:
+
+```json
+{"mspdi": "ims.xml", "standing_army": 1.2,
+ "duration_uncertainty": {"type": "triangular", "left": 0.9, "mode": 1.0, "right": 1.3},
+ "per_task": {"Thermal vacuum test": {"type": "triangular", "left": 0.9, "mode": 1.0, "right": 2.0}},
+ "risks": [{"name": "Late GFE", "probability": 0.3, "activities": ["Integrate payload"], "delay": 2}]}
+```
+
+Links keep their type and lag. Summary-task links move onto the tasks under
+them. A task in progress keeps only its remaining work, so the simulation
+runs from the status date. Each task's fixed cost stays fixed, and its
+resource cost becomes a burn rate. Calendars and date constraints are not
+modelled, and the run's `assumptions.json` says so, along with everything
+else simplified on the way in.
+
 ## Choosing a portfolio: which programs get funded
 
 Moving money between programs is a capital budgeting problem, and the

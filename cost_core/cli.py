@@ -395,6 +395,10 @@ def run_jcl(args) -> None:
         "cross_correlation": project.cross_correlation,
         "risks": [r.name for r in project.risks], "notes": result.notes,
     }, indent=1), encoding="utf-8")
+    if settings.get("notes"):
+        data = json.loads((out / "assumptions.json").read_text(encoding="utf-8"))
+        data["schedule_import_notes"] = settings["notes"]
+        (out / "assumptions.json").write_text(json.dumps(data, indent=1), encoding="utf-8")
     written = ["summary.csv", "critical_path.csv", "criticality.csv", "frontier.csv",
                "draws.csv", "assumptions.json"]
     try:
@@ -408,6 +412,42 @@ def run_jcl(args) -> None:
     print("\nWhere the schedule risk is:")
     print(result.criticality().to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
     print(f"\nWrote {', '.join(written)} to {out}")
+
+
+def run_schedule_check(args) -> None:
+    """Read a Microsoft Project XML schedule and run the DCMA 14-point check."""
+    from pathlib import Path
+
+    import pandas as pd
+
+    from cost_core.schedule import ScheduleError
+    from cost_core.schedule.dcma import dcma_14_point
+    from cost_core.schedule.mspdi import read_mspdi
+
+    try:
+        sched = read_mspdi(args.mspdi)
+        result = dcma_14_point(sched)
+    except (ScheduleError, OSError, ValueError) as e:
+        abort(f"Schedule check failed: {e}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    result.table.to_csv(out / "dcma.csv", index=False)
+    pd.DataFrame([{"check": k, "task": n} for k, v in result.tasks.items() for n in v],
+                 columns=["check", "task"]).to_csv(out / "dcma_tasks.csv", index=False)
+    sched.tasks.to_csv(out / "tasks.csv", index=False)
+    sched.links.to_csv(out / "links.csv", index=False)
+    shown = result.table.assign(
+        result=result.table["passed"].map({True: "pass", False: "FAIL"}).fillna("n/a"),
+        value=result.table["value"].map(lambda v: "" if pd.isna(v) else f"{v:.3f}"),
+        count=result.table["count"].map(lambda v: "" if pd.isna(v) else f"{int(v)}"))
+    print(f"\n{sched.name}: {len(sched.detail)} detail tasks, {len(sched.links)} links.\n")
+    print(shown[["check", "name", "count", "value", "threshold", "result"]]
+          .to_string(index=False))
+    print(f"\n{result.passed} passed, {result.failed} failed, "
+          f"{14 - result.passed - result.failed} not assessable from this file.")
+    for note in sched.notes:
+        print(f"  note: {note}")
+    print(f"\nWrote dcma.csv, dcma_tasks.csv, tasks.csv and links.csv to {out}")
 
 
 def run_sar_panel(args) -> None:
@@ -574,11 +614,22 @@ def main() -> None:
         help="Schedule risk and joint cost and schedule confidence (JCL)",
     )
     p_jcl.add_argument("--spec", required=True,
-                       help="JSON spec of the network (see docs/jcl_example.json)")
+                       help="JSON spec of the network (see docs/jcl_example.json), or one "
+                            "naming a Microsoft Project XML file under \"mspdi\"")
     p_jcl.add_argument("--out", default="jcl",
                        help="Directory for the tables, the draws and the JCL chart")
     p_jcl.add_argument("--confidence", type=float, default=None,
                        help="Joint confidence to report against (default: the spec's, else 0.7)")
+
+    # Subcommand: schedule-check
+    p_dcma = sub.add_parser(
+        "schedule-check",
+        help="DCMA 14-point assessment of a Microsoft Project XML schedule",
+    )
+    p_dcma.add_argument("--mspdi", required=True,
+                        help="Schedule saved from Microsoft Project as XML (MSPDI)")
+    p_dcma.add_argument("--out", default="schedule_check",
+                        help="Directory for dcma.csv, dcma_tasks.csv, tasks.csv and links.csv")
 
     # Subcommand: sar-panel
     p_sar = sub.add_parser(
@@ -609,6 +660,7 @@ def main() -> None:
         "fit-lots": run_fit_lots,
         "full-run": run_full,
         "sar-panel": run_sar_panel,
+        "schedule-check": run_schedule_check,
         "aoa": run_aoa,
         "portfolio": run_portfolio,
         "jcl": run_jcl,
