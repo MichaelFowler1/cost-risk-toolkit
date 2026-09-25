@@ -10,6 +10,21 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Licence
+
+- **Contractors can use it for government work.** A new additional
+  permission, `LICENSE-GOVERNMENT-WORK.md`, lets anyone, commercial companies
+  included, use cost-core for work done for or under a U.S. government
+  contract, subcontract at any tier, grant or other agreement, and for the
+  proposals and cost estimates for one. Prime contractors can run it on their
+  own EVM data and schedules, and support contractors in a government office
+  can use it alongside the government analysts they work with. Selling the
+  software, building it into a product or hosted service, and work for
+  commercial customers still need a licence from the author. The permission
+  covers every version from 2.0.0 on, including 2.3.0; it ships in the wheel
+  beside LICENSE and NOTICE, and NOTICE, the README and
+  `docs/using-at-a-lab.md` summarise it.
+
 ## [2.3.0] - 2026-09-25
 
 Earned value management, Microsoft Project schedules and the DCMA 14-point
