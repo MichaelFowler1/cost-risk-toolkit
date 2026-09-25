@@ -22,14 +22,13 @@ The package had nothing for EVM specialists.
   that narrows as the program matures, plus a joint cost and date confidence
   in the same form as the JCL. Flag the classic warning signs: TCPI more than
   0.10 above the cumulative CPI (Christensen), and an EAC below the IEAC range.
-- **[idea] IPMDAR reader.** The government's monthly EVM delivery is JSON
-  (the Contract Performance Dataset) under DI-MGMT-81861. Needs the official
-  file format specification in hand before writing it: don't guess the
-  schema. The spec is published at acq.osd.mil ("IPMDAR Contract Performance
-  Dataset File Format Specification"), but that host did not serve the
-  cloud container used on 2026-09-25 (certificate chain and a 503), so it
-  needs fetching from a machine that can reach it. The reader only has to
-  map the CPD tables onto `EvmData.from_frame`'s columns. CPR formats 1 to 5 in Excel as a fallback.
+- **[done, unreleased] IPMDAR reader** (`cost_core.evm.ipmdar`), built from
+  the CPD Data Exchange Instructions (March 2020). Still to confirm against
+  the File Format Specification: how the tables are packaged (both a folder
+  or ZIP of per-table JSON files and one keyed JSON file are read), and
+  field types. Not yet read: element of cost breakdowns, hours, OTB
+  reprogramming adjustments, SLPP handling beyond summing them as accounts.
+  Test on a real delivery at a lab before relying on it.
 - **[idea] Bayesian EAC.** A prior on the final CPI from historical programs,
   updated monthly. Needs a public or releasable history of CPI trajectories
   to set the prior from; the SAR panel does not have one.
