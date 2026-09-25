@@ -55,7 +55,7 @@ start without it.
 **Fit a curve to your own lot data in one command:**
 
 ```bash
-ce-core fit-lots --csv mylots.csv --dollar-year 2026 --out results/
+ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --out results/
 ```
 
 ```csv
@@ -463,7 +463,7 @@ down what moved, the same process every other rebaseline here went through.
 ### With your own data
 
 ```bash
-ce-core fit-lots --csv mylots.csv --dollar-year 2026 --forecast "30,40" --out results/
+ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --forecast "30,40" --out results/
 ```
 
 Costs come back in the units they went in, because the fit is scale free and
@@ -579,7 +579,7 @@ FRP 2,30,100500000
 ```
 
 ```bash
-ce-core fit-lots --csv mylots.csv --dollar-year 2026 --forecast "30,40" --out results/
+ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --forecast "30,40" --out results/
 ```
 
 The `lot` column is optional. Common header spellings (`Qty`, `Quantity`,
@@ -613,7 +613,7 @@ while they didn't.
 producing the learning curve table an analyst would build by hand:
 
 ```bash
-ce-core fit-lots --csv mylots.csv --dollar-year 2026 --price-lots "10,15,20,25,30" --out results/
+ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --price-lots "10,15,20,25,30" --out results/
 ```
 
 The `lot_midpoint` column is the *algebraic* midpoint, meaning the unit whose
@@ -635,7 +635,7 @@ error it introduces isn't in any interval reported.
 prediction intervals. `--simulate` then Monte Carlos them:
 
 ```bash
-ce-core fit-lots --csv mylots.csv --dollar-year 2026 --forecast "30,40" --simulate 50000 --out results/
+ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --forecast "30,40" --simulate 50000 --out results/
 ```
 
 Unlike the WBS level simulator, this needs no elicited distributions. The

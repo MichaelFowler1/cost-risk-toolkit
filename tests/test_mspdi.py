@@ -246,3 +246,15 @@ def test_critical_path_test_follows_start_to_start_links():
     p = Project([Activity("A", 2), Activity("B", 10, None, [("A", 1, "SS")])])
     bad, note = _critical_path_test(p, {})
     assert bad == [] and "moved the finish 30 months" in note
+
+
+def test_a_file_with_no_tasks_says_so(tmp_path):
+    # Calendar- or resource-only files, of which MPXJ's samples hold dozens,
+    # used to fail with KeyError: 'percent_complete'.
+    path = tmp_path / "empty.xml"
+    path.write_text('<Project xmlns="http://schemas.microsoft.com/project"><Title>Cal</Title>'
+                    "<Tasks/></Project>", encoding="utf-8")
+    sched = read_mspdi(path)
+    assert len(sched.tasks) == 0 and len(sched.detail) == 0
+    with pytest.raises(ScheduleError, match="no tasks to assess"):
+        dcma_14_point(sched)
