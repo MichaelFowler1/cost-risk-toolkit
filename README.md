@@ -97,6 +97,20 @@ what wasn't, and why) and `checks.csv`. Leave off `--programs` for all of them,
 about a thousand reports, which takes an hour or two the first time and
 seconds after, since every download is cached.
 
+**On a machine with no internet.** Point it at a folder of SAR PDFs you
+already have, from DAMIR, the reading room, or a drive someone handed you,
+and nothing touches the network:
+
+```bash
+ce-core sar-panel --dir path/to/sars --out panel/
+```
+
+Each file's reporting cycle comes from the reading room's folder name if you
+kept it (`FY_2014_SARS`, `June_2025_MSARs`), otherwise from the file name
+("F-35_SAR_Dec_2017.pdf", "AAG_MSAR_FY2027_PB.pdf"). A file whose name gives no
+cycle is still read, and its own date line lands in `report_label`. The file's
+path and SHA-256 go beside every row, the same as for a download.
+
 A few things worth knowing before you use the numbers:
 
 - **The files come from the Internet Archive.** The reading room that
@@ -134,6 +148,10 @@ In Python:
 from cost_core.public import build_sar_panel
 panel = build_sar_panel(programs=["DDG 51"], progress=print)
 panel.unit_cost[["cycle", "measure", "comparison", "unit_cost_growth_pct"]]
+
+# or, offline, from PDFs already on disk
+from cost_core.public import local_catalog
+panel = build_sar_panel(catalog=local_catalog("path/to/sars"))
 ```
 
 ## Comparing alternatives: life-cycle cost for an AoA

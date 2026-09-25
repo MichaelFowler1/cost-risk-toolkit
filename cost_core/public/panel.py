@@ -17,7 +17,9 @@ report, and stacks the results, keeping three things together:
 * ``checks``: every arithmetic check behind every row.
 
 A report that cannot be fetched or read is recorded in ``reports`` and the run
-carries on. Across every cycle from December 2010 to the FY 2027 budget, 979
+carries on. The catalogue can as well be a folder of reports already on disk,
+from :func:`cost_core.public.local_catalog`, which is read without any network
+access. Across every cycle from December 2010 to the FY 2027 budget, 979
 of 1,006 reports read and 11,856 of 11,919 checks held; the failures were
 archive copies truncated in every capture and reports with no unit cost
 table, and the failed checks looked at were errors in the reports themselves
@@ -34,7 +36,7 @@ from typing import Callable, Iterable, Optional
 import pandas as pd
 
 from cost_core.public.catalog import sar_catalog
-from cost_core.public.fetch import fetch
+from cost_core.public.fetch import fetch, is_local
 from cost_core.public.sar import read_sar
 
 logger = logging.getLogger(__name__)
@@ -97,7 +99,9 @@ def _fetch_and_read(e):
     """Fetch one catalogue entry and read it, trying other captures of a
     truncated file before giving up."""
     last = None
-    for i, stamp in enumerate((str(e["capture"]),) + FALLBACK_CAPTURES):
+    # A file on disk has no other capture to fall back on.
+    stamps = (str(e["capture"]),) + (() if is_local(e["url"]) else FALLBACK_CAPTURES)
+    for i, stamp in enumerate(stamps):
         got = fetch(e["url"], wayback_timestamp=stamp, try_official=False, refresh=i > 0)
         try:
             return got, read_sar(got.path, program_hint=e["program_guess"],
@@ -130,6 +134,10 @@ def _dedupe(uc: pd.DataFrame) -> pd.DataFrame:
     return uc.drop_duplicates(subset=key, keep="first").reset_index(drop=True)
 
 
+def _cycle(e) -> str:
+    return e["cycle"] if isinstance(e["cycle"], str) else "-"
+
+
 def build_sar_panel(
     catalog: Optional[pd.DataFrame] = None,
     cycles: Optional[Iterable[str]] = None,
@@ -140,8 +148,9 @@ def build_sar_panel(
     """Fetch, read and stack SARs from the catalogue.
 
     Args:
-        catalog: From :func:`cost_core.public.catalog.sar_catalog`; listed
-            afresh when omitted.
+        catalog: From :func:`cost_core.public.catalog.sar_catalog`, or
+            :func:`cost_core.public.local_catalog` for PDFs already on disk;
+            the Archive is listed afresh when omitted.
         cycles: Keep only these cycles, e.g. ``["Dec 2019", "PB 2027"]``.
         programs: Keep only file-name guesses containing one of these,
             case-insensitive, e.g. ``["F-35", "DDG"]``.
@@ -175,7 +184,7 @@ def build_sar_panel(
             rec.update(status="failed", error=f"{type(exc).__name__}: {exc}")
             reports.append(rec)
             if progress:
-                progress(f"{e['cycle']:9s} {e['program_guess']:28s} FAILED  {rec['error'][:60]}")
+                progress(f"{_cycle(e):9s} {e['program_guess']:28s} FAILED  {rec['error'][:60]}")
             continue
         tag = {"cycle": e["cycle"], "cycle_year": e["cycle_year"], "program": report.program,
                "report_label": report.report_label, "template": report.template,
@@ -194,7 +203,7 @@ def build_sar_panel(
                    checks=len(report.checks), failed_checks=failed, status="read")
         reports.append(rec)
         if progress:
-            progress(f"{e['cycle']:9s} {report.program:28s} {len(report.unit_cost)} rows, "
+            progress(f"{_cycle(e):9s} {report.program:28s} {len(report.unit_cost)} rows, "
                      f"{len(report.checks) - failed}/{len(report.checks)} checks")
 
     front = ["cycle", "cycle_year", "program", "subprogram", "measure", "comparison"]

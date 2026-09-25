@@ -10,6 +10,18 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Added
+
+- **SAR panels from PDFs already on disk, with no network.**
+  `ce-core sar-panel --dir FOLDER` and `cost_core.public.local_catalog`
+  list a folder of SAR and MSAR PDFs in the same shape as the Wayback
+  catalogue, so a machine with no internet access can build the panel from
+  reports copied in by hand. The cycle comes from the reading room's folder
+  name when it was kept, otherwise from the file name
+  (`cycle_from_filename`); a file whose name gives none is read with no
+  cycle. `fetch` now reads any local path or `file://` URL in place, with its
+  SHA-256 recorded as for a download, and never copies it into the cache.
+
 ## [2.2.0] - 2026-09-25
 
 Schedule risk and joint cost and schedule confidence, and a fix anyone using

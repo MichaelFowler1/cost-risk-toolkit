@@ -413,14 +413,17 @@ def run_jcl(args) -> None:
 def run_sar_panel(args) -> None:
     """Build a unit cost panel from public SARs and write it as CSV."""
     try:
-        from cost_core.public import build_sar_panel, sar_catalog
+        from cost_core.public import build_sar_panel, local_catalog, sar_catalog
     except ImportError as e:
         abort(str(e))
-    cat = sar_catalog()
+    try:
+        cat = local_catalog(args.dir) if args.dir else sar_catalog()
+    except FileNotFoundError as e:
+        abort(str(e))
     if args.list_cycles:
-        counts = cat[cat["kind"] != "combined"].groupby("cycle", sort=False).size()
+        counts = cat[cat["kind"] != "combined"].groupby("cycle", sort=False, dropna=False).size()
         for cycle, n in counts.items():
-            print(f"  {cycle:10s} {n:4d} reports")
+            print(f"  {cycle if isinstance(cycle, str) else 'no cycle':10s} {n:4d} reports")
         return
     panel = build_sar_panel(catalog=cat, cycles=args.cycles, programs=args.programs,
                             limit=args.limit, progress=print)
@@ -582,6 +585,9 @@ def main() -> None:
         "sar-panel",
         help="Unit cost of real programs from public Selected Acquisition Reports",
     )
+    p_sar.add_argument("--dir", default=None, metavar="FOLDER",
+                       help="Read SAR PDFs already in this folder instead of downloading; "
+                            "no network access")
     p_sar.add_argument("--out", default="sar_panel",
                        help="Directory for unit_cost.csv, reports.csv and checks.csv")
     p_sar.add_argument("--cycles", nargs="+", default=None, metavar="CYCLE",

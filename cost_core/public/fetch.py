@@ -19,6 +19,12 @@ same URL, the raw bytes it captured (the ``id_`` form, not the Archive's HTML
 wrapper). Which of the two answered is recorded in the provenance, so nobody
 has to take on trust that an archived copy is what the government published:
 the capture timestamp and hash are there to check against.
+
+**Files already on disk.** Anything that is not an ``http://`` or
+``https://`` URL is taken as a local path (or a ``file://`` URL) and read in
+place: nothing is downloaded or copied, and the record carries the file's
+hash the same way. That is how a machine with no route to the internet reads
+reports someone else downloaded; see :mod:`cost_core.public.local`.
 """
 
 from __future__ import annotations
@@ -131,6 +137,29 @@ def _key(url: str) -> str:
     return f"{hashlib.sha1(url.encode()).hexdigest()[:12]}_{safe}"
 
 
+def is_local(url: str) -> bool:
+    """True when ``url`` names a file on disk rather than a web address."""
+    # A Windows drive letter ("C:\\SARs") parses as a one-letter scheme,
+    # which this also takes as local.
+    return urllib.parse.urlsplit(str(url)).scheme.lower() not in ("http", "https")
+
+
+def _local(url: str) -> Fetched:
+    raw = str(url)
+    if raw.lower().startswith("file://"):
+        raw = urllib.request.url2pathname(urllib.parse.urlsplit(raw).path)
+    path = Path(raw).expanduser()
+    if not path.is_file():
+        raise FetchError(f"no such file: {path}")
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(block)
+    stamp = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+    return Fetched(path=path, url=str(url), served_from=str(url), sha256=digest.hexdigest(),
+                   retrieved_at=stamp.isoformat(timespec="seconds"), size=path.stat().st_size)
+
+
 def fetch(
     url: str,
     *,
@@ -143,8 +172,12 @@ def fetch(
 ) -> Fetched:
     """Download ``url`` once, trying the official host, then the Archive.
 
+    A local path or ``file://`` URL is read in place instead, with no network
+    request and no copy in the cache; ``retrieved_at`` is then the file's
+    modification time.
+
     Args:
-        url: The official URL of the document.
+        url: The official URL of the document, or a local path.
         wayback_timestamp: Capture time to ask the Archive for when the
             official host refuses; a prefix picks the nearest capture.
         cache: Directory to cache in; defaults to :func:`cache_dir`.
@@ -155,8 +188,11 @@ def fetch(
             to refuse scripted clients, which saves a request per file.
 
     Raises:
-        FetchError: Neither source supplied a non-empty file.
+        FetchError: Neither source supplied a non-empty file, or a local
+            path does not exist.
     """
+    if is_local(url):
+        return _local(url)
     root = Path(cache) if cache is not None else cache_dir()
     root.mkdir(parents=True, exist_ok=True)
     path = root / _key(url)

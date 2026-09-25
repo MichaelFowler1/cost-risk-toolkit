@@ -20,7 +20,8 @@ import pandas as pd
 import pytest
 
 from cost_core.public import (FetchError, SarParseError, check_unit_cost,
-                              fetch, parse_sar_pages)
+                              cycle_from_filename, fetch, is_local, local_catalog,
+                              parse_sar_pages)
 from cost_core.public.catalog import _program_guess, sar_catalog
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sar"
@@ -183,12 +184,14 @@ def test_program_guess_from_file_names(filename, expected):
 # ----------------------------------------------------------------- panel ---
 class _Got:
     def __init__(self, url, served="https://web.archive.org/x", sha="ab" * 32):
-        self.url, self.served_from, self.sha256, self.path = url, served, sha, url
+        self.url, self.served_from, self.sha256 = url, served, sha
+        self.path = url.rsplit("/", 1)[-1]
 
 
 def _catalog(*rows):
     return pd.DataFrame([{"program_guess": g, "cycle": c, "cycle_year": int(c[-4:]),
-                          "kind": "SAR", "folder": "f", "filename": u, "url": u,
+                          "kind": "SAR", "folder": "f", "filename": u,
+                          "url": f"https://www.esd.whs.mil/f/{u}",
                           "capture": "2021", "size": 1} for g, c, u in rows])
 
 
@@ -249,7 +252,7 @@ def test_panel_filters_by_cycle_and_program(monkeypatch):
     cat = _catalog(("AAG", "Dec 2023", "a.pdf"), ("F-35", "Dec 2023", "b.pdf"),
                    ("AAG", "Dec 2021", "c.pdf"))
     p = panel.build_sar_panel(catalog=cat, cycles=["Dec 2023"], programs=["aag"])
-    assert list(p.reports.url) == ["a.pdf"]
+    assert list(p.reports.url) == ["https://www.esd.whs.mil/f/a.pdf"]
 
 
 def test_panel_growth_survives_blank_and_zero_baselines():
@@ -294,3 +297,107 @@ def test_then_year_tables_are_marked_and_carry_no_base_year():
 def test_fixtures_are_all_constant_dollars():
     for name in ("aehf_dec2014_damir", "aag_dec2021_dave", "aag_dec2023_msar", "sdb2_dec2017_damir_ocr"):
         assert set(load(name).unit_cost.dollars) == {"BY"}, name
+
+
+# ------------------------------------------------------ files on disk ---
+@pytest.mark.parametrize("filename,expected", [
+    ("DDG_51_December_2012_SAR.pdf", ("Dec 2012", 2012)),
+    ("16-F-0402_DOC_42_F-35_DEC_2015_SAR.pdf", ("Dec 2015", 2015)),
+    ("14-F-0402_DOC_40_JLENSDecember2013SAR.PDF", ("Dec 2013", 2013)),
+    ("RQ-4A_B_UAS_GLOBAL_HAWK-SAR_31_DEC_2011.pdf", ("Dec 2011", 2011)),
+    ("18-F-1016_DOC_37_Army_MQ-1C_Gray_Eagle_SAR_Dec_2017.pdf", ("Dec 2017", 2017)),
+    ("AAG_MSAR_June_2025.pdf", ("Jun 2025", 2025)),
+    ("F-35 MSAR Jun 2024.pdf", ("Jun 2024", 2024)),
+    ("AAG_MSAR_FY2027_PBv2.pdf", ("PB 2027", 2027)),
+    ("(U)F-35_MSAR_Dec_2023.pdf", ("Dec 2023", 2023)),
+    # A year with no month is not enough to say which cycle.
+    ("22-F-0762_LPD_17_SAR_2021.pdf", (None, None)),
+    # "DEC" inside a word is not a month.
+    ("ADECS_SAR_2019.pdf", (None, None)),
+    ("notes.pdf", (None, None)),
+])
+def test_cycle_from_file_names(filename, expected):
+    assert cycle_from_filename(filename) == expected
+
+
+def test_local_paths_are_told_from_web_addresses():
+    assert is_local("SARs/a.pdf") and is_local("/data/a.pdf") and is_local("file:///data/a.pdf")
+    assert is_local(r"C:\SARs\a.pdf")
+    assert not is_local("https://www.esd.whs.mil/a.pdf") and not is_local("HTTP://x/a.pdf")
+
+
+def test_fetch_reads_a_local_file_in_place_without_the_network(tmp_path):
+    import hashlib
+
+    pdf = tmp_path / "AAG_MSAR_Dec_2023.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not really")
+
+    def no_network(url):
+        raise AssertionError(f"tried the network for {url}")
+
+    cache = tmp_path / "cache"
+    for ref in (str(pdf), pdf.as_uri()):
+        got = fetch(ref, cache=cache, opener=no_network)
+        assert got.path == pdf and not got.archived and got.served_from == ref
+        assert got.sha256 == hashlib.sha256(b"%PDF-1.4 not really").hexdigest()
+        assert got.size == 19
+    assert not cache.exists()
+    with pytest.raises(FetchError, match="no such file"):
+        fetch(str(tmp_path / "missing.pdf"), opener=no_network)
+
+
+def test_local_catalog_reads_cycles_from_folders_and_names(tmp_path):
+    files = [
+        "FY_2014_SARS/15-F-0540_AEHF_SAR_Dec_2014.PDF",
+        "June_2025_MSARs/AAG_MSAR.pdf",
+        "loose/14-F-0402_DOC_40_JLENSDecember2013SAR.PDF",
+        "loose/F-35_MSAR_FY2027_PB.pdf",
+        "loose/mystery.pdf",
+        "loose/readme.txt",
+        "FY_2016_SARS/17-F-1350_Navy_FY_2016_SARs_combined.pdf",
+    ]
+    for f in files:
+        (tmp_path / f).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / f).write_bytes(b"%PDF")
+    cat = local_catalog(tmp_path)
+    assert list(cat.program_guess) == ["JLENS", "AEHF", "FY", "AAG", "F-35", "mystery"]
+    assert list(cat.cycle[:5]) == ["Dec 2013", "Dec 2014", "Dec 2016", "Jun 2025", "PB 2027"]
+    assert pd.isna(cat.cycle.iloc[5]) and pd.isna(cat.cycle_year.iloc[5])
+    assert list(cat.kind) == ["SAR", "SAR", "combined", "MSAR", "MSAR", "SAR"]
+    assert all(Path(u).is_absolute() and Path(u).is_file() for u in cat.url)
+    with pytest.raises(FileNotFoundError):
+        local_catalog(tmp_path / "nope")
+
+
+def test_panel_reads_a_local_folder_once_per_file_and_offline(tmp_path, monkeypatch):
+    import importlib
+
+    import cost_core.public.panel as panel
+
+    # The package re-exports the function `fetch`, which shadows the module.
+    fetch_mod = importlib.import_module("cost_core.public.fetch")
+
+    (tmp_path / "AAG_MSAR_Dec_2023.pdf").write_bytes(b"%PDF a")
+    (tmp_path / "XYZ_SAR_Dec_2023.pdf").write_bytes(b"%PDF b")
+    (tmp_path / "old_scan.pdf").write_bytes(b"%PDF c")
+
+    def no_network(url):
+        raise AssertionError(f"tried the network for {url}")
+
+    monkeypatch.setattr(fetch_mod, "_default_opener", no_network)
+    reads = []
+
+    def read(path, program_hint=None, source=None):
+        reads.append(Path(path).name)
+        if program_hint == "XYZ":
+            raise EOFError("Unexpected EOF")  # a damaged file: no other copy to try
+        return load("aag_dec2023_msar")
+
+    monkeypatch.setattr(panel, "read_sar", read)
+    lines = []
+    p = panel.build_sar_panel(catalog=local_catalog(tmp_path), progress=lines.append)
+    assert sorted(reads) == ["AAG_MSAR_Dec_2023.pdf", "XYZ_SAR_Dec_2023.pdf", "old_scan.pdf"]
+    assert list(p.reports.status) == ["read", "failed", "read"]
+    assert p.reports.served_from.iloc[0] == str(tmp_path / "AAG_MSAR_Dec_2023.pdf")
+    assert p.reports.sha256.notna().sum() == 2 and len(lines) == 3
+    assert lines[2].startswith("-")
