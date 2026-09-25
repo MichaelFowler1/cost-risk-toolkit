@@ -20,9 +20,14 @@ on:
 
 jobs:
   test:
-    name: python ${{ matrix.python-version }}
+    name: python ${{ matrix.python-version }}${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 20
+    # Bash on every runner, Git Bash on Windows, so one set of steps serves
+    # all of them.
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -57,6 +62,18 @@ jobs:
             runner: ubuntu-latest
           - python-version: "3.14"
             runner: ubuntu-latest
+            pin: true
+          # Windows, because that is what most analysts at a lab or a cost
+          # office run, and because the goldens and the frozen draws were
+          # captured there: on Windows they are held exactly, not within the
+          # allowance other platforms get. So this lane runs the pinned
+          # development set, like the 3.14 lane above, and it is the only
+          # lane that exercises Windows paths (drive letters in the offline
+          # SAR reader, `python -m cost_core`, the Excel templates).
+          - python-version: "3.14"
+            runner: windows-latest
+            label: " (Windows)"
+            pin: true
 
     env:
       # cost_core.reporting.charts imports pyplot at module scope; a headless
@@ -141,7 +158,7 @@ jobs:
         # numbers the goldens pin are checked against the stack they were
         # recorded on and not only against whatever the floors resolve to.
         # Last, so nothing after it can quietly resolve a different matplotlib.
-        if: matrix.python-version == '3.14'
+        if: matrix.pin
         run: pip install -r requirements.txt
 
       - name: Run tests

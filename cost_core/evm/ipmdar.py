@@ -2,7 +2,11 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 """
-ipmdar.py - Read the IPMDAR Contract Performance Dataset.
+ipmdar.py - Read the IPMDAR Contract Performance Dataset (preview).
+
+**A preview.** Built from the published Data Exchange Instructions and
+tested on datasets written to them, but not yet on a real contractor
+delivery. Check the reconciliation note against the delivery's own totals.
 
 The Integrated Program Management Data and Analysis Report (DI-MGMT-81861)
 replaced the paper CPR formats with data: the Contract Performance Dataset

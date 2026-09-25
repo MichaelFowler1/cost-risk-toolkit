@@ -41,7 +41,7 @@ under Changed.
   time (72 to 77% under strong persistence). `ce-core evm` writes the
   tables, the draws and a chart; `ce-core demo evm` runs it on an invented
   three-account program. No new dependency.
-- **IPMDAR Contract Performance Datasets read directly.**
+- **IPMDAR Contract Performance Datasets read directly (preview).**
   `cost_core.evm.ipmdar.read_ipmdar` and `ce-core evm --ipmdar` read the CPD
   JSON tables by the names in the CPD Data Exchange Instructions (OUSD, 12
   March 2020): control accounts and work packages, to-date BCWS, BCWP and
@@ -50,7 +50,9 @@ under Changed.
   cumulative-only to-date values rebuild the history; the forecast draws
   only on the periods known one by one. Tested on datasets written from the
   example program, which read back to exactly the CSV's numbers in every
-  packaging.
+  packaging, but not yet on a real contractor delivery, and the packaging is
+  still to be checked against the File Format Specification: check the
+  reconciliation note it prints, and report any file that does not read.
 - **SAR panels from PDFs already on disk, with no network.**
   `ce-core sar-panel --dir FOLDER` and `cost_core.public.local_catalog`
   list a folder of SAR and MSAR PDFs in the same shape as the Wayback

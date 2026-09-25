@@ -56,8 +56,10 @@ ce-core evm --data my_evm.xlsx --units thousands
 the planned value filled in to the end of the plan. The contractor's EAC is
 optional. Columns called PV, EV, AC, "Planned Value", "Month", "WBS" and so
 on are recognised, so an export from another tool may read as it is.
-**If you have an IPMDAR delivery,** skip the spreadsheet:
-`ce-core evm --ipmdar delivery.zip`.
+**If you have an IPMDAR delivery,** try it directly:
+`ce-core evm --ipmdar delivery.zip`. That reader is a preview, not yet tested
+on a real delivery: check its reconciliation note against the delivery's own
+totals, and fall back to the spreadsheet if anything looks off.
 
 **What you get:** CPI, SPI, SPI(t), TCPI and the independent EACs; warning
 signs, such as a contractor EAC that needs a better future than the past;

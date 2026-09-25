@@ -219,6 +219,8 @@ def test_cli_reads_a_cpd(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["ce-core", "evm", "--ipmdar", str(folder), "--iters", "500",
                                      "--out", str(tmp_path / "o")])
     cli.main()
-    assert "Contractor EAC below every independent EAC" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Contractor EAC below every independent EAC" in out
+    assert "a preview reader" in out and "reconcile" in out
     notes = json.loads((tmp_path / "o" / "assumptions.json").read_text())["import_notes"]
     assert any("reconcile" in n for n in notes)
