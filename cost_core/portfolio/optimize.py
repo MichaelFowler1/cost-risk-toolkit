@@ -194,9 +194,15 @@ def _binary(pulp, prob, name):
 
 
 def _solver(pulp, time_limit):
-    """CBC as PuLP ships it. PuLP 3.3 deprecates the bundled binary in favour
-    of a separately installed one; use that when it is there, and the bundled
-    one quietly otherwise, since it is the one every install has."""
+    """The CBC solver, wherever this PuLP keeps it.
+
+    PuLP 4 ships no solver at all: CBC comes from the ``cbc`` extra (the
+    ``cbcbox`` package) and is reached through ``COIN_CMD``, which is what
+    ``cost-core[optimize]`` installs. PuLP 2.x and 3.x bundle a CBC binary
+    behind ``PULP_CBC_CMD`` (deprecated in 3.3). Use the separate one when it
+    is there, the bundled one when that is all there is, and say how to fix
+    it when there is neither, rather than failing on a missing attribute.
+    """
     kwargs = {"msg": False}
     if time_limit is not None:
         kwargs["timeLimit"] = time_limit
@@ -206,11 +212,30 @@ def _solver(pulp, time_limit):
             solver = coin(**kwargs)
             if solver.available():
                 return solver
-        except Exception:  # noqa: BLE001 - fall back to the bundled binary
+        except Exception:  # noqa: BLE001 - try the bundled binary next
             pass
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        return pulp.PULP_CBC_CMD(**kwargs)
+    bundled = getattr(pulp, "PULP_CBC_CMD", None)
+    if bundled is not None:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            return bundled(**kwargs)
+    raise ImportError(
+        f"PuLP {getattr(pulp, '__version__', '')} found no CBC solver. PuLP 4 no longer "
+        "bundles one; install it with: pip install \"cost-core[optimize]\" "
+        "(or pip install \"pulp[cbc]\")."
+    )
+
+
+def _status(pulp, prob, returned) -> str:
+    """The solve status as a name ("Optimal", "Infeasible", ...).
+
+    PuLP 4 returns a stats object whose ``status`` is an enum; PuLP 2.x and
+    3.x return a number and keep the name in ``LpStatus``.
+    """
+    status = getattr(returned, "status", None)
+    if status is not None and hasattr(status, "name"):
+        return status.name
+    return pulp.LpStatus[prob.status]
 
 
 def solve(
@@ -258,8 +283,7 @@ def solve(
     for group in portfolio.exclusive:
         prob += pulp.lpSum(funded[n] for n in group) <= 1
 
-    prob.solve(_solver(pulp, time_limit))
-    status = pulp.LpStatus[prob.status]
+    status = _status(pulp, prob, prob.solve(_solver(pulp, time_limit)))
     if status == "Infeasible":
         raise PortfolioError("No portfolio fits: " + _infeasibility_hint(portfolio, budget))
     if status != "Optimal":

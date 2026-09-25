@@ -24,6 +24,16 @@ housekeeping detail here, because someone may have put the old one in a budget.
   tables, every draw and the JCL chart; `docs/jcl_example.json` is a worked
   example. No new dependency.
 
+### Fixed
+
+- **Portfolio optimisation works with PuLP 4.** PuLP 4.0.0, released
+  2026-09-25 for Python 3.12 and up, no longer bundles a solver and reports
+  a solve's status differently, so on a fresh install the portfolio module
+  in 2.1.0 fails with an AttributeError. The `optimize` extra now asks for
+  `pulp[cbc]`, which installs CBC under PuLP 4, the status is read the way
+  each PuLP version reports it, and a PuLP with no solver gets a message
+  saying how to install one. Tested on PuLP 2.9.0, 3.3.2 and 4.0.0.
+
 ## [2.1.0] - 2026-09-24
 
 Three new subpackages, and real programs to test on. Nothing the engine

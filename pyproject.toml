@@ -83,11 +83,12 @@ plots = ["matplotlib>=3.8.0"]
 # cost_core.public parses. Only reading a PDF needs it: the parser itself runs
 # on text, and the tests run without it.
 public = ["pdfplumber>=0.11"]
-# PuLP writes the portfolio integer program and solves it with the CBC binary
-# it bundles. Its newest releases need Python 3.10, so 3.9 resolves to an
-# older one; the portfolio module works with both the 2.x and 3.x APIs, and
-# the suite passes on 2.9.0 and 3.3.1 under 3.9 and 3.3.2 under 3.14.
-optimize = ["pulp>=2.8"]
+# PuLP writes the portfolio integer program; CBC solves it. PuLP 4 (Python
+# 3.12 and up) ships no solver, so the `cbc` extra is what installs CBC
+# there; PuLP 2.x and 3.x bundle it and 3.x also accepts the extra, while
+# 2.x ignores it with a warning. Older Pythons resolve to an older PuLP. The
+# suite passes on 2.9.0 and 3.3.1 under 3.9, and 4.0.0 under 3.14.
+optimize = ["pulp[cbc]>=2.8"]
 
 [project.scripts]
 ce-core = "cost_core.cli:main"
