@@ -18,7 +18,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, Optional
 
 import pandas as pd
 
@@ -32,6 +32,17 @@ def abort(message: str) -> NoReturn:
     """Standardized exit for fatal errors."""
     log.error(message)
     sys.exit(1)
+
+def write_brief(make, *args) -> Optional[str]:
+    """Write the PowerPoint briefing, or say how to get one if python-pptx
+    (the plots extra) is not installed. Returns the file name written."""
+    try:
+        make(*args)
+    except ImportError:
+        print('  (For a PowerPoint briefing as well: pip install "cost-core[plots]")')
+        return None
+    return "brief.pptx"
+
 
 def need_file(path, what: str, topic: str) -> None:
     """Stop with a message a first-time user can act on when an input file is
@@ -324,7 +335,10 @@ def run_aoa(args) -> None:
     print(result.summary[cols].to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
     from cost_core import plain
     print(plain.show(plain.aoa(result, str(result.assumptions.get("units") or ""))))
-    print(f"Wrote report.xlsx, summary.csv, lines.csv, s_curves.csv, assumptions.json"
+    from cost_core.reporting.brief import aoa_brief
+    brief = write_brief(aoa_brief, result, out)
+    print(f"Wrote report.xlsx, {brief + ', ' if brief else ''}summary.csv, lines.csv, "
+          f"s_curves.csv, assumptions.json"
           f"{', ' + chart if chart else ''} to {out}")
 
 
@@ -389,6 +403,9 @@ def run_portfolio(args) -> None:
         extra["Marginal value"] = mv
     portfolio_workbook(result, portfolio, out / "report.xlsx", units, extra, risk)
     written.insert(0, "report.xlsx")
+    from cost_core.reporting.brief import portfolio_brief
+    written[1:1] = [w for w in [write_brief(portfolio_brief, result, portfolio, out, units, risk)]
+                    if w]
     print(f"Wrote {', '.join(written)} to {out}")
 
 
@@ -447,6 +464,8 @@ def run_jcl(args) -> None:
     print(result.criticality().to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
     from cost_core import plain
     print(plain.show(plain.jcl(result, conf, units)))
+    from cost_core.reporting.brief import jcl_brief
+    written[1:1] = [w for w in [write_brief(jcl_brief, result, project, conf, out, units)] if w]
     print(f"Wrote {', '.join(written)} to {out}")
 
 
@@ -533,6 +552,8 @@ def run_evm(args) -> None:
             print(f"  - {note}")
     from cost_core import plain
     print(plain.show(plain.evm(data, fc, args.units)))
+    from cost_core.reporting.brief import evm_brief
+    written[1:1] = [w for w in [write_brief(evm_brief, data, fc, out, args.units)] if w]
     print(f"Wrote {', '.join(written)} to {out}")
 
 
@@ -574,7 +595,10 @@ def run_schedule_check(args) -> None:
         print(f"  note: {note}")
     from cost_core import plain
     print(plain.show(plain.dcma(result, sched)))
-    print(f"Wrote report.xlsx, dcma.csv, dcma_tasks.csv, tasks.csv and links.csv to {out}")
+    from cost_core.reporting.brief import dcma_brief
+    brief = write_brief(dcma_brief, result, sched, out)
+    print(f"Wrote report.xlsx, {brief + ', ' if brief else ''}dcma.csv, dcma_tasks.csv, "
+          f"tasks.csv and links.csv to {out}")
 
 
 #: What each demo runs, as the command line a user would type, with the

@@ -47,7 +47,7 @@ has no licence it can read (`tools/sbom_licences.py`), so a new dependency
 with a licence a review would flag is caught before a release, not in your
 review.
 
-With every extra installed, all 31 dependencies are under permissive
+With every extra installed, all 34 dependencies are under permissive
 licences: MIT, BSD, Apache-2.0, PSF, and a few close relatives (MIT-0,
 MIT-CMU, 0BSD, Zlib, CC0 inside numpy). Two packages don't declare a licence
 in a form the SBOM tool can read, so the check records what their sources
@@ -71,7 +71,7 @@ reviewer has to read short:
 | Extra | Adds | For |
 |---|---|---|
 | *(none)* | numpy, pandas, scipy, openpyxl | the engine, CERs, risk simulation, AoA, JCL, Excel workbooks |
-| `plots` | matplotlib | the charts |
+| `plots` | matplotlib, python-pptx | the charts, and the PowerPoint briefing |
 | `public` | pdfplumber | reading SAR PDFs |
 | `optimize` | PuLP, highspy | portfolio optimisation |
 

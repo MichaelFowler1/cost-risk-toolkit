@@ -261,7 +261,7 @@ def evm_workbook(data, fc, path, units: str = "") -> Path:
         headline += [("Contractor EAC", fc.contractor_eac, fmt),
                      ("Chance the contractor EAC holds", fc.confidence_of_cost(fc.contractor_eac),
                       PCT)]
-    rb.summary(plain.evm(data, fc, units), headline,
+    rb.summary(plain.evm(data, fc, units, where="on the Warning signs sheet"), headline,
                note="The Metrics sheet computes CV, SV, CPI, SPI, TCPI and the CPI-based EAC with "
                     "Excel formulas from the BCWS, BCWP and ACWP beside them; click a cell to "
                     "see how it was made.")
