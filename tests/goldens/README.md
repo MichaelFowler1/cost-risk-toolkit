@@ -237,9 +237,21 @@ Off Windows those leaves are compared under
 statistic in the block under an allowance sized by the same three-times rule as
 step 2,
 the three iteration counts not at all, and those `Mean bias` cells as equal
-when both print a zero, whatever its sign. On Windows that entry builds nothing
-and all of it stays at 1e-9. The
-upgrade check above therefore only works on Windows, because off it the
+when both print a zero, whatever its sign. On the capture machine, which is
+Windows outside CI, that entry builds nothing and all of it stays at 1e-9.
+
+A CI runner is never taken for the capture machine, even on Windows. GitHub's
+Windows runners, given a different CPU each run, moved the `scatter_0.3` block
+by up to 5e-9 relative and the OLS loop from 5 steps to 4 on one of them, on
+the pinned stack and on a commit that touched no numerics. They get the same
+allowance as Linux. For the same reason the risk model's frozen draws keep
+their totals hash on every Windows machine (it held on each runner tried) but
+check the element draws' hash on the capture machine only; everywhere else the
+element draws are held at 1e-12 relative through their means and percentiles
+(`ANALYTIC_ELEMENTS` in `tests/test_monte_carlo.py`).
+
+The
+upgrade check above therefore only works on the capture machine, because off it the
 allowance absorbs the numpy 2.5.3 and scipy 1.18.1 moves in this block. Under
 Linux, with the allowance in place, numpy 2.5.3 and scipy 1.18.1 each pass the
 whole suite, so off Windows nothing sees either of them. Measure a cap raise on

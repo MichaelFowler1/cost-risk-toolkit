@@ -28,6 +28,7 @@ from __future__ import annotations
 import fnmatch
 import gzip
 import json
+import os
 import re
 import sys
 import time
@@ -383,7 +384,9 @@ def test_the_platform_allowance_reaches_mupe_and_zmpe_and_nothing_else():
     entry = GS._platform_carve_out()
     home = entry["captured_on_platform"]
     assert home == "win32"
-    assert GS.ON_CAPTURE_PLATFORM == (sys.platform == "win32")
+    # The capture machine: its platform, and not a CI runner, whose CPU (and
+    # so numpy's last bits) differs from run to run.
+    assert GS.ON_CAPTURE_PLATFORM == (sys.platform == "win32" and not os.environ.get("CI"))
     assert GS._build_platform_overrides(platform=home) == {}
     assert GS._build_platform_exclusions(platform=home) == []
     globs = GS._build_platform_overrides(platform="linux")
@@ -553,3 +556,19 @@ def test_neutral_separators_rewrites_the_separator_after_a_token_and_nothing_els
     assert GS.neutral_separators("<error_inputs>/nope.csv") == "<error_inputs>/nope.csv"
     assert GS.neutral_separators("C:\\data\\nope.csv") == "C:\\data\\nope.csv"
     assert GS.neutral_separators({"a": [text, 3, None]}) == {"a": [GS.neutral_separators(text), 3, None]}
+
+
+def test_a_ci_runner_is_never_taken_for_the_capture_machine(monkeypatch):
+    # GitHub's Windows runners moved the learning-curve block by up to 5e-9
+    # relative, a different CPU each run; the capture machine is held exactly.
+    entry = GS._platform_carve_out()
+    monkeypatch.setattr(GS.sys, "platform", "win32")
+    monkeypatch.delenv("CI", raising=False)
+    assert GS._on_capture(entry)
+    monkeypatch.setenv("CI", "true")
+    assert not GS._on_capture(entry)
+    monkeypatch.setattr(GS.sys, "platform", "linux")
+    monkeypatch.delenv("CI", raising=False)
+    assert not GS._on_capture(entry)
+    # An explicit platform is compared alone, as the policy tests use it.
+    assert GS._on_capture(entry, "win32") and not GS._on_capture(entry, "linux")
