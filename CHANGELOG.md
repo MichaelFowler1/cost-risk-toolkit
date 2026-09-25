@@ -10,53 +10,19 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
-Made to be picked up without a learning curve. Nothing the engine produces
-changes.
-
-### Added
-
-- **`ce-core` on its own is a guide.** It lists what the tool does in plain
-  words, with the command for each, instead of an argparse error.
-- **`ce-core demo <topic>`** runs EVM, the schedule check, JCL, AoA or the
-  portfolio end to end on bundled example data, with no files needed, and
-  says how to do the same with your own.
-- **`ce-core template <topic>`** writes the file to fill in: an Excel
-  workbook with an instructions sheet for EVM, the worked example as JSON
-  for JCL, AoA and portfolio, a CSV for lots, and how to save a schedule
-  from Microsoft Project. Each runs unchanged through its command, and an
-  existing file is never overwritten without `--force`.
-- **"What this means"**: every EVM, schedule check, JCL, AoA and portfolio
-  run ends with the result in a few plain sentences, from
-  `cost_core.plain`.
-- **EVM column names people actually use.** PV, EV, AC, "Planned Value
-  ($K)", "Month", "Control Account", LRE and the like are read as BCWS, BCWP,
-  ACWP, period, account and EAC, and a missing column is named in words,
-  with the columns found and the template command.
-- `ce-core evm --units thousands` (or `dollars`, `millions`) labels money
-  as `$K` and so on. A `$` has to be quoted differently at every command
-  prompt, and a word needs no quoting at all.
-- **`python -m cost_core`** runs `ce-core`, for machines where pip's scripts
-  folder is not on the PATH.
-- `docs/getting-started.md`, task by task, and a "Start here" section at the
-  top of the README.
-
-### Changed
-
-- The worked examples moved from `docs/` into the package
-  (`cost_core/examples`, with `cost_core.examples.example_path`), so they
-  install with it: `ce-core demo` works for anyone who installed from PyPI.
-- A missing input file says where it looked and how to get one, rather than
-  printing the operating system's error.
-
 ## [2.3.0] - 2026-09-25
 
 Earned value management, Microsoft Project schedules and the DCMA 14-point
-check, and what it takes to bring the library into a lab: it runs with no
-internet, every dependency is permissively licensed, and each release
-carries an SBOM. Every number the engine already produced is unchanged: the
-goldens pin that, and a finish-to-start JCL network gives byte-identical
-draws to 2.2.0. The one exception is a JCL network with a lead longer than
-its predecessor, under Changed.
+check; a package anyone can pick up without a learning curve (`ce-core` on
+its own is a guide, `ce-core demo` runs every tool on bundled examples, and
+every result says what it means in plain words); and what it takes to bring
+the library into a lab: it runs with no internet, every dependency is
+permissively licensed, and each release carries an SBOM.
+
+Every number the engine already produced is unchanged: the goldens pin
+that, and a finish-to-start JCL network gives byte-identical draws to 2.2.0.
+The one exception is a JCL network with a lead longer than its predecessor,
+under Changed.
 
 ### Added
 
@@ -73,7 +39,7 @@ its predecessor, under Changed.
   performance reproduces the CPI and SPI(t) formulas exactly, and on
   synthetic programs whose truth is known the P80 holds 79 to 82% of the
   time (72 to 77% under strong persistence). `ce-core evm` writes the
-  tables, the draws and a chart; `docs/evm_example.csv` is an invented
+  tables, the draws and a chart; `ce-core demo evm` runs it on an invented
   three-account program. No new dependency.
 - **IPMDAR Contract Performance Datasets read directly.**
   `cost_core.evm.ipmdar.read_ipmdar` and `ce-core evm --ipmdar` read the CPD
@@ -131,6 +97,31 @@ its predecessor, under Changed.
 - `docs/ROADMAP.md`: proposals for what comes next, each with why it matters
   and what makes it hard. Proposals, not commitments.
 
+- **`ce-core` on its own is a guide.** It lists what the tool does in plain
+  words, with the command for each, instead of an argparse error.
+- **`ce-core demo <topic>`** runs EVM, the schedule check, JCL, AoA or the
+  portfolio end to end on bundled example data, with no files needed, and
+  says how to do the same with your own.
+- **`ce-core template <topic>`** writes the file to fill in: an Excel
+  workbook with an instructions sheet for EVM, the worked example as JSON
+  for JCL, AoA and portfolio, a CSV for lots, and how to save a schedule
+  from Microsoft Project. Each runs unchanged through its command, and an
+  existing file is never overwritten without `--force`.
+- **"What this means"**: every EVM, schedule check, JCL, AoA and portfolio
+  run ends with the result in a few plain sentences, from
+  `cost_core.plain`.
+- **EVM column names people actually use.** PV, EV, AC, "Planned Value
+  ($K)", "Month", "Control Account", LRE and the like are read as BCWS, BCWP,
+  ACWP, period, account and EAC, and a missing column is named in words,
+  with the columns found and the template command.
+- `ce-core evm --units thousands` (or `dollars`, `millions`) labels money
+  as `$K` and so on. A `$` has to be quoted differently at every command
+  prompt, and a word needs no quoting at all.
+- **`python -m cost_core`** runs `ce-core`, for machines where pip's scripts
+  folder is not on the PATH.
+- `docs/getting-started.md`, task by task, and a "Start here" section at the
+  top of the README.
+
 ### Changed
 
 - **Portfolio optimisation solves with HiGHS instead of CBC.** The
@@ -146,6 +137,11 @@ its predecessor, under Changed.
   predecessor could before put an activity's start below month zero; it is
   now held at zero, which a finish-to-finish link needs anyway. No network
   without such a lead changes.
+- The worked examples moved from `docs/` into the package
+  (`cost_core/examples`, with `cost_core.examples.example_path`), so they
+  install with it: `ce-core demo` works for anyone who installed from PyPI.
+- A missing input file says where it looked and how to get one, rather than
+  printing the operating system's error.
 
 ## [2.2.0] - 2026-09-25
 
