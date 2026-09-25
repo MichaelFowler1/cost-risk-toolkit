@@ -12,6 +12,22 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ### Added
 
+- **`cost_core.evm`: earned value management.** CV, SV, CPI, SPI, TCPI,
+  the standard independent EACs, and earned schedule (ES, SPI(t), SV(t),
+  TSPI, IEAC(t)), per program and per control account, from a CSV or Excel
+  file of BCWS, BCWP and ACWP by period. `flags` names the warning signs: a
+  TCPI more than 0.10 above the CPI, a contractor EAC below every
+  independent EAC or implying a CPI recovery of more than 0.10 after 20%
+  complete, and an SPI that has recovered while SPI(t) has not.
+  `forecast` gives the EAC and completion date as a distribution drawn from
+  the program's own record, with a Bayesian bootstrap for how well a short
+  record pins down its rates and persistence estimated from it; constant
+  performance reproduces the CPI and SPI(t) formulas exactly, and on
+  synthetic programs whose truth is known the P80 holds 79 to 82% of the
+  time (72 to 77% under strong persistence). `ce-core evm` writes the
+  tables, the draws and a chart; `docs/evm_example.csv` is an invented
+  three-account program. No new dependency.
+
 - **SAR panels from PDFs already on disk, with no network.**
   `ce-core sar-panel --dir FOLDER` and `cost_core.public.local_catalog`
   list a folder of SAR and MSAR PDFs in the same shape as the Wayback

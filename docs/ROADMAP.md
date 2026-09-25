@@ -11,10 +11,13 @@ Status markers: **[started]** work exists on a branch; **[idea]** nothing yet.
 
 The package had nothing for EVM specialists.
 
-- **[started] EVM metrics and forecasting** (`cost_core.evm`): CV, SV, CPI,
+- **[done, unreleased] EVM metrics and forecasting** (`cost_core.evm`): CV, SV, CPI,
   SPI, TCPI, the standard independent EACs, and earned schedule (ES, SPI(t),
   IEAC(t)), since SPI drifts back to 1.0 near the end of a late program.
-- **[started] Probabilistic EAC and completion date.** Resample the
+- **[done, unreleased] Probabilistic EAC and completion date.** Calibration
+  measured on synthetic programs: P80 holds 79 to 82% with independent
+  periods, 72 to 77% with strongly persistent ones; the persistent case is
+  the thing to improve (a short record cannot pin down persistence). Resample the
   program's own periodic efficiencies to give an EAC distribution (P50, P80)
   that narrows as the program matures, plus a joint cost and date confidence
   in the same form as the JCL. Flag the classic warning signs: TCPI more than
@@ -22,7 +25,11 @@ The package had nothing for EVM specialists.
 - **[idea] IPMDAR reader.** The government's monthly EVM delivery is JSON
   (the Contract Performance Dataset) under DI-MGMT-81861. Needs the official
   file format specification in hand before writing it: don't guess the
-  schema. CPR formats 1 to 5 in Excel as a fallback.
+  schema. The spec is published at acq.osd.mil ("IPMDAR Contract Performance
+  Dataset File Format Specification"), but that host did not serve the
+  cloud container used on 2026-09-25 (certificate chain and a 503), so it
+  needs fetching from a machine that can reach it. The reader only has to
+  map the CPD tables onto `EvmData.from_frame`'s columns. CPR formats 1 to 5 in Excel as a fallback.
 - **[idea] Bayesian EAC.** A prior on the final CPI from historical programs,
   updated monthly. Needs a public or releasable history of CPI trajectories
   to set the prior from; the SAR panel does not have one.
