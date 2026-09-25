@@ -10,6 +10,20 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Added
+
+- **An Excel workbook from every run.** `ce-core evm`, `jcl`,
+  `schedule-check`, `aoa` and `portfolio` each write `report.xlsx`: a
+  Summary sheet with the plain-English reading and the key numbers, the
+  tables with frozen headers, filters and number formats, native Excel
+  charts, and an Assumptions sheet, set to print one page wide. In the EVM
+  workbook CV, SV, CPI, SPI, TCPI, percent complete, the CPI-based EAC and
+  SPI(t) are Excel formulas on the data beside them. Recalculated by
+  LibreOffice Calc, all 112 formula cells in the example match Python to
+  5e-15, and a CI job checks that on every push
+  (`cost_core.reporting.excel_report`). No new dependency.
+- `EvmData.read` names the program after its file when no name is given.
+
 ## [2.3.0] - 2026-09-25
 
 Earned value management, Microsoft Project schedules and the DCMA 14-point

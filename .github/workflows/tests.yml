@@ -223,6 +223,32 @@ jobs:
             licences.md
           retention-days: 30
 
+  excel-formulas:
+    # The EVM workbook writes its metrics as Excel formulas, so a reviewer
+    # can see how each was made. This recalculates the workbook in a real
+    # spreadsheet engine (LibreOffice Calc, headless) and checks every
+    # formula against the numbers Python computed. The standard runner has
+    # no Calc, so without this job that test would only ever skip.
+    name: Excel formulas recalculated
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install LibreOffice Calc and the package
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends libreoffice-calc
+          python -m pip install --upgrade pip
+          pip install -e '.[plots,optimize]' pytest
+
+      - name: Recalculate the EVM workbook and compare
+        run: pytest tests/test_excel_report.py -q -rs
+
   package:
     # The publish workflow builds the distributions in one job and uploads
     # them from another, passing them across with upload-artifact and

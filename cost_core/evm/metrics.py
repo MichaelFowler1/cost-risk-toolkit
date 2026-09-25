@@ -345,6 +345,7 @@ class EvmData:
         """Read a CSV or Excel file laid out as for :meth:`from_frame`."""
         path = Path(path)
         df = pd.read_excel(path) if path.suffix.lower() in (".xlsx", ".xls") else pd.read_csv(path)
+        kwargs.setdefault("name", path.stem)
         return cls.from_frame(df, **kwargs)
 
     def _frame(self) -> pd.DataFrame:
