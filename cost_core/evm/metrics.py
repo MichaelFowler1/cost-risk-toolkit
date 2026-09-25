@@ -185,6 +185,9 @@ class EvmData:
         first_observed: The first period whose own performance is known.
             Later than 1 when the history was rebuilt from cumulative
             deliveries, the first of which lumps every period before it.
+        unobserved: Later periods whose own performance is not known
+            either: a month with no delivery, and the delivery after it,
+            which holds both months' progress.
         notes: How the data was read, and anything assumed on the way.
     """
 
@@ -197,6 +200,7 @@ class EvmData:
     name: str = "program"
     accounts: Dict[str, "EvmData"] = field(default_factory=dict)
     first_observed: int = 1
+    unobserved: List[int] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:

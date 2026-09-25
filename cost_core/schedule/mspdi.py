@@ -265,7 +265,13 @@ def read_mspdi(path) -> MspdiSchedule:
             MSPDI does not define.
     """
     path = Path(path)
-    root = ET.parse(path).getroot()
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError as exc:
+        hint = (" Microsoft Project's own .mpp files can't be read directly: open it in "
+                "Project and use File > Save As > XML Format." if path.suffix.lower() == ".mpp"
+                else " Save the schedule from Microsoft Project with File > Save As > XML Format.")
+        raise ScheduleError(f"{path.name} is not an XML file ({exc}).{hint}") from None
     # Project writes the http://schemas.microsoft.com/project namespace and
     # some exporters write none; drop it so both read the same.
     for el in root.iter():
