@@ -74,10 +74,12 @@ NEXT_STEPS = {
                  "Correlation rows with yours or none (the Instructions sheet says what goes "
                  "where). Then run:\n  ce-core cost-risk --data {path}",
     "jcl": "It holds a worked example (a small spacecraft). Edit the activities, their "
-           "durations, links, costs and risks, then run:\n  ce-core jcl --spec {path}",
-    "aoa": "It holds a worked example of three alternatives. Edit their cost lines, then "
-           "run:\n  ce-core aoa --spec {path}",
-    "portfolio": "It holds a worked example of candidate programs and a budget. Edit them, "
+           "durations, links, costs and risks (the Instructions sheet says what goes "
+           "where), then run:\n  ce-core jcl --spec {path}",
+    "aoa": "It holds a worked example of three alternatives. Edit their cost lines (the "
+           "Instructions sheet says what goes where), then run:\n  ce-core aoa --spec {path}",
+    "portfolio": "It holds a worked example of candidate programs and a budget. Edit them "
+                 "(the Instructions sheet says what goes where), "
                  "then run:\n  ce-core portfolio --spec {path}",
     "lots": "One row per production lot: how many units, and what the lot cost (recurring, "
             "in one year's dollars). Replace the example rows, then run:\n"
@@ -104,8 +106,15 @@ def write(topic: str, out) -> Path:
         _LOTS.to_csv(out, index=False)
         return out
     if topic in ("jcl", "aoa", "portfolio"):
-        shutil.copyfile(example_path(topic), out)
-        return out
+        # A workbook unless a .json is asked for, which scripts still use.
+        if out.suffix.lower() == ".json":
+            shutil.copyfile(example_path(topic), out)
+            return out
+        import json
+
+        from cost_core.xlspec import write_workbook
+        spec = json.loads(example_path(topic).read_text(encoding="utf-8"))
+        return write_workbook(spec, topic, out)
     raise KeyError(f"No template for {topic!r}.")
 
 

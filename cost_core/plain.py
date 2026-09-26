@@ -235,13 +235,13 @@ def menu() -> str:
           Check a Microsoft Project schedule (DCMA 14-point)
               ce-core schedule-check --mspdi my_schedule.xml
           Joint cost and schedule confidence (JCL)
-              ce-core jcl --spec my_jcl.json
+              ce-core jcl --spec my_jcl.xlsx
           Cost risk on an estimate: S-curve, confidence, drivers
               ce-core cost-risk --data my_estimate.xlsx
           Compare alternatives on life-cycle cost (AoA)
-              ce-core aoa --spec my_aoa.json
+              ce-core aoa --spec my_aoa.xlsx
           Choose which programs to fund within a budget
-              ce-core portfolio --spec my_portfolio.json
+              ce-core portfolio --spec my_portfolio.xlsx
           Fit a learning curve to production lots
               ce-core fit-lots --csv my_lots.csv --dollar-year 2026
           Unit cost history of real programs from public SARs

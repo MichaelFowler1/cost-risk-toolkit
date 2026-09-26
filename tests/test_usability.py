@@ -59,9 +59,9 @@ def test_every_demo_runs_from_an_empty_folder(topic, tmp_path, monkeypatch, caps
 @pytest.mark.parametrize("topic,command", [
     ("evm", ["evm", "--data", "my_evm.xlsx", "--iters", "1000", "--out", "o"]),
     ("cost-risk", ["cost-risk", "--data", "my_estimate.xlsx", "--iters", "2000", "--out", "o"]),
-    ("jcl", ["jcl", "--spec", "my_jcl.json", "--out", "o"]),
-    ("aoa", ["aoa", "--spec", "my_aoa.json", "--out", "o"]),
-    ("portfolio", ["portfolio", "--spec", "my_portfolio.json", "--out", "o"]),
+    ("jcl", ["jcl", "--spec", "my_jcl.xlsx", "--out", "o"]),
+    ("aoa", ["aoa", "--spec", "my_aoa.xlsx", "--out", "o"]),
+    ("portfolio", ["portfolio", "--spec", "my_portfolio.xlsx", "--out", "o"]),
     ("lots", ["fit-lots", "--csv", "my_lots.csv", "--dollar-year", "2026"]),
 ])
 def test_every_template_runs_unchanged(topic, command, tmp_path, monkeypatch, capsys):

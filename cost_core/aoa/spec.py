@@ -54,7 +54,9 @@ def _line(d: Dict[str, Any], where: str) -> CostLine:
 def load_spec(path) -> Dict[str, Any]:
     """Read a spec file into ``evaluate`` keyword arguments."""
     path = Path(path)
-    spec = json.loads(path.read_text(encoding="utf-8"))
+    from cost_core.xlspec import read_spec
+
+    spec = read_spec(path)
     for key in ("base_year", "discount_rate", "alternatives"):
         if key not in spec:
             raise AoAError(f"{path.name}: missing {key!r}.")

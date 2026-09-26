@@ -93,13 +93,13 @@ threshold, and every failing task by name in `dcma_tasks.csv`.
 
 ```bash
 ce-core demo jcl
-ce-core template jcl                  # writes my_jcl.json
-ce-core jcl --spec my_jcl.json
+ce-core template jcl                  # writes my_jcl.xlsx
+ce-core jcl --spec my_jcl.xlsx
 ```
 
 **What you need:** the activities, their most likely durations and how
 uncertain they are, how they link, their costs, and any discrete risks.
-Edit the example in `my_jcl.json`. Or point the spec at a Microsoft
+Edit the example in `my_jcl.xlsx`. Or point the spec at a Microsoft
 Project schedule instead of listing activities: see "From a Microsoft
 Project schedule" in the README.
 
@@ -111,8 +111,8 @@ finish most.
 
 ```bash
 ce-core demo aoa
-ce-core template aoa                  # writes my_aoa.json
-ce-core aoa --spec my_aoa.json
+ce-core template aoa                  # writes my_aoa.xlsx
+ce-core aoa --spec my_aoa.xlsx
 ```
 
 **What you get:** each alternative's life-cycle cost (base-year, then-year
@@ -124,8 +124,8 @@ dominated: they cost more and do no more.
 ```bash
 pip install "cost-core[optimize]"
 ce-core demo portfolio
-ce-core template portfolio            # writes my_portfolio.json
-ce-core portfolio --spec my_portfolio.json
+ce-core template portfolio            # writes my_portfolio.xlsx
+ce-core portfolio --spec my_portfolio.xlsx
 ```
 
 **What you get:** the best set of programs and funding options within each
