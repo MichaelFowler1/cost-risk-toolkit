@@ -69,6 +69,10 @@ NEXT_STEPS = {
     "evm": "Open it in Excel. The Data sheet holds an example; replace it with your "
            "program's numbers (the Instructions sheet says what goes where). Then run:\n"
            "  ce-core evm --data {path} --units thousands",
+    "cost-risk": "Open it in Excel. It holds a worked example (a ground station upgrade, "
+                 "in $M); replace the Elements rows with your estimate, and the Risks and "
+                 "Correlation rows with yours or none (the Instructions sheet says what goes "
+                 "where). Then run:\n  ce-core cost-risk --data {path}",
     "jcl": "It holds a worked example (a small spacecraft). Edit the activities, their "
            "durations, links, costs and risks, then run:\n  ce-core jcl --spec {path}",
     "aoa": "It holds a worked example of three alternatives. Edit their cost lines, then "
@@ -93,6 +97,9 @@ def write(topic: str, out) -> Path:
         out.parent.mkdir(parents=True, exist_ok=True)
     if topic == "evm":
         return _evm(out)
+    if topic == "cost-risk":
+        from cost_core.costrisk import write_workbook
+        return write_workbook(out)
     if topic == "lots":
         _LOTS.to_csv(out, index=False)
         return out

@@ -30,6 +30,7 @@ walks through each task from "what do I need" to "what does this tell me".
 | I want to... | Try it | Then with my data |
 | --- | --- | --- |
 | Forecast a program's final cost and finish from EVM | `ce-core demo evm` | `ce-core evm --data my_evm.xlsx` or `--ipmdar delivery.zip` |
+| How sure is my estimate, and what drives it (cost risk) | `ce-core demo cost-risk` | `ce-core cost-risk --data my_estimate.xlsx` |
 | Check a schedule's logic (DCMA 14-point) | `ce-core demo schedule` | `ce-core schedule-check --mspdi my_schedule.xml` |
 | Know the chance of meeting a budget *and* a date (JCL) | `ce-core demo jcl` | `ce-core jcl --spec my_jcl.json` |
 | Compare alternatives on life-cycle cost (AoA) | `ce-core demo aoa` | `ce-core aoa --spec my_aoa.json` |
@@ -186,6 +187,27 @@ panel.unit_cost[["cycle", "measure", "comparison", "unit_cost_growth_pct"]]
 from cost_core.public import local_catalog
 panel = build_sar_panel(catalog=local_catalog("path/to/sars"))
 ```
+
+## Cost risk on an estimate kept in Excel
+
+Most estimates already live in a workbook. Put each WBS element on a row with
+its point estimate and a low, most likely and high, add the discrete risks and
+which elements tend to overrun together, and run it:
+
+```bash
+ce-core demo cost-risk                                   # the invented example
+ce-core template cost-risk                               # my_estimate.xlsx to fill in
+ce-core cost-risk --data my_estimate.xlsx --out cost-risk/
+```
+
+It prints what the point estimate's confidence really is, what it takes to be
+50%, 70%, 80% and 90% sure, and which elements and risks drive the spread, then
+writes `report.xlsx` (S-curve, confidence table, drivers, elements, risks, the
+correlation used and what ignoring it would cost), `brief.pptx` and the tables
+as CSV. Only the Elements sheet is required; a CSV of elements works too. Pairs
+of elements you don't list take the default correlation (0.3 in the template),
+because leaving correlation out makes the P80 too low. The workbook never
+leaves your machine.
 
 ## Comparing alternatives: life-cycle cost for an AoA
 

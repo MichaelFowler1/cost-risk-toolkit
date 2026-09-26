@@ -23,6 +23,9 @@ EXAMPLES = {
     "evm": ("evm_example.csv",
             "An invented three-account program, 14 months into a 30-month plan, "
             "with the contractor's EAC."),
+    "cost-risk": ("cost_risk_example.xlsx",
+                  "A ground station upgrade estimated in $M: eight WBS elements with "
+                  "ranges, three risks and the correlations between elements."),
     "schedule": ("example_ims.xml",
                  "A small schedule saved from Microsoft Project as XML: ten tasks, every "
                  "link type, progress, a baseline and a status date."),

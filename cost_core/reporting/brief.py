@@ -290,6 +290,30 @@ def dcma_brief(result, schedule, out_dir) -> Path:
     return b.save(Path(out_dir) / "brief.pptx")
 
 
+def cost_risk_brief(result, out_dir) -> Path:
+    from cost_core import plain
+
+    units = plain.units_label(result.units)
+    sim = result.sim
+    out_dir = Path(out_dir)
+    b = Brief("Cost risk analysis", f"{result.inputs.model.name}, {sim.n_iter:,} simulations")
+    b.bottom_line(plain.cost_risk(result, units),
+                  [("point estimate", _money(result.point_estimate, units)),
+                   ("its confidence", f"{sim.point_estimate_percentile:.0f}%"),
+                   ("P50", _money(sim.p50, units)), ("P80", _money(sim.p80, units))])
+    b.image("How sure: the S-curve", out_dir / "cost_risk_s_curve.png")
+    b.image("What drives the uncertainty", out_dir / "cost_risk_drivers.png")
+    conf = result.confidence_table((50, 70, 80, 90))
+    b.table("Cost at each confidence level", pd.DataFrame({
+        "Confidence": conf["confidence"].map(lambda v: f"{v:.0%}"),
+        "Cost": conf["cost"].map(lambda v: _money(v, units)),
+        "Reserve over the point estimate": [f"{_money(r, units)} ({p:.0%})"
+                                            for r, p in zip(conf["reserve"], conf["reserve_pct"])]}))
+    b.assumptions([f"{k}: {v}" for k, v in result.assumptions.items()]
+                  + ["The full tables are in report.xlsx beside this briefing."])
+    return b.save(out_dir / "brief.pptx")
+
+
 def aoa_brief(result, out_dir) -> Path:
     from cost_core import plain
 
