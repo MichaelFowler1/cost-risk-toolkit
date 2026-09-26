@@ -43,7 +43,9 @@ def _years(d: Dict[str, Any]) -> Dict[int, float]:
 def load_portfolio(path) -> "tuple[Portfolio, Dict[str, Any]]":
     """Read a spec file: the Portfolio, and the analysis settings beside it."""
     path = Path(path)
-    spec = json.loads(path.read_text(encoding="utf-8"))
+    from cost_core.xlspec import read_spec
+
+    spec = read_spec(path)
     for key in ("budget", "candidates"):
         if key not in spec:
             raise PortfolioError(f"{path.name}: missing {key!r}.")

@@ -26,6 +26,14 @@ housekeeping detail here, because someone may have put the old one in a budget.
   and `ce-core demo cost-risk` runs an invented ground station estimate that
   ships with the package. The library side is `cost_core.costrisk`
   (`read_workbook`, `analyse`, `write_workbook`).
+- **Excel inputs for JCL, AoA and portfolio.** `--spec` takes an .xlsx as
+  well as JSON, and `ce-core template jcl`, `aoa` and `portfolio` now write
+  workbooks with an Instructions sheet (`--out my_spec.json` still writes
+  JSON for scripts). JCL ranges are entered in months and dollars, not as
+  factors; lists in a cell (predecessors, the activities a risk hits) are
+  separated by semicolons, with link types and lags written as
+  `design -4` or `bus SS +2`. A workbook and the JSON it came from give
+  identical results. `cost_core.xlspec` converts either way.
 
 ## [2.3.1] - 2026-09-25
 

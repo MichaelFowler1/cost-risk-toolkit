@@ -60,7 +60,9 @@ from cost_core.schedule.jcl import Activity, Project, Risk, ScheduleError
 def load_project(path) -> Tuple[Project, Dict[str, Any]]:
     """Read a spec file: the Project, and the analysis settings beside it."""
     path = Path(path)
-    spec = json.loads(path.read_text(encoding="utf-8"))
+    from cost_core.xlspec import read_spec
+
+    spec = read_spec(path)
     if "mspdi" in spec:
         return _load_mspdi(path, spec)
     if "activities" not in spec:

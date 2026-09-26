@@ -706,9 +706,9 @@ def run_demo(args) -> None:
     mine = {"evm": "ce-core evm --data my_evm.xlsx",
             "cost-risk": "ce-core cost-risk --data my_estimate.xlsx",
             "schedule": "ce-core schedule-check --mspdi my_schedule.xml",
-            "jcl": "ce-core jcl --spec my_jcl.json",
-            "aoa": "ce-core aoa --spec my_aoa.json",
-            "portfolio": "ce-core portfolio --spec my_portfolio.json"}[topic]
+            "jcl": "ce-core jcl --spec my_jcl.xlsx",
+            "aoa": "ce-core aoa --spec my_aoa.xlsx",
+            "portfolio": "ce-core portfolio --spec my_portfolio.xlsx"}[topic]
     first = ("ce-core template schedule   (how to save one from Microsoft Project)"
              if topic == "schedule" else f"ce-core template {topic}")
     print(f"Everything above is in {out}.\n\nNow with your own data:\n  {first}\n  {mine}")
@@ -719,8 +719,8 @@ def _quote(arg: str) -> str:
 
 
 TEMPLATE_FILES = {"evm": "my_evm.xlsx", "cost-risk": "my_estimate.xlsx",
-                  "jcl": "my_jcl.json", "aoa": "my_aoa.json",
-                  "portfolio": "my_portfolio.json", "lots": "my_lots.csv"}
+                  "jcl": "my_jcl.xlsx", "aoa": "my_aoa.xlsx",
+                  "portfolio": "my_portfolio.xlsx", "lots": "my_lots.csv"}
 
 
 def run_template(args) -> None:
@@ -912,7 +912,8 @@ def main(argv=None) -> None:
         help="Life-cycle cost of alternatives, compared under uncertainty",
     )
     p_aoa.add_argument("--spec", required=True,
-                       help="JSON spec of the alternatives (ce-core template aoa writes one)")
+                       help="Excel workbook or JSON spec of the alternatives "
+                            "(ce-core template aoa writes one)")
     p_aoa.add_argument("--out", default="aoa",
                        help="Directory for the tables, assumptions and chart")
 
@@ -922,7 +923,7 @@ def main(argv=None) -> None:
         help="Which programs to fund within each year's budget (needs [optimize])",
     )
     p_port.add_argument("--spec", required=True,
-                        help="JSON spec of the candidates and budget "
+                        help="Excel workbook or JSON spec of the candidates and budget "
                              "(ce-core template portfolio writes one)")
     p_port.add_argument("--out", default="portfolio",
                         help="Directory for the choice, spend, frontier and risk tables")
@@ -933,7 +934,8 @@ def main(argv=None) -> None:
         help="Schedule risk and joint cost and schedule confidence (JCL)",
     )
     p_jcl.add_argument("--spec", required=True,
-                       help="JSON spec of the network (ce-core template jcl writes one), or one "
+                       help="Excel workbook or JSON spec of the network (ce-core template jcl "
+                            "writes one), or a JSON spec "
                             "naming a Microsoft Project XML file under \"mspdi\"")
     p_jcl.add_argument("--out", default="jcl",
                        help="Directory for the tables, the draws and the JCL chart")

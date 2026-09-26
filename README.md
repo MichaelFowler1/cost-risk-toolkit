@@ -32,9 +32,9 @@ walks through each task from "what do I need" to "what does this tell me".
 | Forecast a program's final cost and finish from EVM | `ce-core demo evm` | `ce-core evm --data my_evm.xlsx` or `--ipmdar delivery.zip` |
 | How sure is my estimate, and what drives it (cost risk) | `ce-core demo cost-risk` | `ce-core cost-risk --data my_estimate.xlsx` |
 | Check a schedule's logic (DCMA 14-point) | `ce-core demo schedule` | `ce-core schedule-check --mspdi my_schedule.xml` |
-| Know the chance of meeting a budget *and* a date (JCL) | `ce-core demo jcl` | `ce-core jcl --spec my_jcl.json` |
-| Compare alternatives on life-cycle cost (AoA) | `ce-core demo aoa` | `ce-core aoa --spec my_aoa.json` |
-| Choose which programs to fund within a budget | `ce-core demo portfolio` | `ce-core portfolio --spec my_portfolio.json` |
+| Know the chance of meeting a budget *and* a date (JCL) | `ce-core demo jcl` | `ce-core jcl --spec my_jcl.xlsx` |
+| Compare alternatives on life-cycle cost (AoA) | `ce-core demo aoa` | `ce-core aoa --spec my_aoa.xlsx` |
+| Choose which programs to fund within a budget | `ce-core demo portfolio` | `ce-core portfolio --spec my_portfolio.xlsx` |
 | Fit a learning curve to production lots | `ce-core template lots` | `ce-core fit-lots --csv my_lots.csv --dollar-year 2026` |
 | See how real programs' unit costs grew | | `ce-core sar-panel --programs F-35` |
 
@@ -213,11 +213,11 @@ leaves your machine.
 ## Comparing alternatives: life-cycle cost for an AoA
 
 An analysis of alternatives asks which way of meeting a need is worth its cost
-over the whole life of the thing. Write the alternatives down as a JSON file
+over the whole life of the thing. Write the alternatives down in a workbook
 (`ce-core template aoa` writes a complete one, with invented numbers) and run:
 
 ```bash
-ce-core aoa --spec my_aoa.json --out aoa/
+ce-core aoa --spec my_aoa.xlsx --out aoa/
 ```
 
 ```
@@ -270,7 +270,7 @@ probability of finishing at or under the cost *and* by the date.
 
 ```bash
 ce-core demo jcl                          # the example below
-ce-core jcl --spec my_jcl.json --out jcl/   # yours, from: ce-core template jcl
+ce-core jcl --spec my_jcl.xlsx --out jcl/   # yours, from: ce-core template jcl
 ```
 
 The spec is an activity network in months: each activity has a most-likely
@@ -415,7 +415,7 @@ it's a mixed-integer program solved with HiGHS through PuLP:
 
 ```bash
 pip install "cost-core[optimize]"
-ce-core portfolio --spec my_portfolio.json --out portfolio/   # ce-core template portfolio
+ce-core portfolio --spec my_portfolio.xlsx --out portfolio/   # ce-core template portfolio
 ```
 
 Each candidate has one or more funding options (full rate, minimum sustaining
