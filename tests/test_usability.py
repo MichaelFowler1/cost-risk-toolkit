@@ -210,3 +210,12 @@ def test_a_schedule_that_is_not_xml_says_how_to_save_one(tmp_path, caplog):
     with pytest.raises(SystemExit):
         cli.main(["schedule-check", "--mspdi", str(mpp)])
     assert "not an XML file" in caplog.text and "Save As > XML" in caplog.text
+
+
+@pytest.mark.parametrize("n,text", [(1, "1st"), (2, "2nd"), (3, "3rd"), (4, "4th"), (11, "11th"),
+                                    (12, "12th"), (13, "13th"), (21, "21st"), (22, "22nd"),
+                                    (50, "50th"), (101, "101st"), (112, "112th")])
+def test_ordinals_read_the_way_people_say_them(n, text):
+    from cost_core.plain import ordinal
+
+    assert ordinal(n) == text

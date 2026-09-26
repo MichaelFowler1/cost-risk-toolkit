@@ -17,8 +17,14 @@ housekeeping detail here, because someone may have put the old one in a budget.
   numbers, never real program data or CUI; blank issues are turned off so
   every report sees that.
 
+### Fixed
+- The S-curve chart, the lot model's risk summary and the pipeline report
+  said "2th percentile" and "3th percentile"; they now say 2nd and 3rd.
+
 ### Changed
-- The README opens with cost risk from an Excel estimate, and says up front
+- The README opens with a 20-second demo GIF, rendered from the real output
+  of `ce-core demo cost-risk` by `tools/make_demo_gif.py` so it can be
+  regenerated for each release, and with cost risk from an Excel estimate, and says up front
   that data stays on the machine, that government work is covered by the
   licence, and where to report problems.
 
