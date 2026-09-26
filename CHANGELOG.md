@@ -10,6 +10,62 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Changed
+- The README is a front page now: the pitch, the demo, one short section per
+  command, installation and the licence, in about 460 lines instead of 1,050.
+  The reference material moved, unchanged, to `docs/`: the lot cost engine and
+  learning-curve fitting to `docs/learning-curves.md`, the method choices to
+  `docs/methods.md`, the SAR walkthrough to `docs/public-sar-data.md`, and
+  project structure, tests and the numpy and scipy bounds to
+  `docs/development.md`.
+- The README says what sets cost-core apart (the jobs that usually take
+  several tools, together on one engine) and, just as plainly, where it
+  stands: young, one maintainer, not yet checked against published worked
+  examples. The package description on PyPI now says what it does.
+- Earned value moved up to follow cost risk in the README, since it's the job
+  most people do every month.
+
+### Fixed
+Found by running 139 broken and awkward inputs through every command.
+- `ce-core jcl` crashed on a confidence outside 0 to 1, from the spec or
+  `--confidence`; `ce-core portfolio` crashed on a growth range written high
+  to low and on a negative `delta`. All are refused up front with the reason,
+  as is a `growth_correlation` outside -1 to 1.
+- `ce-core evm` dropped rows with a blank control account name, and with all
+  of them blank failed with pandas' "No objects to concatenate". It now names
+  the rows.
+- Earned value above the budget at completion (330% complete, say) passed
+  without comment; it's now a warning sign that points at the BCWP figures
+  or the budget.
+- A program that had spent money but earned nothing printed NaN and a CPI of
+  zero, and its TCPI warning said the rest of the work must be done "+1.445
+  more efficiently". The summary now says no work has been earned yet, and the
+  TCPI warning names the CPI needed. Programs with too little history for a
+  forecast now get a plain-words status too, not just the table.
+- `fit-lots --complexity 0` priced the next lot at zero and `-1` at a negative
+  cost with the interval upside down; the factor must now be above zero. A
+  non-number in `--forecast` or `--price-lots` said "invalid literal for
+  int()"; it now says how to write the list.
+- An AoA spec with an inflation rate of -50% or a present-value year of 1900
+  ran without a word; rates outside -10% to 50% a year and PV years more than
+  a century from the base year are refused as likely typos.
+- A JCL spec naming a schedule file that isn't there gave a raw "No such file"
+  error; it now says the path is relative to the spec.
+- Tables printed NaN or None for values that don't apply (the rate term of an
+  LC fit, "dominated by" for an undominated alternative, the option of an
+  unfunded program). They print blank.
+
+### Changed (behavior)
+- `ce-core evm` and `ce-core full-run` need at least 1,000 iterations, like
+  `cost-risk`: with fewer the P80 is mostly noise. A script passing
+  `--iters 500` now stops with that reason.
+
+### Deprecated
+- `ce-core fit-curve`, `forecast` and `simulate`, the first release's
+  commands, still run but are hidden from `--help` and print what replaced
+  them: `fit-lots` for the first two, `cost-risk` for `simulate`. They'll be
+  removed in 3.0.
+
 ## [2.4.2] - 2026-09-26
 
 Twelve fixes found by a review of the 2.4.0 code: one crash, some silent

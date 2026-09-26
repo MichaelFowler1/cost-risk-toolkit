@@ -78,14 +78,7 @@ def evm(data, fc, units: str = "", where: str = "listed above") -> List[str]:
     """An EVM status and its forecast. ``where`` says where the warning
     signs are: above in the terminal, elsewhere in a workbook or a deck."""
     m = data.metrics().iloc[-1]
-    out = []
-    # Spending 1/CPI dollars for each dollar of planned work: at CPI 0.5 the
-    # work costs twice its budget, 100% over, not 50%.
-    overrun = 1.0 / m.cpi - 1.0
-    cost_word = "over" if overrun > 0 else "under"
-    out.append(f"Each dollar spent so far has bought {m.cpi * 100:.0f} cents' worth of the "
-               f"planned work: the work done has cost {abs(overrun):.0%} {cost_word} its "
-               "budget.")
+    out = [_cpi_sentence(m, units)]
     months = -m.sv_t
     if abs(months) >= 0.05:
         out.append(f"It is {abs(months):.1f} reporting periods "
@@ -111,6 +104,38 @@ def evm(data, fc, units: str = "", where: str = "listed above") -> List[str]:
         out.append(f"There is 1 warning sign, {where}; start with it.")
     elif len(raised) > 1:
         out.append(f"There are {len(raised)} warning signs, {where}; start with those.")
+    return out
+
+
+def _cpi_sentence(m, units: str = "") -> str:
+    """What the CPI says, in words; or why there's nothing to say yet."""
+    if not (np.isfinite(m.cpi) and m.cpi > 0):
+        return (f"No work has been earned yet against {_money(m.acwp, units)} spent, so "
+                "there's no cost efficiency to measure." if m.acwp > 0 else
+                "Nothing has been earned or spent yet, so there's no cost efficiency to "
+                "measure.")
+    # Spending 1/CPI dollars for each dollar of planned work: at CPI 0.5 the
+    # work costs twice its budget, 100% over, not 50%.
+    overrun = 1.0 / m.cpi - 1.0
+    cost_word = "over" if overrun > 0 else "under"
+    return (f"Each dollar spent so far has bought {m.cpi * 100:.0f} cents' worth of the "
+            f"planned work: the work done has cost {abs(overrun):.0%} {cost_word} its "
+            "budget.")
+
+
+def evm_status(data, why: str, units: str = "") -> List[str]:
+    """An EVM status without a forecast: early in a program, say."""
+    m = data.metrics().iloc[-1]
+    out = [_cpi_sentence(m, units)]
+    if np.isfinite(m.sv_t) and abs(m.sv_t) >= 0.05:
+        out.append(f"It is {abs(m.sv_t):.1f} reporting periods "
+                   f"{'behind' if m.sv_t < 0 else 'ahead of'} schedule.")
+    out.append(f"There's no forecast of the final cost yet: {why}")
+    raised = data.flags()
+    n = int(raised["raised"].sum())
+    if n:
+        out.append(f"There {'is 1 warning sign' if n == 1 else f'are {n} warning signs'}, "
+                   "listed above.")
     return out
 
 

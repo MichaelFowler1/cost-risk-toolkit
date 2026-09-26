@@ -59,4 +59,19 @@ def load_portfolio(path) -> "tuple[Portfolio, Dict[str, Any]]":
                           [list(g) for g in spec.get("exclusive", [])])
     settings = {k: spec[k] for k in ("units", "growth", "growth_correlation", "delta",
                                     "frontier_scales", "seed", "n_iter") if k in spec}
+    # Checked here so a bad setting stops the run with a reason, not partway
+    # through the analyses with a traceback.
+    if "delta" in settings and not float(settings["delta"]) > 0:
+        raise PortfolioError(f"{path.name}: delta, the extra money to test in one year, "
+                             f"must be more than 0; got {settings['delta']}.")
+    if "growth" in settings:
+        from cost_core.monte_carlo import RiskModelError, make_distribution
+        try:
+            make_distribution(settings["growth"])
+        except (RiskModelError, KeyError, TypeError, ValueError) as e:
+            raise PortfolioError(f"{path.name}: the growth range: {e}") from None
+    rho = float(settings.get("growth_correlation", 0.0))
+    if not -1.0 <= rho <= 1.0:
+        raise PortfolioError(f"{path.name}: growth_correlation must be between -1 and 1; "
+                             f"got {rho:g}.")
     return portfolio, settings

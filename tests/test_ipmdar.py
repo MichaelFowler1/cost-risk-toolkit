@@ -216,7 +216,7 @@ def test_cli_reads_a_cpd(tmp_path, monkeypatch, capsys):
     from cost_core import cli
 
     folder = write_folder(cpd_tables(), tmp_path / "cpd")
-    monkeypatch.setattr("sys.argv", ["ce-core", "evm", "--ipmdar", str(folder), "--iters", "500",
+    monkeypatch.setattr("sys.argv", ["ce-core", "evm", "--ipmdar", str(folder), "--iters", "1000",
                                      "--out", str(tmp_path / "o")])
     cli.main()
     out = capsys.readouterr().out
@@ -239,7 +239,7 @@ def test_one_cumulative_delivery_gives_the_metrics_and_no_forecast(tmp_path, cap
         forecast(data, n_iter=200, seed=0)
     cli.main(["evm", "--ipmdar", str(path), "--out", str(tmp_path / "o")])
     out = capsys.readouterr().out
-    assert "No forecast of the final cost and finish" in out and "CPI" in out
+    assert "no forecast of the final cost yet" in out and "CPI" in out
     assert (tmp_path / "o" / "metrics.csv").exists()
 
 

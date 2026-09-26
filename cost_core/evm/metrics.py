@@ -294,6 +294,14 @@ class EvmData:
         if not has.any():
             raise EvmError("No period has both BCWP and ACWP.")
         status = max(labels.index(p) for p in df.loc[has, period]) + 1
+        unnamed = df[account].isna() | (df[account].astype(str).str.strip() == "")
+        if unnamed.any():
+            # groupby would drop these rows without a word, and their money
+            # with them.
+            rows = ", ".join(str(int(i) + 2) for i in df.index[unnamed][:5])
+            raise EvmError(f"{int(unnamed.sum())} row(s) have no control account name (rows "
+                           f"{rows}{', ...' if unnamed.sum() > 5 else ''}). Fill the name in, "
+                           "or delete the account column to treat the data as one program.")
         accounts = {}
         for key, part in df.groupby(account, sort=False):
             if part[period].duplicated().any():
@@ -460,8 +468,9 @@ class EvmData:
         if np.isfinite(r["eac"]):
             gap = r["tcpi_eac"] - r["cpi"]
             add("TCPI to the EAC exceeds the CPI by more than 0.10", gap > 0.10,
-                f"TCPI(EAC) {r['tcpi_eac']:.3f} against CPI {r['cpi']:.3f}: the remaining "
-                f"work would have to be done {gap:+.3f} more efficiently than the work so far.")
+                f"TCPI(EAC) {r['tcpi_eac']:.3f} against CPI {r['cpi']:.3f}: to land on the "
+                f"EAC the remaining work has to run at a CPI of {r['tcpi_eac']:.3f}, against "
+                f"{r['cpi']:.3f} so far.")
             low = min(r["ieac_cpi"], r["ieac_cpi_spi"], r["ieac_cpi_3"], r["ieac_weighted"])
             add("Contractor EAC below every independent EAC", r["eac"] < low,
                 f"EAC {r['eac']:,.1f} against the lowest independent EAC {low:,.1f}.")
@@ -481,4 +490,9 @@ class EvmData:
             "late in a program SPI returns towards 1.0 whatever the schedule.")
         add("TCPI to BAC above 1.10", r["tcpi_bac"] > 1.10,
             f"Finishing within budget needs a CPI of {r['tcpi_bac']:.3f} from here.")
+        # Earned value can't pass the whole budget: more work claimed done
+        # than the program holds is a data problem, not a performance one.
+        add("Earned value exceeds the budget at completion", r["pct_complete"] > 1.0,
+            f"Earned value is {r['pct_complete']:.0%} of the budget of {self.bac:,.1f}. Check "
+            "the BCWP figures, and whether the budget at completion is right.")
         return pd.DataFrame(out)
