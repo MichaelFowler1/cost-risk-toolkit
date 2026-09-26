@@ -10,23 +10,31 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-09-25
+
+A wording fix, and a front door for new users. No number moves.
+
+### Fixed
+- The S-curve chart, the lot model's risk summary and the pipeline report
+  said "2th percentile" and "3th percentile"; they now say 2nd and 3rd,
+  through a new `cost_core.plain.ordinal`.
+
 ### Added
 - Issue forms for bug reports, results that look wrong, output that wasn't
   clear, feature wishes and licence questions. Each warns that the tracker is
   public and asks the reporter to confirm they're using invented or public
   numbers, never real program data or CUI; blank issues are turned off so
   every report sees that.
-
-### Fixed
-- The S-curve chart, the lot model's risk summary and the pipeline report
-  said "2th percentile" and "3th percentile"; they now say 2nd and 3rd.
+- [cost-core-starter](https://github.com/MichaelFowler1/cost-core-starter),
+  a template repository of ready-to-run example workbooks for every command.
 
 ### Changed
 - The README opens with a 20-second demo GIF, rendered from the real output
   of `ce-core demo cost-risk` by `tools/make_demo_gif.py` so it can be
-  regenerated for each release, and with cost risk from an Excel estimate, and says up front
-  that data stays on the machine, that government work is covered by the
-  licence, and where to report problems.
+  regenerated for each release. Below it, the first screen leads with cost
+  risk from an Excel estimate and says up front that data stays on the
+  machine, that government work is covered by the licence, and where to
+  report problems.
 
 ## [2.4.0] - 2026-09-25
 
@@ -681,7 +689,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.2.0...v2.3.0
