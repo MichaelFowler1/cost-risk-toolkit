@@ -104,6 +104,30 @@ def evm(data, fc, units: str = "", where: str = "listed above") -> List[str]:
         out.append(f"There is 1 warning sign, {where}; start with it.")
     elif len(raised) > 1:
         out.append(f"There are {len(raised)} warning signs, {where}; start with those.")
+    out.extend(_evm_monthly(data))
+    return out
+
+
+def _evm_monthly(data) -> List[str]:
+    """The data checks and the accounts owing a variance report, in a line each."""
+    from cost_core.evm.checks import data_checks, thresholds, variance_breaches
+
+    out = []
+    if not hasattr(data, "accounts"):
+        return out  # a summary built from something other than EVM data
+    checks = data_checks(data)
+    if len(checks):
+        kinds = checks["check"].value_counts()
+        out.append(f"{len(checks)} data check{'s' if len(checks) > 1 else ''} need a question "
+                   f"asked before the numbers are trusted, most often "
+                   f"'{kinds.index[0].lower()}'.")
+    breaches = variance_breaches(data, **thresholds(data))
+    if len(breaches):
+        names = ", ".join(map(repr, breaches["account"].head(3)))
+        more = f" and {len(breaches) - 3} more" if len(breaches) > 3 else ""
+        out.append(f"{len(breaches)} account{'s' if len(breaches) > 1 else ''} break"
+                   f"{'' if len(breaches) > 1 else 's'} the variance thresholds and owe a "
+                   f"variance analysis report: {names}{more}.")
     return out
 
 
@@ -136,6 +160,7 @@ def evm_status(data, why: str, units: str = "") -> List[str]:
     if n:
         out.append(f"There {'is 1 warning sign' if n == 1 else f'are {n} warning signs'}, "
                    "listed above.")
+    out.extend(_evm_monthly(data))
     return out
 
 
@@ -238,6 +263,16 @@ def cost_risk(result, units: str = "") -> List[str]:
                    f"({first.variance_share:.0%} of the spread)"
                    + (f", then {rest}." if rest else ".")
                    + " Narrowing those ranges moves the P80 most.")
+    alloc = result.allocation(0.8)
+    reserve = float(alloc["reserve"].sum())
+    if reserve > 0:
+        top = alloc.iloc[0]
+        own = float(alloc["own_p80"].sum())
+        out.append(f"Shared out, the {_money(reserve, units)} of reserve to reach P80 goes "
+                   f"mostly to {top.component!r} ({_money(top.reserve, units)}, "
+                   f"{top.share_of_reserve:.0%}). Funding every element at its own P80 "
+                   f"instead would total {_money(own, units)}, {_money(own - sim.p80, units)} "
+                   "more than the P80 of the whole: percentiles don't add.")
     impact = result.impact
     # Only while there is a reserve to lose: with the estimate above the P80
     # the share is undefined.
@@ -280,6 +315,9 @@ def menu() -> str:
 
         What do you want to do?
 
+          Just have a file? cost-core works out what it is and reads it
+              ce-core open my_file.xlsx               (Windows: ce-core open --send-to
+                                                       adds it to right-click, Send to)
           Forecast where a program is heading from its EVM data
               ce-core evm --data my_evm.xlsx          (or --ipmdar for an IPMDAR delivery)
           Check a Microsoft Project schedule (DCMA 14-point)
@@ -292,6 +330,8 @@ def menu() -> str:
               ce-core aoa --spec my_aoa.xlsx
           Choose which programs to fund within a budget
               ce-core portfolio --spec my_portfolio.xlsx
+          Convert between base-year and then-year dollars (your index)
+              ce-core inflate --index my_index.csv --data my_phasing.csv --from by2026 --to ty
           Fit a learning curve to production lots
               ce-core fit-lots --csv my_lots.csv --dollar-year 2026
           Unit cost history of real programs from public SARs
@@ -302,5 +342,6 @@ def menu() -> str:
         Then get a file to fill in with your own numbers:
               ce-core template evm    (or: cost-risk, jcl, aoa, portfolio, lots)
 
+        Set a marking, units or your slide template once:  ce-core settings --write
         Help on any command:  ce-core evm --help
         """)

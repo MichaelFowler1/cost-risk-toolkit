@@ -26,6 +26,9 @@ EXAMPLES = {
     "cost-risk": ("cost_risk_example.xlsx",
                   "A ground station upgrade estimated in $M: eight WBS elements with "
                   "ranges, three risks and the correlations between elements."),
+    "inflate": ("inflate_example.csv",
+                "An invented estimate in BY2026 $M, phased by fiscal year, converted to "
+                "then-year dollars with an illustrative 2% index (inflate_index.csv)."),
     "schedule": ("example_ims.xml",
                  "A small schedule saved from Microsoft Project as XML: ten tasks, every "
                  "link type, progress, a baseline and a status date."),

@@ -332,6 +332,8 @@ def save_complete_excel_workbook(
             if n in headers
         ]
         if x_name is None or len(y_names) < 2:
+            from cost_core.reporting.output import mark_workbook
+            mark_workbook(wb)
             wb.save(filename)
             return
 
@@ -472,4 +474,6 @@ def save_complete_excel_workbook(
 
         wss.add_chart(curve, "I2")
 
+    from cost_core.reporting.output import mark_workbook
+    mark_workbook(wb)
     wb.save(filename)

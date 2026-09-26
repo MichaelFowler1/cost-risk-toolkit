@@ -206,3 +206,23 @@ cd cost_core-*/ && pip install ".[plots,public,optimize]" pytest && pytest tests
 
 `CITATION.cff` in the repository gives the citation for each release, and
 GitHub's "Cite this repository" button reads it.
+
+## Markings, your slide template and settings
+
+- `--marking "TEXT"` on any command that writes a report stamps exactly that
+  text at the top and bottom of every slide of `brief.pptx` and in the header
+  and footer of every sheet of `report.xlsx` (and on the Summary sheet, where
+  it shows on screen). cost-core doesn't choose, check or validate markings:
+  what a document needs is for your organisation and the person releasing it
+  to decide. CSV files and PNG charts written beside the report carry no
+  marking, so handle them as the report is handled.
+- `--template house.potx` builds the briefing on your organisation's slide
+  master. A `.potx` works as well as a `.pptx`; the template's own sample
+  slides are left out, and its "Title Slide" and "Title Only" layouts are used
+  by name when it has them.
+- `ce-core settings --write` starts a `ce-core.toml` in the folder you run
+  from (one in your home folder applies everywhere), so the marking, template,
+  units, seed and fiscal-year start don't have to be typed each time.
+  `ce-core settings` shows every value in effect and the file it came from.
+- `ce-core --about` lists the versions of cost-core, Python and its libraries
+  for a bug report. It reads nothing of yours and sends nothing anywhere.

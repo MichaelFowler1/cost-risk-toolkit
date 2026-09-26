@@ -380,6 +380,8 @@ def run_cost_risk(args) -> None:
     result.drivers().to_csv(out / "drivers.csv", index=False)
     result.element_table().to_csv(out / "elements.csv", index=False)
     result.risk_table().to_csv(out / "risks.csv", index=False)
+    alloc = result.allocation(0.8)
+    alloc.to_csv(out / "reserve_allocation.csv", index=False)
     result.sim.summary().to_csv(out / "summary.csv", index=False)
     charts = []
     try:
@@ -401,6 +403,9 @@ def run_cost_risk(args) -> None:
     for r in conf.itertuples():
         print(f"  P{r.confidence * 100:.0f}             {r.cost:,.2f}  "
               f"(reserve {r.reserve:,.2f}, {r.reserve_pct:.0%})")
+    print("\nThe P80 shared out (reserve over each point estimate):")
+    for r in alloc.head(6).itertuples():
+        print(f"  {r.reserve:12,.2f}  {r.share_of_reserve:6.1%}  {r.component} ({r.kind})")
     top = result.drivers().head(5)
     print("\nTop drivers of the uncertainty:")
     for r in top.itertuples():
@@ -409,7 +414,7 @@ def run_cost_risk(args) -> None:
     from cost_core.reporting.brief import cost_risk_brief
     brief = write_brief(cost_risk_brief, result, out)
     print(f"Wrote report.xlsx, {brief + ', ' if brief else ''}confidence.csv, drivers.csv, "
-          f"elements.csv, risks.csv, summary.csv"
+          f"elements.csv, risks.csv, reserve_allocation.csv, summary.csv"
           f"{', ' + ', '.join(charts) if charts else ''} to {out}")
 
 
@@ -611,6 +616,8 @@ def run_evm(args) -> None:
                   "  For a spreadsheet to fill in: ce-core template evm")
     except (EvmError, OSError, KeyError, ValueError) as e:
         abort(f"EVM failed: {e}")
+    data.variance_thresholds = {"cv_pct": args.cv_pct, "sv_pct": args.sv_pct,
+                                "cv_dollars": args.cv_dollars, "sv_dollars": args.sv_dollars}
     try:
         fc = forecast(data, n_iter=args.iters, seed=args.seed)
     except EvmError as e:
@@ -666,6 +673,8 @@ def run_evm(args) -> None:
         print("\nWarning signs:")
         for r in raised.itertuples():
             print(f"  - {r.flag}. {r.detail}")
+    _print_monthly(data, out)
+    written += ["data_checks.csv", "variance_reports.csv"]
     if data.notes:
         title = ("How the IPMDAR was read (a preview reader: check these against the "
                  "delivery's own totals):" if args.ipmdar else "How the data was read:")
@@ -677,6 +686,28 @@ def run_evm(args) -> None:
     from cost_core.reporting.brief import evm_brief
     written[1:1] = [w for w in [write_brief(evm_brief, data, fc, out, args.units)] if w]
     print(f"Wrote {', '.join(written)} to {out}")
+
+
+def _print_monthly(data, out) -> None:
+    """The data checks and the accounts owing a variance report, printed and
+    written beside the other tables."""
+    from cost_core.evm.checks import data_checks, thresholds, variance_breaches
+
+    checks = data_checks(data)
+    breaches = variance_breaches(data, **thresholds(data))
+    checks.to_csv(out / "data_checks.csv", index=False)
+    breaches.to_csv(out / "variance_reports.csv", index=False)
+    if len(checks):
+        print(f"\nData checks ({len(checks)}): questions to ask before trusting the numbers")
+        for r in checks.head(12).itertuples():
+            print(f"  - {r.account}, {r.period}: {r.check}. {r.detail}")
+        if len(checks) > 12:
+            print(f"  ... and {len(checks) - 12} more in data_checks.csv")
+    if len(breaches):
+        print(f"\nAccounts over the variance thresholds ({len(breaches)}), owing a variance "
+              "analysis report:")
+        for r in breaches.itertuples():
+            print(f"  - {r.account}: {r.why}")
 
 
 def _evm_without_forecast(data, out, why: str) -> None:
@@ -692,6 +723,7 @@ def _evm_without_forecast(data, out, why: str) -> None:
         print("\nWarning signs:")
         for r in raised.itertuples():
             print(f"  - {r.flag}. {r.detail}")
+    _print_monthly(data, out)
     for note in data.notes:
         print(f"  note: {note}")
     from cost_core import plain
@@ -749,10 +781,200 @@ DEMOS = {
     "evm": ["evm", "--data", "{path}", "--units", "thousands", "--out", "{out}"],
     "cost-risk": ["cost-risk", "--data", "{path}", "--out", "{out}"],
     "schedule": ["schedule-check", "--mspdi", "{path}", "--out", "{out}"],
+    "inflate": ["inflate", "--index", "{index}", "--data", "{path}",
+                "--from", "by2026", "--to", "ty", "--out", "{out}"],
     "jcl": ["jcl", "--spec", "{path}", "--out", "{out}"],
     "aoa": ["aoa", "--spec", "{path}", "--out", "{out}"],
     "portfolio": ["portfolio", "--spec", "{path}", "--out", "{out}"],
 }
+
+
+#: The commands that write report.xlsx and brief.pptx, and so take
+#: --marking and --template.
+REPORT_COMMANDS = ("cost-risk", "evm", "schedule-check", "jcl", "aoa", "portfolio", "demo",
+                   "open")
+
+#: ce-core.toml settings and the option each fills in.
+SETTING_OPTIONS = {"marking": "marking", "slide_template": "template", "units": "units",
+                   "seed": "seed", "iterations": "iters"}
+
+
+def add_output_options(p) -> None:
+    p.add_argument("--marking", default=None, metavar="TEXT",
+                   help="Text stamped at the top and bottom of every slide and sheet, "
+                        "exactly as given (for example CUI). cost-core doesn't check it.")
+    p.add_argument("--template", default=None, metavar="FILE",
+                   help="Your organisation's PowerPoint template (.pptx or .potx) for "
+                        "brief.pptx")
+
+
+def apply_settings(sub, values: dict) -> None:
+    """ce-core.toml values as the defaults of the options they stand for.
+
+    A flag on the command line still wins, since it overrides a default. An
+    option whose own default is None (cost-risk's seed, say) is left alone:
+    None there means "the input file decides", and the file should."""
+    for parser in sub.choices.values():
+        for action in parser._actions:
+            for key, dest in SETTING_OPTIONS.items():
+                if action.dest != dest or values.get(key) is None:
+                    continue
+                if dest in ("marking", "template") or action.default is not None:
+                    parser.set_defaults(**{dest: values[key]})
+
+
+def run_settings(args) -> None:
+    """Show the ce-core.toml settings in effect, or start a file."""
+    from cost_core import settings
+
+    if args.write:
+        try:
+            path = settings.write_template()
+        except settings.SettingsError as e:
+            abort(str(e))
+        print(f"Wrote {path}. Open it, delete the # in front of the settings you want, "
+              "and every ce-core command run from this folder uses them.")
+        return
+    loaded = settings.load()
+    print("Settings in effect (a flag on the command line always wins):\n")
+    for key, (value, source) in loaded.items():
+        shown = "(not set)" if value is None else str(value)
+        print(f"  {key:18} {shown:28} {source}")
+        print(f"  {'':18} {settings.KNOWN[key][2]}")
+    found = settings.files()
+    print()
+    if found:
+        print("Read from: " + "; ".join(str(p) for p in found) + " (this folder's file "
+              "wins over the home folder's).")
+    else:
+        print(f"No {settings.FILE_NAME} in this folder or in {Path.home()}. "
+              "ce-core settings --write starts one here.")
+
+
+def about() -> str:
+    """Versions to paste into a bug report. Nothing is sent anywhere."""
+    import platform
+    from importlib import metadata
+
+    from cost_core import __version__, settings
+
+    lines = [f"cost-core {__version__}",
+             f"Python {platform.python_version()} ({platform.python_implementation()}, "
+             f"{platform.architecture()[0]})",
+             f"{platform.system()} {platform.release()} ({platform.machine()})", "",
+             "Libraries:"]
+    for dist in ("numpy", "pandas", "scipy", "openpyxl", "matplotlib", "python-pptx",
+                 "PuLP", "highspy", "pdfplumber", "tomli"):
+        try:
+            lines.append(f"  {dist:12} {metadata.version(dist)}")
+        except metadata.PackageNotFoundError:
+            lines.append(f"  {dist:12} not installed")
+    found = settings.files()
+    lines += ["", "Settings files: " + ("; ".join(map(str, found)) if found else "none"),
+              "", "Paste this into a bug report as it is. It holds no data of yours, and "
+                  "ce-core never sends it anywhere."]
+    return "\n".join(lines)
+
+
+def run_inflate(args) -> None:
+    """Convert between base-year and then-year dollars with a supplied index."""
+    from cost_core import settings as settings_mod
+    from cost_core.inflate import InflateError, convert, factors, parse_basis, read_index
+
+    try:
+        src, dst = parse_basis(args.from_), parse_basis(args.to)
+        index, name = read_index(args.index, args.index_name)
+        start = settings_mod.values()["fiscal_year_start"]
+        if args.amount is not None:
+            if "ty" in (src.kind, dst.kind) and args.year is None:
+                abort("Then-year dollars belong to a year: give --year (the fiscal year "
+                      "the money is spent).")
+            year = args.year if args.year is not None else (src.year or dst.year)
+            f = float(factors(index, [year], src, dst)[0])
+            i_from = index[year] if src.kind == "ty" else index[src.year]
+            i_to = index[year] if dst.kind == "ty" else index[dst.year]
+            print(f"\n{args.amount:,.4g} in {src} dollars"
+                  f"{f' spent in FY{year}' if 'ty' in (src.kind, dst.kind) else ''} is "
+                  f"{args.amount * f:,.4f} in {dst} dollars.")
+            print(f"  = {args.amount:,.4g} x {i_to:.6g} / {i_from:.6g}   (index {name!r})")
+            return
+        if not args.data:
+            abort("Give --data (a table of amounts and fiscal years) or --amount.")
+        need_file(args.data, "the amounts to convert", "inflate")
+        data = Path(args.data)
+        frame = pd.read_excel(data) if data.suffix.lower() in (".xlsx", ".xlsm") \
+            else pd.read_csv(data)
+        out_frame = convert(frame, index, src, dst, args.amount_col, args.year_col, start, name)
+    except InflateError as e:
+        abort(f"Inflate failed: {e}")
+    new_col = out_frame.columns[-2]
+    old_col = [c for c in frame.columns if f"{c}_" in new_col][0]
+    out = Path(args.out) if args.out else data.with_name(f"{data.stem} {dst}.csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.suffix.lower() == ".xlsx":
+        out_frame.to_excel(out, index=False)
+    else:
+        out_frame.to_csv(out, index=False)
+    by_year = out_frame.groupby("fiscal_year")[[old_col, new_col]].sum()
+    print(f"\n{len(out_frame)} amounts from {src} to {dst} dollars, index {name!r}:\n")
+    print(by_year.to_string(float_format=lambda v: f"{v:,.2f}"))
+    total_old, total_new = by_year[old_col].sum(), by_year[new_col].sum()
+    from cost_core import plain
+    print(plain.show([
+        f"{total_old:,.2f} in {src} dollars is {total_new:,.2f} in {dst} dollars "
+        f"({total_new / total_old - 1:+.1%}), over FY{by_year.index.min()} to "
+        f"FY{by_year.index.max()}.",
+        f"The index is {name!r} from {Path(args.index).name}; check it's the published one "
+        "for this kind of money before the numbers go anywhere."]))
+    print(f"Wrote {out} (every row keeps its original amount, the factor and the index).")
+
+
+def run_open(args) -> None:
+    """Work out what each file is and run the command that reads it."""
+    import os
+
+    from cost_core import opener
+
+    if args.send_to:
+        try:
+            path = opener.install_send_to()
+        except (opener.OpenError, OSError) as e:
+            abort(str(e))
+        print(f"Added {path.name} to your Send To menu. Right-click a file, choose Send to, "
+              "then that entry, and the results open in a folder beside the file.")
+        return
+    if not args.files:
+        abort("Which file? For example: ce-core open my_estimate.xlsx\n"
+              "  It reads estimates, EVM spreadsheets, IPMDAR datasets, Microsoft Project "
+              "XML and JCL, AoA and portfolio specs.")
+    failed = []
+    for name in args.files:
+        try:
+            plan = opener.plan(name, args.out if len(args.files) == 1 else None)
+        except opener.OpenError as e:
+            log.error(str(e))
+            failed.append(name)
+            continue
+        argv = list(plan.argv)
+        if argv[0] in REPORT_COMMANDS:
+            for flag, value in (("--marking", args.marking), ("--template", args.template)):
+                if value:
+                    argv += [flag, str(value)]
+        print(f"\n{Path(name).name} looks like {plan.what}.\n"
+              f"Running: ce-core {' '.join(_quote(a) for a in argv)}")
+        try:
+            main(argv)
+        except SystemExit as e:
+            if e.code:
+                failed.append(name)
+                continue
+        out = argv[argv.index("--out") + 1]
+        if args.pause and os.name == "nt":
+            os.startfile(out)  # the results, for someone who came from Send To
+    if args.pause:
+        input("\nPress Enter to close this window.")
+    if failed:
+        sys.exit(1)
 
 
 def run_demo(args) -> None:
@@ -764,12 +986,19 @@ def run_demo(args) -> None:
     topic = args.topic
     path = example_path(topic)
     out = Path(args.out or Path("ce-core-demo") / topic)
-    argv = [a.format(path=path, out=out) for a in DEMOS[topic]]
+    argv = [a.format(path=path, out=out, index=path.parent / "inflate_index.csv")
+            for a in DEMOS[topic]]
+    # The demo's own --marking and --template go through to the command.
+    for flag, value in (("--marking", args.marking), ("--template", args.template)):
+        if value:
+            argv += [flag, str(value)]
     print(f"Demo: {EXAMPLES[topic][1]}\nExample data: {path}\n"
           f"Running: ce-core {' '.join(_quote(a) for a in argv)}")
     main(argv)
     mine = {"evm": "ce-core evm --data my_evm.xlsx",
             "cost-risk": "ce-core cost-risk --data my_estimate.xlsx",
+            "inflate": "ce-core inflate --index my_index.csv --data my_phasing.csv "
+                       "--from by2026 --to ty",
             "schedule": "ce-core schedule-check --mspdi my_schedule.xml",
             "jcl": "ce-core jcl --spec my_jcl.xlsx",
             "aoa": "ce-core aoa --spec my_aoa.xlsx",
@@ -784,6 +1013,7 @@ def _quote(arg: str) -> str:
 
 
 TEMPLATE_FILES = {"evm": "my_evm.xlsx", "cost-risk": "my_estimate.xlsx",
+                  "inflate": "my_index.csv",
                   "jcl": "my_jcl.xlsx", "aoa": "my_aoa.xlsx",
                   "portfolio": "my_portfolio.xlsx", "lots": "my_lots.csv"}
 
@@ -845,6 +1075,11 @@ def main(argv=None) -> None:
     # The metavar keeps the usage line short and leaves the deprecated
     # commands, which have no help text, out of the listing.
     sub = parser.add_subparsers(dest="cmd", metavar="<command>")
+    from cost_core import __version__
+    parser.add_argument("--version", action="version", version=f"cost-core {__version__}")
+    parser.add_argument("--about", action="store_true",
+                        help="Versions of cost-core, Python and its libraries, for a bug "
+                             "report (nothing is sent anywhere)")
 
     # Subcommand: fit
     # Long-form aliases (--quantity-col, --quantities, --n-iter,
@@ -1033,6 +1268,16 @@ def main(argv=None) -> None:
     p_evm.add_argument("--units", default="as entered",
                        help="What the money is in, for labels: dollars, thousands or millions "
                             "(or any text); nothing is converted")
+    p_evm.add_argument("--cv-pct", type=float, default=10.0, metavar="PCT",
+                       help="Cost variance threshold, percent of BCWP (default 10)")
+    p_evm.add_argument("--sv-pct", type=float, default=10.0, metavar="PCT",
+                       help="Schedule variance threshold, percent of BCWS (default 10)")
+    p_evm.add_argument("--cv-dollars", type=float, default=None, metavar="AMOUNT",
+                       help="Cost variance threshold in money; with --cv-pct, both must be "
+                            "broken")
+    p_evm.add_argument("--sv-dollars", type=float, default=None, metavar="AMOUNT",
+                       help="Schedule variance threshold in money; with --sv-pct, both must "
+                            "be broken")
     p_evm.add_argument("--out", default="evm",
                        help="Directory for the tables, the draws and the chart")
 
@@ -1069,7 +1314,7 @@ def main(argv=None) -> None:
     p_demo = sub.add_parser(
         "demo", help="See a command working on bundled example data, no files needed")
     p_demo.add_argument("topic", choices=sorted(DEMOS),
-                        help="Which one: evm, schedule, jcl, aoa or portfolio")
+                        help="Which one: cost-risk, evm, schedule, jcl, aoa, portfolio or inflate")
     p_demo.add_argument("--out", default=None,
                         help="Folder for the results (default: ce-core-demo/<topic>)")
 
@@ -1077,12 +1322,69 @@ def main(argv=None) -> None:
     p_tmpl = sub.add_parser(
         "template", help="Write a file to fill in with your own data")
     p_tmpl.add_argument("topic", choices=sorted(list(TEMPLATE_FILES) + ["schedule"]),
-                        help="Which one: evm, jcl, aoa, portfolio, lots or schedule")
+                        help="Which one: cost-risk, evm, jcl, aoa, portfolio, inflate, lots or schedule")
     p_tmpl.add_argument("--out", default=None,
                         help="File to write (default: my_<topic> in this folder)")
     p_tmpl.add_argument("--force", action="store_true", help="Replace the file if it exists")
 
+    # Subcommand: inflate
+    p_inf = sub.add_parser(
+        "inflate", help="Base-year and then-year dollars, with an index table you supply")
+    p_inf.add_argument("--index", required=True, metavar="FILE",
+                       help="Index table: CSV or Excel with index_name, fiscal_year and "
+                            "index_value (ce-core template inflate shows the layout)")
+    p_inf.add_argument("--index-name", default=None,
+                       help="Which index, when the table holds several")
+    p_inf.add_argument("--from", dest="from_", required=True, metavar="BASIS",
+                       help="What the amounts are in: ty (then-year) or by2026 (any year)")
+    p_inf.add_argument("--to", required=True, metavar="BASIS",
+                       help="What to convert them to: ty or by2026")
+    p_inf.add_argument("--data", default=None, metavar="FILE",
+                       help="CSV or Excel of amounts with the fiscal year (or date) each is "
+                            "spent")
+    p_inf.add_argument("--amount-col", default=None, help="The amount column, if not guessed")
+    p_inf.add_argument("--year-col", default=None,
+                       help="The fiscal year or date column, if not guessed")
+    p_inf.add_argument("--amount", type=float, default=None,
+                       help="Convert one amount instead of a table, and show the arithmetic")
+    p_inf.add_argument("--year", type=int, default=None,
+                       help="With --amount: the fiscal year it's spent in")
+    p_inf.add_argument("--out", default=None,
+                       help="File for the converted table (.csv or .xlsx; default: beside "
+                            "the data)")
+
+    # Subcommand: open
+    p_open = sub.add_parser(
+        "open", help="Work out what a file is and run the right analysis on it")
+    p_open.add_argument("files", nargs="*", metavar="FILE",
+                        help="An estimate or EVM workbook, a CSV, a Microsoft Project XML "
+                             "schedule, an IPMDAR dataset, a spec, or a folder of SAR PDFs")
+    p_open.add_argument("--out", default=None,
+                        help="Folder for the results (default: '<file> results' beside it)")
+    p_open.add_argument("--pause", action="store_true",
+                        help="Open the results folder and wait for Enter at the end (for "
+                             "the Send To shortcut)")
+    p_open.add_argument("--send-to", action="store_true",
+                        help="Add ce-core to the Windows Send To menu, then stop")
+
+    # Subcommand: settings
+    p_set = sub.add_parser(
+        "settings", help="Show the defaults in effect from ce-core.toml, or start one")
+    p_set.add_argument("--write", action="store_true",
+                       help="Write a commented ce-core.toml in this folder to edit")
+
+    for name in REPORT_COMMANDS:
+        add_output_options(sub.choices[name])
+    from cost_core import settings as settings_mod
+    try:
+        apply_settings(sub, settings_mod.values())
+    except settings_mod.SettingsError as e:
+        abort(str(e))
+
     args = parser.parse_args(argv)
+    if args.about:
+        print(about())
+        return
     if args.cmd is None:
         from cost_core.plain import menu
         print(menu())
@@ -1104,8 +1406,16 @@ def main(argv=None) -> None:
         "jcl": run_jcl,
         "demo": run_demo,
         "template": run_template,
+        "settings": run_settings,
+        "open": run_open,
+        "inflate": run_inflate,
     }
 
+    from cost_core.reporting import output
+    try:
+        output.configure(getattr(args, "marking", None), getattr(args, "template", None))
+    except FileNotFoundError as e:
+        abort(f"{e} Check --template, or slide_template in ce-core.toml.")
     try:
         dispatch[args.cmd](args)
     except zipfile.BadZipFile:
