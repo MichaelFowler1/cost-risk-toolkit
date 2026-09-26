@@ -10,6 +10,12 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-09-25
+
+Estimates live in Excel, so now the inputs can too. Cost risk runs straight
+from a WBS workbook, and the JCL, AoA and portfolio commands take a workbook
+as well as JSON. No existing number moves.
+
 ### Added
 - **Cost risk from an estimate in Excel.** `ce-core cost-risk --data
   my_estimate.xlsx` reads a workbook with an Elements sheet (point estimate,
@@ -34,6 +40,11 @@ housekeeping detail here, because someone may have put the old one in a budget.
   separated by semicolons, with link types and lags written as
   `design -4` or `bus SS +2`. A workbook and the JSON it came from give
   identical results. `cost_core.xlspec` converts either way.
+
+### Changed
+- `ce-core template jcl`, `aoa` and `portfolio` write `my_jcl.xlsx`,
+  `my_aoa.xlsx` and `my_portfolio.xlsx` instead of JSON. A script that
+  expects the JSON file can ask for it with `--out my_jcl.json`.
 
 ## [2.3.1] - 2026-09-25
 
@@ -652,7 +663,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.1.0...v2.2.0
