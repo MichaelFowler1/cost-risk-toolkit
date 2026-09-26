@@ -21,6 +21,13 @@ fits learning curves and CERs, and reads real programs' unit costs out of
 public SARs. Every result says what it means in plain words, and writes down
 every assumption it made.
 
+**One tool where there are usually several.** In most cost offices these jobs are
+split across commercial products and a lot of Excel: one tool for cost risk,
+another for schedule risk and JCL, another for schedule checks, and
+spreadsheets for EVM forecasts and AoAs. As far as I can find, cost-core is the
+first public Python package that does them together, on the same correlated
+Monte Carlo engine, with the same Excel-in, report-and-briefing-out workflow.
+
 - **Your data stays on your machine.** Nothing is sent anywhere, there's no
   telemetry, and the only network call is the optional public SAR download.
 - **Free for noncommercial and government work**, contractors included. See
@@ -29,6 +36,13 @@ every assumption it made.
   name the sheet, row and column.
 - **Found a problem, or something unclear?** [Open an issue](https://github.com/MichaelFowler1/cost-risk-toolkit/issues/new/choose),
   with invented numbers only: never real program data or CUI.
+
+**Where it stands.** It's young: first published in 2026, with one maintainer.
+About 1,200 automated tests and frozen reference results guard the numbers, and
+every release is checked against its source before it's announced. It hasn't
+yet been checked against published worked examples or reviewed by other
+estimators; that's the next step, and reports of where it disagrees with your
+own tools are the most useful feedback there is.
 
 ## Start here
 

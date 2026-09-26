@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 # hyphen is only what people type after `pip install`.
 name = "cost-core"
 version = "2.4.2"
-description = "Cost-Estimation Core Library and CLI"
+description = "Cost risk, EVM forecasts, DCMA schedule checks, JCL, AoA and portfolio choice for defense and space programs, in one Python package: Excel in, report and briefing out."
 readme = "README.md"
 # 3.9 is the floor because nothing here needs more. Every PEP 604 union in the
 # source sits in an annotation in a file with `from __future__ import

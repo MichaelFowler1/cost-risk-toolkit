@@ -18,6 +18,10 @@ housekeeping detail here, because someone may have put the old one in a budget.
   `docs/methods.md`, the SAR walkthrough to `docs/public-sar-data.md`, and
   project structure, tests and the numpy and scipy bounds to
   `docs/development.md`.
+- The README says what sets cost-core apart (the jobs that usually take
+  several tools, together on one engine) and, just as plainly, where it
+  stands: young, one maintainer, not yet checked against published worked
+  examples. The package description on PyPI now says what it does.
 - Earned value moved up to follow cost risk in the README, since it's the job
   most people do every month.
 
