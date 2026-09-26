@@ -7,7 +7,7 @@
 
 ![ce-core demo cost-risk: an Excel estimate in, the chance of overrunning, the P80 and what drives the risk out](https://raw.githubusercontent.com/MichaelFowler1/cost-risk-toolkit/main/docs/demo.gif)
 
-**Try it in 30 seconds with example workbooks:** [cost-core-starter](https://github.com/MichaelFowler1/cost-core-starter)
+**Try it on ready-made example workbooks:** clone [cost-core-starter](https://github.com/MichaelFowler1/cost-core-starter) and run `python run_all.py`.
 
 Cost estimating, earned value and schedule analysis for defense and space
 programs, as one Python package and one command, `ce-core`. Put your estimate
