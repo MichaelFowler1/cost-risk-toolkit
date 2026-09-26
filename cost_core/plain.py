@@ -170,6 +170,40 @@ def aoa(result, units: str = "") -> List[str]:
     return out
 
 
+def cost_risk(result, units: str = "") -> List[str]:
+    """A cost risk analysis of an estimate."""
+    sim = result.sim
+    point = result.point_estimate
+    over = 1.0 - sim.point_estimate_percentile / 100.0
+    out = [f"The point estimate of {_money(point, units)} has {_chance(over)} of being "
+           f"exceeded: only {_pct(1.0 - over)} of the simulated costs come in at or under it."]
+    out.append(f"To be 50% sure takes {_money(sim.p50, units)}, and 80% sure "
+               f"{_money(sim.p80, units)}: {_money(sim.p80 - point, units)} "
+               f"({sim.p80 / point - 1:.0%}) over the point estimate. 90% takes "
+               f"{_money(sim.p90, units)}.")
+    top = result.drivers()
+    top = top[top["variance_share"] > 0].head(3)
+    if len(top):
+        first = top.iloc[0]
+        kind = "risk" if first.kind == "discrete risk" else "element"
+        rest = " and ".join(repr(c) for c in top["component"].iloc[1:])
+        out.append(f"The {kind} {first.component!r} drives the most uncertainty "
+                   f"({first.variance_share:.0%} of the spread)"
+                   + (f", then {rest}." if rest else ".")
+                   + " Narrowing those ranges moves the P80 most.")
+    impact = result.impact
+    if impact.correlated.p80 > impact.independent.p80:
+        out.append(f"Treating the elements as independent would put the P80 at "
+                   f"{_money(impact.independent.p80, units)} and lose "
+                   f"{impact.reserve_understatement:.0%} of the reserve it needs.")
+    if sim.cv < 0.10:
+        out.append(f"The spread is narrow (the standard deviation is {sim.cv:.0%} of the "
+                   "mean). Ranges that tight usually mean some uncertainty is missing "
+                   "rather than that the estimate is safe.")
+    out.extend(result.inputs.notes)
+    return out
+
+
 def portfolio(result, n_candidates: int, risk=None, units: str = "") -> List[str]:
     """A portfolio choice."""
     unfunded = [r.candidate for r in result.selected.itertuples() if not r.option
@@ -202,6 +236,8 @@ def menu() -> str:
               ce-core schedule-check --mspdi my_schedule.xml
           Joint cost and schedule confidence (JCL)
               ce-core jcl --spec my_jcl.json
+          Cost risk on an estimate: S-curve, confidence, drivers
+              ce-core cost-risk --data my_estimate.xlsx
           Compare alternatives on life-cycle cost (AoA)
               ce-core aoa --spec my_aoa.json
           Choose which programs to fund within a budget
@@ -212,9 +248,9 @@ def menu() -> str:
               ce-core sar-panel --programs F-35
 
         New here? See one working first, with example data:
-              ce-core demo evm        (or: schedule, jcl, aoa, portfolio)
+              ce-core demo evm        (or: cost-risk, schedule, jcl, aoa, portfolio)
         Then get a file to fill in with your own numbers:
-              ce-core template evm    (or: jcl, aoa, portfolio, lots)
+              ce-core template evm    (or: cost-risk, jcl, aoa, portfolio, lots)
 
         Help on any command:  ce-core evm --help
         """)

@@ -10,6 +10,23 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Added
+- **Cost risk from an estimate in Excel.** `ce-core cost-risk --data
+  my_estimate.xlsx` reads a workbook with an Elements sheet (point estimate,
+  low, most likely, high, and optionally triangular, pert or uniform) and
+  optional Risks, Correlation and Settings sheets, simulates it with the
+  correlated engine, and writes the S-curve, a confidence table with the
+  reserve at each level, the drivers, what treating the elements as
+  independent would lose, `report.xlsx`, `brief.pptx` and CSVs. It prints the
+  answer in plain words. Headings are matched loosely, a CSV of elements alone
+  is enough, and a problem in the workbook is reported by sheet, row and
+  column. Element pairs not listed are correlated at 0.3, the usual default
+  in cost risk practice; the Settings sheet can change it.
+- `ce-core template cost-risk` writes the workbook with an Instructions sheet,
+  and `ce-core demo cost-risk` runs an invented ground station estimate that
+  ships with the package. The library side is `cost_core.costrisk`
+  (`read_workbook`, `analyse`, `write_workbook`).
+
 ## [2.3.1] - 2026-09-25
 
 A licence release. The code is the same as 2.3.0, and so is every number it

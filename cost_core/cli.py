@@ -299,6 +299,58 @@ def run_full(args: argparse.Namespace) -> None:
         abort(f"Full run failed: {e}")
 
 
+def run_cost_risk(args) -> None:
+    """Simulate an estimate kept in Excel and write its cost risk analysis."""
+    from pathlib import Path
+
+    from cost_core import plain
+    from cost_core.costrisk import CostRiskError, analyse, read_workbook
+
+    need_file(args.data, "the estimate", "cost-risk")
+    try:
+        inputs = read_workbook(args.data)
+        result = analyse(inputs, n_iter=args.iters, seed=args.seed, units=args.units)
+    except (CostRiskError, OSError) as e:
+        abort(f"Cost risk failed: {e}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    result.confidence_table().to_csv(out / "confidence.csv", index=False)
+    result.drivers().to_csv(out / "drivers.csv", index=False)
+    result.element_table().to_csv(out / "elements.csv", index=False)
+    result.risk_table().to_csv(out / "risks.csv", index=False)
+    result.sim.summary().to_csv(out / "summary.csv", index=False)
+    charts = []
+    try:
+        from cost_core.reporting.charts import plot_s_curve, plot_tornado
+        plot_s_curve(result.sim, out / "cost_risk_s_curve.png",
+                     comparison=result.impact.independent)
+        plot_tornado(result.sim, out / "cost_risk_drivers.png")
+        charts = ["cost_risk_s_curve.png", "cost_risk_drivers.png"]
+    except ImportError:
+        pass
+    from cost_core.reporting.excel_report import cost_risk_workbook
+    cost_risk_workbook(result, out / "report.xlsx")
+    units = plain.units_label(result.units)
+    conf = result.confidence_table((50, 70, 80, 90))
+    print(f"\nCost risk, {result.sim.n_iter:,} simulations"
+          f"{', costs in ' + units if units else ''}:\n")
+    print(f"  Point estimate  {result.point_estimate:,.2f}  "
+          f"(confidence {result.sim.point_estimate_percentile:.0f}%)")
+    for r in conf.itertuples():
+        print(f"  P{r.confidence * 100:.0f}             {r.cost:,.2f}  "
+              f"(reserve {r.reserve:,.2f}, {r.reserve_pct:.0%})")
+    top = result.drivers().head(5)
+    print("\nTop drivers of the uncertainty:")
+    for r in top.itertuples():
+        print(f"  {r.variance_share:6.1%}  {r.component} ({r.kind})")
+    print(plain.show(plain.cost_risk(result, units)))
+    from cost_core.reporting.brief import cost_risk_brief
+    brief = write_brief(cost_risk_brief, result, out)
+    print(f"Wrote report.xlsx, {brief + ', ' if brief else ''}confidence.csv, drivers.csv, "
+          f"elements.csv, risks.csv, summary.csv"
+          f"{', ' + ', '.join(charts) if charts else ''} to {out}")
+
+
 def run_aoa(args) -> None:
     """Evaluate an AoA spec file and write the comparison."""
     import json
@@ -630,6 +682,7 @@ def run_schedule_check(args) -> None:
 #: example's path and the demo's output folder filled in.
 DEMOS = {
     "evm": ["evm", "--data", "{path}", "--units", "thousands", "--out", "{out}"],
+    "cost-risk": ["cost-risk", "--data", "{path}", "--out", "{out}"],
     "schedule": ["schedule-check", "--mspdi", "{path}", "--out", "{out}"],
     "jcl": ["jcl", "--spec", "{path}", "--out", "{out}"],
     "aoa": ["aoa", "--spec", "{path}", "--out", "{out}"],
@@ -651,6 +704,7 @@ def run_demo(args) -> None:
           f"Running: ce-core {' '.join(_quote(a) for a in argv)}")
     main(argv)
     mine = {"evm": "ce-core evm --data my_evm.xlsx",
+            "cost-risk": "ce-core cost-risk --data my_estimate.xlsx",
             "schedule": "ce-core schedule-check --mspdi my_schedule.xml",
             "jcl": "ce-core jcl --spec my_jcl.json",
             "aoa": "ce-core aoa --spec my_aoa.json",
@@ -664,7 +718,8 @@ def _quote(arg: str) -> str:
     return f'"{arg}"' if (" " in arg or "$" in arg) else arg
 
 
-TEMPLATE_FILES = {"evm": "my_evm.xlsx", "jcl": "my_jcl.json", "aoa": "my_aoa.json",
+TEMPLATE_FILES = {"evm": "my_evm.xlsx", "cost-risk": "my_estimate.xlsx",
+                  "jcl": "my_jcl.json", "aoa": "my_aoa.json",
                   "portfolio": "my_portfolio.json", "lots": "my_lots.csv"}
 
 
@@ -832,6 +887,25 @@ def main(argv=None) -> None:
     p_run.add_argument("--clean", action="store_true",
                        help="Generate data with no reporting pathologies")
 
+    # Subcommand: cost-risk
+    p_cr = sub.add_parser(
+        "cost-risk",
+        help="Cost risk on an estimate in Excel: S-curve, confidence levels, drivers",
+    )
+    p_cr.add_argument("--data", required=True,
+                      help="Excel workbook with an Elements sheet (and optionally Risks, "
+                           "Correlation, Settings), or a CSV of elements; "
+                           "ce-core template cost-risk writes one")
+    p_cr.add_argument("--out", default="cost-risk",
+                      help="Directory for the tables, charts, report.xlsx and brief.pptx")
+    p_cr.add_argument("--iters", "--n-iter", dest="iters", type=int, default=None,
+                      help="Simulations (default: the workbook's Settings, else 20000)")
+    p_cr.add_argument("--seed", type=int, default=None,
+                      help="Random seed (default: the workbook's Settings, else 0)")
+    p_cr.add_argument("--units", default=None,
+                      help="Money label: dollars, thousands, millions or any word "
+                           "(default: the workbook's Settings)")
+
     # Subcommand: aoa
     p_aoa = sub.add_parser(
         "aoa",
@@ -953,6 +1027,7 @@ def main(argv=None) -> None:
         "schedule-check": run_schedule_check,
         "evm": run_evm,
         "aoa": run_aoa,
+        "cost-risk": run_cost_risk,
         "portfolio": run_portfolio,
         "jcl": run_jcl,
         "demo": run_demo,

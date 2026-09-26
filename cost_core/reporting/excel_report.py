@@ -419,6 +419,49 @@ def dcma_workbook(result, schedule, path) -> Path:
     return rb.save(path)
 
 
+# --------------------------------------------------------------- cost risk
+def cost_risk_workbook(result, path) -> Path:
+    from cost_core import plain
+
+    units = result.units
+    money = money_format(units)
+    sim = result.sim
+    rb = ReportWorkbook("Cost risk analysis",
+                        f"{sim.n_iter:,} simulations; costs in {plain.units_label(units) or 'the units entered'}.")
+    rb.summary(plain.cost_risk(result, plain.units_label(units)),
+               [("Point estimate", result.point_estimate, money),
+                ("Confidence of the point estimate", sim.point_estimate_percentile / 100.0, PCT),
+                ("P50", sim.p50, money), ("P80", sim.p80, money), ("P90", sim.p90, money),
+                ("Reserve to P80", sim.p80 - result.point_estimate, money),
+                ("Coefficient of variation", sim.cv, PCT)])
+    conf = result.confidence_table()
+    ws = rb.table("Confidence", conf, {"confidence": PCT, "cost": money, "reserve": money,
+                                       "reserve_pct": PCT})
+    ch = _scatter("Total cost S-curve", "Total cost", "Confidence")
+    n = len(conf)
+    ch.series.append(Series(Reference(ws, min_col=1, min_row=2, max_row=1 + n),
+                            Reference(ws, min_col=2, min_row=2, max_row=1 + n),
+                            title="Total cost"))
+    ws.add_chart(ch, "F2")
+    rb.table("Drivers", result.drivers(), {"std_dev": money, "covariance_with_total": NUM,
+                                           "variance_share": PCT})
+    rb.table("Elements", result.element_table(),
+             {c: money for c in ("point_estimate", "low", "most_likely", "high", "mean",
+                                 "p50", "p80")})
+    risks = result.risk_table()
+    if len(risks):
+        rb.table("Risks", risks, {"probability": PCT} | {
+            c: money for c in ("low", "most_likely", "high", "mean_if_it_happens",
+                               "expected_cost")})
+    rb.table("Correlation", result.correlation_matrix().rename_axis("element").reset_index(),
+             {c: "0.00" for c in result.correlation_matrix().columns})
+    rb.table("Correlation effect", result.impact.to_frame(),
+             {"independent": money, "correlated": money, "ratio": "0.000"})
+    rb.table("Convergence", sim.convergence(), {"p80": money, "relative_change": "0.000%"})
+    rb.assumptions(result.assumptions)
+    return rb.save(path)
+
+
 # ---------------------------------------------------------------------- AoA
 def aoa_workbook(result, path) -> Path:
     from cost_core import plain

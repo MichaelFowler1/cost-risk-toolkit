@@ -105,7 +105,7 @@ ce-core = "cost_core.cli:main"
 # The worked examples `ce-core demo` runs and `ce-core template` copies. They
 # have to be in the wheel, not only the repository, or someone who installed
 # from PyPI has nothing to run before they have data of their own.
-"cost_core.examples" = ["*.json", "*.csv", "*.xml"]
+"cost_core.examples" = ["*.json", "*.csv", "*.xml", "*.xlsx"]
 
 [tool.setuptools.packages.find]
 # "cost_core" alone does not match "cost_core.synth" and friends -- these

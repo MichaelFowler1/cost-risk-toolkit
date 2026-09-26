@@ -35,7 +35,7 @@ def test_every_example_is_installed_with_the_package():
 def test_ce_core_alone_is_a_guide_not_an_error(capsys):
     out = run([], capsys)
     assert "What do you want to do?" in out and "ce-core demo evm" in out
-    for command in ("evm", "schedule-check", "jcl", "aoa", "portfolio", "fit-lots", "template"):
+    for command in ("evm", "cost-risk", "schedule-check", "jcl", "aoa", "portfolio", "fit-lots", "template"):
         assert command in out
 
 
@@ -45,7 +45,7 @@ def test_python_dash_m_runs_the_same_command():
     assert done.returncode == 0 and "What do you want to do?" in done.stdout
 
 
-@pytest.mark.parametrize("topic", ["evm", "schedule", "jcl", "aoa", "portfolio"])
+@pytest.mark.parametrize("topic", ["evm", "cost-risk", "schedule", "jcl", "aoa", "portfolio"])
 def test_every_demo_runs_from_an_empty_folder(topic, tmp_path, monkeypatch, capsys):
     if topic == "portfolio":
         pytest.importorskip("pulp")
@@ -58,6 +58,7 @@ def test_every_demo_runs_from_an_empty_folder(topic, tmp_path, monkeypatch, caps
 
 @pytest.mark.parametrize("topic,command", [
     ("evm", ["evm", "--data", "my_evm.xlsx", "--iters", "1000", "--out", "o"]),
+    ("cost-risk", ["cost-risk", "--data", "my_estimate.xlsx", "--iters", "2000", "--out", "o"]),
     ("jcl", ["jcl", "--spec", "my_jcl.json", "--out", "o"]),
     ("aoa", ["aoa", "--spec", "my_aoa.json", "--out", "o"]),
     ("portfolio", ["portfolio", "--spec", "my_portfolio.json", "--out", "o"]),
@@ -100,6 +101,7 @@ def test_the_schedule_template_says_how_to_save_one_from_project(capsys):
 
 @pytest.mark.parametrize("argv,topic", [
     (["evm", "--data", "missing.xlsx"], "evm"),
+    (["cost-risk", "--data", "missing.xlsx"], "cost-risk"),
     (["jcl", "--spec", "missing.json"], "jcl"),
     (["aoa", "--spec", "missing.json"], "aoa"),
     (["portfolio", "--spec", "missing.json"], "portfolio"),
