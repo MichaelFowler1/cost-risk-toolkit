@@ -41,7 +41,6 @@ import numpy as np
 import pandas as pd
 
 from cost_core.monte_carlo import (
-    DEFAULT_CORRELATION,
     CorrelationImpact,
     CorrelationWarning,
     CostElement,
@@ -82,6 +81,11 @@ PAIR_COLUMNS: Dict[str, Tuple[str, ...]] = {
 }
 
 DISTRIBUTIONS = ("triangular", "pert", "uniform")
+
+#: The correlation between any two elements the workbook doesn't pair. 0.3 is
+#: the usual default in cost risk practice when nothing better is known; the
+#: engine's own default elsewhere in the library stays as it was.
+DEFAULT_CORRELATION = 0.3
 
 #: What the settings sheet may hold, with the defaults when it does not.
 SETTINGS_DEFAULTS = {"units": "", "default_correlation": DEFAULT_CORRELATION,

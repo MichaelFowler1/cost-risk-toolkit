@@ -205,7 +205,8 @@ It prints what the point estimate's confidence really is, what it takes to be
 writes `report.xlsx` (S-curve, confidence table, drivers, elements, risks, the
 correlation used and what ignoring it would cost), `brief.pptx` and the tables
 as CSV. Only the Elements sheet is required; a CSV of elements works too. Pairs
-of elements you don't list take the default correlation (0.3 in the template),
+of elements you don't list take the default correlation (0.3 unless the
+Settings sheet says otherwise),
 because leaving correlation out makes the P80 too low. The workbook never
 leaves your machine.
 

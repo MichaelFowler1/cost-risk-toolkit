@@ -92,7 +92,7 @@ def test_a_csv_of_elements_alone_is_enough(tmp_path):
     EXAMPLE_ELEMENTS.to_csv(path, index=False)
     inputs = read_workbook(path)
     assert len(inputs.model.elements) == 8 and not inputs.model.risks
-    assert inputs.model.correlation[0, 1] == costrisk.DEFAULT_CORRELATION
+    assert inputs.model.correlation[0, 1] == costrisk.DEFAULT_CORRELATION == 0.3
 
 
 def test_headings_are_matched_loosely(tmp_path):

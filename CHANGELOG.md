@@ -20,7 +20,8 @@ housekeeping detail here, because someone may have put the old one in a budget.
   independent would lose, `report.xlsx`, `brief.pptx` and CSVs. It prints the
   answer in plain words. Headings are matched loosely, a CSV of elements alone
   is enough, and a problem in the workbook is reported by sheet, row and
-  column.
+  column. Element pairs not listed are correlated at 0.3, the usual default
+  in cost risk practice; the Settings sheet can change it.
 - `ce-core template cost-risk` writes the workbook with an Instructions sheet,
   and `ce-core demo cost-risk` runs an invented ground station estimate that
   ships with the package. The library side is `cost_core.costrisk`
