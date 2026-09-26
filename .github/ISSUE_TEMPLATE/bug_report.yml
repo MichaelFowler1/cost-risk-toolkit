@@ -1,0 +1,49 @@
+name: Something broke
+description: An error, a crash, or a command that won't run.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This is a public page.** Don't paste real program, contractor, sponsor or rate data, CUI, or anything your organisation hasn't cleared for release. Use the bundled examples (`ce-core demo ...`) or invented numbers that show the same problem. If the problem only shows up with real data, describe its shape (how many rows, which columns, what kind of values) instead of the data itself.
+  - type: checkboxes
+    id: data
+    attributes:
+      label: Data check
+      options:
+        - label: Everything I'm posting uses invented or public numbers, and nothing here is CUI, proprietary or sponsor data.
+          required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: What you ran
+      description: The command, or the few lines of Python.
+      render: shell
+      placeholder: ce-core cost-risk --data my_estimate.xlsx
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The error message or output, copied as text. Check it for file paths or names that give away a program.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+  - type: input
+    id: version
+    attributes:
+      label: cost-core version
+      description: "From: python -c \"import cost_core; print(cost_core.__version__)\""
+      placeholder: "2.4.0"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Python version and operating system
+      placeholder: Python 3.12, Windows 11

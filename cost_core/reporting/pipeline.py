@@ -37,6 +37,7 @@ from cost_core.monte_carlo import (CorrelationWarning, DiscreteRisk,
 from cost_core.reporting import assumptions as assumptions_mod
 from cost_core.reporting import charts
 from cost_core.synth import PathologyConfig, generate_portfolio, generate_program
+from cost_core.plain import ordinal
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ class RunResult:
         """The three sentences the briefing opens with."""
         return (
             f"Point estimate {self.simulation.point_estimate / 1e6:,.1f}M sits "
-            f"at the {self.simulation.point_estimate_percentile:.0f}th "
+            f"at the {ordinal(round(self.simulation.point_estimate_percentile))} "
             f"percentile of the risk distribution; the P80 is "
             f"{self.simulation.p80 / 1e6:,.1f}M, a reserve of "
             f"{(self.simulation.p80 - self.simulation.point_estimate) / 1e6:,.1f}M "
@@ -445,7 +446,7 @@ def run_full_analysis(
         f"{iterations:,} iterations, seed `{seed}`, sampled with a Gaussian "
         f"copula across {len(risk_model.elements)} WBS elements.\n\n"
         f"- Point estimate ${simulation.point_estimate / 1e6:,.1f}M sits at "
-        f"the **{simulation.point_estimate_percentile:.0f}th percentile** of "
+        f"the **{ordinal(round(simulation.point_estimate_percentile))} percentile** of "
         f"the risk distribution. An unreserved point estimate typically lands "
         f"well below the median; this is the number that says whether the "
         f"programme is funded to a defensible level.\n"

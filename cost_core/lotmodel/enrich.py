@@ -55,6 +55,7 @@ from cost_core.fitting import FitResult
 from cost_core.lotmodel import models
 from cost_core.lotmodel.config import SETTINGS
 from cost_core.lotmodel.mathx import lmp_func
+from cost_core.plain import ordinal
 
 logger = logging.getLogger(__name__)
 
@@ -457,7 +458,7 @@ class BuyRisk:
         return (
             f"Total of the estimate lots under the {self.model} model. The "
             f"point estimate of {self.point_estimate:,.0f} sits at the "
-            f"{self.point_estimate_percentile:.0f}th percentile of the risk "
+            f"{ordinal(round(self.point_estimate_percentile))} percentile of the risk "
             f"distribution; P50 {self.p50:,.0f}, P80 {self.p80:,.0f}, P90 "
             f"{self.p90:,.0f}. Risk reserve to P80 is {reserve:,.0f} "
             f"({pct:.1f}%). CV {self.cv:.1%}. Uncertainty is measured from the "

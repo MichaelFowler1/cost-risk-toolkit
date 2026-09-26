@@ -5,22 +5,38 @@
 [![Python versions](https://img.shields.io/pypi/pyversions/cost-core.svg)](https://pypi.org/project/cost-core/)
 [![License](https://img.shields.io/pypi/l/cost-core.svg)](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/LICENSE)
 
-Cost estimating, earned value and schedule analysis for defense programs, as
-one Python package and one command, `ce-core`. It forecasts a program's cost
-and finish from its EVM data or an IPMDAR delivery, checks a Microsoft Project
-schedule against the DCMA 14 points, runs joint cost and schedule confidence
-(JCL), compares alternatives on life-cycle cost, chooses a portfolio within a
-budget, fits learning curves and CERs, and reads real programs' unit costs out
-of public SARs. Every result says what it means in plain words, and writes
-down every assumption it made.
+![ce-core demo cost-risk: an Excel estimate in, the chance of overrunning, the P80 and what drives the risk out](https://raw.githubusercontent.com/MichaelFowler1/cost-risk-toolkit/main/docs/demo.gif)
+
+**Try it on ready-made example workbooks:** clone [cost-core-starter](https://github.com/MichaelFowler1/cost-core-starter) and run `python run_all.py`.
+
+Cost estimating, earned value and schedule analysis for defense and space
+programs, as one Python package and one command, `ce-core`. Put your estimate
+in Excel with a low, most likely and high for each WBS element, and it tells
+you how likely the estimate is to be exceeded, what it takes to be 80% sure and
+which elements drive the risk. It also forecasts a program's cost and finish
+from its EVM data or an IPMDAR delivery, checks a Microsoft Project schedule
+against the DCMA 14 points, runs joint cost and schedule confidence (JCL),
+compares alternatives on life-cycle cost, chooses a portfolio within a budget,
+fits learning curves and CERs, and reads real programs' unit costs out of
+public SARs. Every result says what it means in plain words, and writes down
+every assumption it made.
+
+- **Your data stays on your machine.** Nothing is sent anywhere, there's no
+  telemetry, and the only network call is the optional public SAR download.
+- **Free for noncommercial and government work**, contractors included. See
+  [License](#license) for what's covered.
+- **Inputs are Excel workbooks**, with an Instructions sheet and errors that
+  name the sheet, row and column.
+- **Found a problem, or something unclear?** [Open an issue](https://github.com/MichaelFowler1/cost-risk-toolkit/issues/new/choose),
+  with invented numbers only: never real program data or CUI.
 
 ## Start here
 
 ```bash
 pip install "cost-core[plots]"   # the charts need the [plots] part
 ce-core                          # what it can do, in plain English
-ce-core demo evm                 # see it work on example data: no files needed
-ce-core template evm             # a spreadsheet to fill in with your own numbers
+ce-core demo cost-risk           # see it work on example data: no files needed
+ce-core template cost-risk       # a workbook to fill in with your own estimate
 ```
 
 If `ce-core` isn't found after installing (common on managed Windows PCs),

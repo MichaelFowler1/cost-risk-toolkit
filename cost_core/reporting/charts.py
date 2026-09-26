@@ -43,6 +43,8 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from matplotlib.ticker import FuncFormatter  # noqa: E402
 
+from cost_core.plain import ordinal  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 #: Figure DPI. 200 is enough for a projected slide and for print at this size.
@@ -234,7 +236,8 @@ def plot_s_curve(
             linewidth=2.2, zorder=5,
         )
         ax.annotate(
-            f"Point estimate {_money(point)}\nsits at the {percentile:.0f}th percentile",
+            f"Point estimate {_money(point)}\nsits at the {ordinal(round(percentile))} "
+            "percentile",
             xy=(point, percentile), xytext=(12, 26), textcoords="offset points",
             fontsize=10, color=SECONDARY, fontweight="bold",
             arrowprops={"arrowstyle": "->", "color": SECONDARY, "linewidth": 1.2},

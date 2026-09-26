@@ -1,0 +1,21 @@
+name: Licence question
+description: Whether your use is covered, or asking about a commercial licence.
+labels: [licence]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The [License section of the README](https://github.com/MichaelFowler1/cost-risk-toolkit#license) and [LICENSE-GOVERNMENT-WORK.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/LICENSE-GOVERNMENT-WORK.md) answer most questions. This is a public page, so describe your situation in general terms: no contract numbers, customer names or anything your organisation hasn't cleared.
+  - type: textarea
+    id: use
+    attributes:
+      label: How you'd use it
+      placeholder: A support contractor in a government cost office, running cost risk on estimates for the agency.
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true

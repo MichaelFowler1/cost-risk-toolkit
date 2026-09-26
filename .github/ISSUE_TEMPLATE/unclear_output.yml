@@ -1,0 +1,34 @@
+name: I didn't understand the output
+description: The words, a table or a chart didn't make sense, or didn't say what to do next.
+labels: [clarity]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These reports matter as much as bugs: every result is meant to read plainly to someone who's never used the tool. Tell us which part lost you. **Public page:** use the demos or invented numbers, never real program data or CUI.
+  - type: checkboxes
+    id: data
+    attributes:
+      label: Data check
+      options:
+        - label: Nothing I'm posting is real program, contractor or sponsor data, or CUI.
+          required: true
+  - type: input
+    id: command
+    attributes:
+      label: Which command
+      placeholder: ce-core demo cost-risk
+    validations:
+      required: true
+  - type: textarea
+    id: confusing
+    attributes:
+      label: What was confusing
+      description: Quote the sentence, or name the table, sheet or slide.
+    validations:
+      required: true
+  - type: textarea
+    id: wanted
+    attributes:
+      label: What you were trying to find out
+      description: The question you had, in your own words. It helps us word the answer the way people ask it.

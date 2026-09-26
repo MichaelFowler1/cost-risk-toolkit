@@ -1,0 +1,9 @@
+# Blank issues are off so every report passes the data warning in the forms.
+blank_issues_enabled: false
+contact_links:
+  - name: Getting started guide
+    url: https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/getting-started.md
+    about: What each command needs and what it tells you, step by step.
+  - name: Using cost-core at a lab or agency
+    url: https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/using-at-a-lab.md
+    about: Installing behind a proxy or offline, data handling, and the licence for government work.
