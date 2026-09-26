@@ -10,6 +10,13 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-09-26
+
+Ten fixes to the older commands, found by running 139 broken inputs through
+every one of them; a README that's a front page rather than a manual; and the
+first release's three commands marked for retirement. No number from a valid
+input moves.
+
 ### Changed
 - The README is a front page now: the pitch, the demo, one short section per
   command, installation and the licence, in about 460 lines instead of 1,050.
@@ -778,7 +785,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.2...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.2...v2.5.0
 [2.4.2]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.1...v2.4.0

@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 # normalises "cost-core" and "cost_core" to the same artefact names, so the
 # hyphen is only what people type after `pip install`.
 name = "cost-core"
-version = "2.4.2"
+version = "2.5.0"
 description = "Cost risk, EVM forecasts, DCMA schedule checks, JCL, AoA and portfolio choice for defense and space programs, in one Python package: Excel in, report and briefing out."
 readme = "README.md"
 # 3.9 is the floor because nothing here needs more. Every PEP 604 union in the

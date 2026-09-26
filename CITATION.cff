@@ -37,7 +37,7 @@ keywords:
   - earned-value-management
   - earned-schedule
 license: "PolyForm-Noncommercial-1.0.0"
-version: "2.4.2"
+version: "2.5.0"
 # CFF pairs `version` with `date-released`: together they describe the release
 # being cited, not the first commit. Each release moves both.
 date-released: "2026-09-26"
