@@ -40,7 +40,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from cost_core.costrisk import CostRiskError, _norm, _number
+from cost_core.costrisk import CostRiskError, _norm, _number, excel_rows, open_workbook
 
 
 class SpecError(ValueError):
@@ -54,10 +54,17 @@ def read_spec(path) -> Dict[str, Any]:
     Which of the three a workbook holds is told by its sheets.
     """
     path = Path(path)
-    if path.suffix.lower() in (".xlsx", ".xlsm"):
+    suffix = path.suffix.lower()
+    if suffix in (".xlsx", ".xlsm"):
         return read_workbook(path)
+    if suffix in (".xls", ".xlsb", ".ods", ".csv"):
+        raise SpecError(f"{path.name}: a spec is an .xlsx workbook or a .json file. Open it "
+                        "in Excel and save it as .xlsx (Excel Workbook).")
     try:
         return json.loads(path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        raise SpecError(f"{path.name} isn't a JSON spec or an .xlsx workbook. If it's a "
+                        "spreadsheet, save it from Excel as .xlsx.") from None
     except json.JSONDecodeError as e:
         raise SpecError(f"{path.name} is not valid JSON ({e}). For a spreadsheet, save it "
                         "as .xlsx.") from None
@@ -121,8 +128,7 @@ class _Sheet:
 
     def rows(self):
         """(Excel row number, record) for each row."""
-        for i, rec in enumerate(self.frame.to_dict("records"), start=2):
-            yield i, rec
+        yield from zip(excel_rows(self.frame), self.frame.to_dict("records"))
 
     def years(self) -> Dict[int, str]:
         return {y: c for c in self.frame.columns if (y := _year(c)) is not None}
@@ -216,7 +222,8 @@ def _read_settings(kind: str, frame: Optional[pd.DataFrame]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     if frame is None:
         return out
-    for i, rec in enumerate(frame.dropna(how="all").itertuples(index=False), start=2):
+    frame = frame.dropna(how="all")
+    for i, rec in zip(excel_rows(frame), frame.itertuples(index=False)):
         if len(rec) < 2 or _blank(rec[0]) or _blank(rec[1]):
             continue
         label = _norm(rec[0])
@@ -228,6 +235,9 @@ def _read_settings(kind: str, frame: Optional[pd.DataFrame]) -> Dict[str, Any]:
             out[key] = _text(rec[1])
         else:
             v = _num(rec[1], "Settings", i, str(rec[0]))
+            if key in ("seed", "n_iter") and (v != int(v) or v < (0 if key == "seed" else 1)):
+                raise SpecError(f"Settings sheet, row {i}: {str(rec[0]).strip()} is a whole "
+                                f"number, {'0' if key == 'seed' else '1'} or more, not {v:g}.")
             out[key] = int(v) if cast is int else v
     return out
 
@@ -310,6 +320,10 @@ def _read_jcl(sheets: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
         cml = g("Cost Most Likely")
         if fixed is None:
             fixed = cml
+        if not fixed and (g("Cost Low") is not None or g("Cost High") is not None):
+            # Otherwise the range would be dropped without a word.
+            raise SpecError(f"{where}: there's a Cost Low or High but no Fixed Cost (or Cost "
+                            "Most Likely) for it to range around.")
         if fixed:
             a["fixed_cost"] = fixed
             cu = _dist(g("Cost Low"), cml, g("Cost High"),
@@ -350,7 +364,10 @@ def _read_jcl(sheets: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
                 if ml:
                     r["delay"] = ml
             else:
-                r["delay"] = _dist(lo, ml if ml is not None else (lo + hi) / 2, hi,
+                if ml is None:
+                    raise SpecError(f"{where}: give a Delay Most Likely as well as the Low and "
+                                    "High, or a single Delay.")
+                r["delay"] = _dist(lo, ml, hi,
                                    _get(risks, rec, row, "Delay Distribution", number=False,
                                         default=""), where)
             cost = g("Cost")
@@ -692,10 +709,7 @@ def kind_of(sheets: Sequence[str]) -> str:
 def read_workbook(path, kind: Optional[str] = None) -> Dict[str, Any]:
     """A JCL, AoA or portfolio workbook as its spec dictionary."""
     path = Path(path)
-    try:
-        raw = pd.read_excel(path, sheet_name=None)
-    except ValueError as e:
-        raise SpecError(f"{path.name} can't be read as an Excel workbook ({e}).") from None
+    raw = open_workbook(path, SpecError)
     sheets = {_norm(k): v for k, v in raw.items()}
     kind = kind or kind_of(raw)
     return _READERS[kind](sheets)

@@ -219,3 +219,17 @@ def test_ordinals_read_the_way_people_say_them(n, text):
     from cost_core.plain import ordinal
 
     assert ordinal(n) == text
+
+
+def test_a_damaged_workbook_is_a_message_not_a_traceback(tmp_path, caplog):
+    bad = tmp_path / "broken.xlsx"
+    bad.write_bytes(b"PK\x03\x04not really a workbook")
+    with pytest.raises(SystemExit):
+        cli.main(["evm", "--data", str(bad), "--out", str(tmp_path / "o")])
+    assert "isn't a readable Excel workbook" in caplog.text
+
+
+def test_a_negative_seed_is_refused_before_anything_runs(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["cost-risk", "--data", "x.xlsx", "--seed", "-3"])
+    assert "a seed is a whole number, 0 or more" in capsys.readouterr().err

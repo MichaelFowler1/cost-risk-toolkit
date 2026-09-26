@@ -255,3 +255,53 @@ def test_a_bad_workbook_stops_the_command_with_the_reason(tmp_path, caplog):
     with pytest.raises(SystemExit):
         cli.main(["aoa", "--spec", str(path), "--out", str(tmp_path / "o")])
     assert "Lines sheet, row 2" in caplog.text and "Start Year" in caplog.text
+
+
+# ------------------------------------------------ fixed in 2.4.2, one each
+def test_a_blank_row_does_not_shift_the_row_an_error_names(tmp_path):
+    f = frames("jcl")
+    a = f["Activities"]
+    a = pd.concat([a.iloc[:2], pd.DataFrame([[None] * len(a.columns)], columns=a.columns),
+                   a.iloc[2:]]).reset_index(drop=True)
+    a["Predecessors"] = a["Predecessors"].astype(object)
+    a.loc[3, "Predecessors"] = "nowhere"   # 'instrument', on Excel row 5
+    f["Activities"] = a
+    with pytest.raises(SpecError, match=r"row 5 \(instrument\)"):
+        read_spec(book(tmp_path, f))
+
+
+def test_a_cost_range_with_nothing_to_range_around_is_refused(tmp_path):
+    f = frames("jcl")
+    a = f["Activities"]
+    for col in ("Fixed Cost", "Cost Most Likely"):
+        a[col] = a[col].astype(object)
+    a.loc[0, ["Fixed Cost", "Cost Most Likely"]] = None
+    a.loc[0, ["Cost Low", "Cost High"]] = [5.0, 9.0]
+    with pytest.raises(SpecError, match="no Fixed Cost"):
+        read_spec(book(tmp_path, f))
+
+
+def test_a_delay_range_needs_its_most_likely(tmp_path):
+    f = _jcl(_set("Risks", "Delay Most Likely", 0, None))
+    with pytest.raises(SpecError, match="give a Delay Most Likely"):
+        read_spec(book(tmp_path, f))
+
+
+@pytest.mark.parametrize("label,value", [("Seed", -2), ("Iterations", 0), ("Seed", 1.5)])
+def test_seeds_and_iterations_are_whole_numbers(tmp_path, label, value):
+    f = frames("jcl")
+    s = f["Settings"]
+    f["Settings"] = pd.concat([s[s["Setting"] != label],
+                               pd.DataFrame([(label, value)], columns=["Setting", "Value"])])
+    with pytest.raises(SpecError, match=f"{label} is a whole number"):
+        read_spec(book(tmp_path, f))
+
+
+@pytest.mark.parametrize("name,content", [("old.xls", b"\xd0\xcf\x11\xe0" + bytes(300)),
+                                          ("binary.json", b"\xd0\xcf\x11\xe0" + bytes(300)),
+                                          ("broken.xlsx", b"PK\x03\x04garbage")])
+def test_a_file_that_is_not_a_spec_says_what_to_do(tmp_path, name, content):
+    path = tmp_path / name
+    path.write_bytes(content)
+    with pytest.raises(SpecError, match="save it|save it again"):
+        read_spec(path)

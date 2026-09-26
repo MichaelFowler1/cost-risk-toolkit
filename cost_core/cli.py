@@ -17,6 +17,7 @@ import argparse
 import json
 import logging
 import sys
+import zipfile
 from pathlib import Path
 from typing import NoReturn, Optional
 
@@ -27,6 +28,17 @@ from cost_core import data_io, learning_curve, monte_carlo
 # Setup minimalist logging
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
+
+def _seed(text: str) -> int:
+    """A random seed: numpy takes whole numbers from 0 up."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number") from None
+    if value < 0:
+        raise argparse.ArgumentTypeError("a seed is a whole number, 0 or more")
+    return value
+
 
 def abort(message: str) -> NoReturn:
     """Standardized exit for fatal errors."""
@@ -846,7 +858,7 @@ def main(argv=None) -> None:
     p_lots.add_argument("--simulate", type=int, default=0, metavar="N",
                         help="Monte Carlo the forecast buy over N iterations "
                              "(needs --forecast); writes an S-curve")
-    p_lots.add_argument("--seed", type=int, default=0,
+    p_lots.add_argument("--seed", type=_seed, default=0,
                         help="Seed for --simulate, so the P80 is reproducible")
     p_lots.add_argument("--price-lots", default=None, metavar="Q1,Q2,...",
                         help="Apply the fitted curve to this lot plan from "
@@ -868,7 +880,7 @@ def main(argv=None) -> None:
     )
     p_run.add_argument("--out", required=True,
                        help="Output directory for charts, tables and the log")
-    p_run.add_argument("--seed", type=int, default=7,
+    p_run.add_argument("--seed", type=_seed, default=7,
                        help="Master seed; the same seed reproduces the run")
     p_run.add_argument("--iters", "--n-iter", dest="iters", type=int,
                        default=50000, help="Monte Carlo iterations")
@@ -900,7 +912,7 @@ def main(argv=None) -> None:
                       help="Directory for the tables, charts, report.xlsx and brief.pptx")
     p_cr.add_argument("--iters", "--n-iter", dest="iters", type=int, default=None,
                       help="Simulations (default: the workbook's Settings, else 20000)")
-    p_cr.add_argument("--seed", type=int, default=None,
+    p_cr.add_argument("--seed", type=_seed, default=None,
                       help="Random seed (default: the workbook's Settings, else 0)")
     p_cr.add_argument("--units", default=None,
                       help="Money label: dollars, thousands, millions or any word "
@@ -959,7 +971,7 @@ def main(argv=None) -> None:
                        help="Budget at completion (default: the baseline's total)")
     p_evm.add_argument("--iters", "--n-iter", dest="iters", type=int, default=20000,
                        help="Simulated completions")
-    p_evm.add_argument("--seed", type=int, default=0, help="Random seed")
+    p_evm.add_argument("--seed", type=_seed, default=0, help="Random seed")
     p_evm.add_argument("--units", default="as entered",
                        help="What the money is in, for labels: dollars, thousands or millions "
                             "(or any text); nothing is converted")
@@ -1036,7 +1048,14 @@ def main(argv=None) -> None:
         "template": run_template,
     }
 
-    dispatch[args.cmd](args)
+    try:
+        dispatch[args.cmd](args)
+    except zipfile.BadZipFile:
+        # openpyxl's word for a file that isn't a workbook after all, from
+        # whichever command read it.
+        abort("An input file isn't a readable Excel workbook: it may be damaged, still "
+              "downloading or password-protected. Open it in Excel and save it again as "
+              ".xlsx.")
 
 if __name__ == "__main__":
     main()
