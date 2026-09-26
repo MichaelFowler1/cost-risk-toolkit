@@ -60,52 +60,15 @@ command answers `--help`. Every result also comes as one Excel workbook,
 assumptions; in the EVM workbook the metrics are Excel formulas, so a
 reviewer can click any CPI and see how it was made. And as a short
 PowerPoint briefing, `brief.pptx`, that opens with the bottom line, then the
-chart, the numbers behind it and the assumptions. The rest of this page is the reference: what each
-part does, how, and why.
+chart, the numbers behind it and the assumptions. The rest of this page shows each one.
 
-**Want a window instead of a terminal?** The desktop lot cost model lives in
-its own repository, [lot-cost-model](https://github.com/MichaelFowler1/lot-cost-model).
-It is a tkinter tool over the same three models: paste analogy lots and
-estimate lots from Excel, fit LC, Rate and LC+Rate, roll several WBS elements
-into one programme, and write the Excel workbook. Since its 3.0.0 it is a front
-end onto this library rather than a second copy of it: the fit, the roll-up, the
-risk and the workbooks all come from `cost_core`, and the window refuses to
-start without it.
+**Want a window instead of a terminal?** [lot-cost-model](https://github.com/MichaelFowler1/lot-cost-model)
+is a desktop tool for the lot cost engine: paste lots from Excel, fit, roll up a
+WBS and write the workbook, all through this library.
 
-### Learning curves from your own lot data
-
-**Fit a curve to your own lot data in one command:**
-
-```bash
-ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --out results/
-```
-
-```csv
-lot,units,cost
-LRIP 1,22,96800000
-LRIP 2,18,70200000
-FRP 1,25,90000000
-```
-
-Two columns is the whole input. [Jump to the details](https://github.com/MichaelFowler1/cost-risk-toolkit#fitting-a-curve-to-your-own-lot-data),
-including the four things that quietly ruin a lot fit and how the tool checks
-for each one.
-
-![Learning curve forecast and Monte Carlo cost risk](https://raw.githubusercontent.com/MichaelFowler1/cost-risk-toolkit/main/docs/hero.png)
-
-*Real output. `cost_core` fits an 85% Wright learning curve and forecasts future
-lots (left), then runs a 10,000 iteration Monte Carlo total cost simulation with
-P50/P80/P90 thresholds (right). Regenerate with `python make_hero.py`, which
-reads a local `data.csv` that isn't committed, since `.gitignore` excludes
-`*.csv`.*
-
-> **No proprietary data is committed to this repository.** You supply your
-> own for `fit-lots`, and nothing you pass in gets stored here. The synthetic
-> pipeline and most of the test suite run on a seeded generator producing
-> invented programs in the *shape* of CADE submissions. The one exception is
-> public: `cost_core.public` reads DoD's released Selected Acquisition Reports,
-> and its tests carry the text of a few pages from five of them, which are
-> U.S. government works in the public domain.
+> **No proprietary data is committed to this repository.** Examples and tests
+> use invented numbers, apart from text from a few public Selected Acquisition
+> Reports, which are U.S. government works.
 
 ## What it does
 
@@ -126,83 +89,6 @@ reads a local `data.csv` that isn't committed, since `.gitignore` excludes
 | `cost_core.schedule` | **Schedules, DCMA and JCL.** Microsoft Project XML read in and checked against the DCMA 14 points; an activity network with uncertain durations, time-independent and time-dependent costs, a standing army and discrete risks, simulated jointly: the probability of meeting a budget and a date together, the 70% line, and how often each activity is critical |
 | `cost_core.portfolio` | **Which programs to fund.** An integer program over candidates, funding options and yearly budgets, with mandatory programs, dependencies and exclusive alternatives; the marginal value of money by year, a value against budget frontier, and the chance the chosen portfolio breaks each year's budget |
 | `cost_core.public` | **Real programs.** DoD's public Selected Acquisition Reports, 2010 to today, read into a program by year table of unit cost against the current and original baselines, with the source file and an arithmetic check behind every number |
-
-## Real programs from public SARs
-
-Every major defense program reports to Congress each year in a Selected
-Acquisition Report, and DoD releases them. Their unit cost pages are the
-longest public record of cost growth there is: what each program expected a
-unit to cost when it started, and what it expects now, in constant dollars.
-
-```bash
-pip install "cost-core[public]"
-ce-core sar-panel --list-cycles
-ce-core sar-panel --programs F-35 --out f35/
-```
-
-The second command reads the F-35's SARs from December 2010 to the FY 2027
-budget and writes three files: `unit_cost.csv` (PAUC and APUC, baseline beside
-current estimate, per subprogram and report), `reports.csv` (what was read and
-what wasn't, and why) and `checks.csv`. Leave off `--programs` for all of them,
-about a thousand reports, which takes an hour or two the first time and
-seconds after, since every download is cached.
-
-**On a machine with no internet.** Point it at a folder of SAR PDFs you
-already have, from DAMIR, the reading room, or a drive someone handed you,
-and nothing touches the network:
-
-```bash
-ce-core sar-panel --dir path/to/sars --out panel/
-```
-
-Each file's reporting cycle comes from the reading room's folder name if you
-kept it (`FY_2014_SARS`, `June_2025_MSARs`), otherwise from the file name
-("F-35_SAR_Dec_2017.pdf", "AAG_MSAR_FY2027_PB.pdf"). A file whose name gives no
-cycle is still read, and its own date line lands in `report_label`. The file's
-path and SHA-256 go beside every row, the same as for a download.
-
-A few things worth knowing before you use the numbers:
-
-- **The files come from the Internet Archive.** The reading room that
-  publishes them (esd.whs.mil) refuses scripted downloads, so the library
-  asks the Wayback Machine for its copy of each official URL instead, and
-  records the capture it used and the file's SHA-256 beside every row.
-- **Three templates are read.** The SAR layout changed in 2021 and again for
-  the modernised MSAR in December 2023; all three parse, including scans
-  whose OCR text layer garbles the headers.
-- **Every row is checked against its own arithmetic.** Unit cost times
-  quantity has to come back to cost, and the printed percentage change has to
-  match the unit costs. Across every cycle, 979 of 1,006 reports read and
-  11,856 of 11,919 checks held (99.5%). The failures looked at were errors
-  in the SARs themselves (an OCR layer that dropped a decimal point, a
-  printed percentage that contradicts its own unit costs), and they stay in
-  the table, marked, rather than being quietly fixed. The 27 reports that
-  didn't read are archive copies that are truncated in every capture, and
-  reports with no unit cost table.
-- **Then-year tables are marked.** A report on a program in breach repeats
-  its unit cost tables in then-year dollars; those rows have
-  `dollars == "TY"` and no base year, and growth analysis skips them.
-- **"Original" can be reset.** After a critical Nunn-McCurdy breach the
-  original baseline can be revised, which takes the breach out of the growth
-  figure. Seventeen programs show it moving between reports, so growth
-  against the SAR's original baseline is a floor for the programs that grew
-  most.
-- **Base years differ between blocks.** A SAR can state its current baseline
-  in one base year and its original baseline in another (SDB II, December
-  2022: BY2015 and BY2010), so compare growth percentages across programs,
-  not dollars, unless you convert them.
-
-In Python:
-
-```python
-from cost_core.public import build_sar_panel
-panel = build_sar_panel(programs=["DDG 51"], progress=print)
-panel.unit_cost[["cycle", "measure", "comparison", "unit_cost_growth_pct"]]
-
-# or, offline, from PDFs already on disk
-from cost_core.public import local_catalog
-panel = build_sar_panel(catalog=local_catalog("path/to/sars"))
-```
 
 ## Cost risk on an estimate kept in Excel
 
@@ -225,6 +111,80 @@ of elements you don't list take the default correlation (0.3 unless the
 Settings sheet says otherwise),
 because leaving correlation out makes the P80 too low. The workbook never
 leaves your machine.
+
+## Earned value: where the program is heading
+
+```bash
+ce-core demo evm                                # the example below
+ce-core evm --data my_evm.xlsx --units thousands --out evm/   # yours: ce-core template evm
+```
+
+`ce-core template evm` writes a spreadsheet laid out for it, holding the
+example. Column names such as PV, EV, AC, "Planned Value" or "Month" are
+recognised as well, so an export from another tool often reads as it is.
+
+The data is the three numbers every EVM report carries, by period: BCWS,
+BCWP and ACWP, with the baseline running on past the status period and,
+optionally, the contractor's EAC and a control account column. From them come
+CV, SV, CPI, SPI, TCPI, the standard independent EACs, and earned schedule.
+SPI(t) and the IEAC(t) completion date are what to watch late in a program,
+since SPI drifts back to 1.0 as the last work is earned, however late.
+
+Two things go further than the formulas:
+
+- **The EAC and the finish as a range.** Every independent EAC formula
+  assumes some future efficiency, and they disagree by as much as the
+  program's performance has varied. `forecast` runs the rest of the program
+  many times on its own record: each simulated period earns schedule and
+  spends at a pace and efficiency drawn, as a pair, from the periods so far,
+  with runs of good and bad periods lasting as long as they did. The result
+  is an EAC and a completion date with a P50 and a P80, their joint
+  confidence, and where the contractor's EAC and each formula fall on it.
+  On synthetic programs whose outcome is known, the P80 holds the true cost
+  and finish 79 to 82% of the time (72 to 77% when performance is strongly
+  persistent), and the test suite holds it to that.
+- **The warning signs, stated.** A contractor EAC whose TCPI is more than
+  0.10 above the CPI, one below every independent EAC, one that needs the CPI
+  to recover more than 0.10 after 20% complete (Christensen's finding on DoD
+  contracts), and an SPI that has recovered while SPI(t) has not.
+
+In the example, three invented control accounts at 32% complete, the
+contractor's EAC of $16.3M sits below the P1 of the forecast, whose P50 is
+$17.0M.
+
+```python
+from cost_core.evm import EvmData, forecast
+data = EvmData.read("cpr.csv")            # period, bcws, bcwp, acwp[, eac][, wbs]
+data.flags()
+forecast(data, seed=1).summary()
+```
+
+**Straight from the IPMDAR (preview).** The Contract Performance Dataset,
+the JSON tables contractors deliver under DI-MGMT-81861, reads directly:
+
+```bash
+ce-core evm --ipmdar cpd_2026_11.zip --out evm/
+ce-core evm --ipmdar cpd_2026_*.zip --out evm/     # cumulative-only deliveries
+```
+
+Table and field names follow the CPD Data Exchange Instructions (March
+2020). Work packages roll up into their control accounts, the baseline to
+complete and the contractor's estimate to complete come from their own
+tables, and the control accounts are reconciled against the PMB summary,
+with any gap stated. A dataset whose to-date values are time-phased holds
+the whole history. One that reports them only cumulative to date gives a
+single point, so pass the monthly deliveries together and the history is
+rebuilt from them, with any missing month named. A folder or ZIP of one JSON
+file per table and a single JSON file keyed by table name both read.
+
+*This reader is a preview.* It follows the published Data Exchange
+Instructions and is tested on datasets written to them, but not yet on a real
+contractor delivery, and how the tables are packaged is still to be checked
+against the File Format Specification. Check the reconciliation note it prints
+against the delivery's own totals, and if a file does not read, please say so
+on [the issue tracker](https://github.com/MichaelFowler1/cost-risk-toolkit/issues)
+(describe the file's layout; never attach the data). Until it is confirmed, a
+CSV export of BCWS, BCWP and ACWP by period is the dependable route.
 
 ## Comparing alternatives: life-cycle cost for an AoA
 
@@ -349,80 +309,6 @@ resource cost becomes a burn rate. Calendars and date constraints are not
 modelled, and the run's `assumptions.json` says so, along with everything
 else simplified on the way in.
 
-## Earned value: where the program is heading
-
-```bash
-ce-core demo evm                                # the example below
-ce-core evm --data my_evm.xlsx --units thousands --out evm/   # yours: ce-core template evm
-```
-
-`ce-core template evm` writes a spreadsheet laid out for it, holding the
-example. Column names such as PV, EV, AC, "Planned Value" or "Month" are
-recognised as well, so an export from another tool often reads as it is.
-
-The data is the three numbers every EVM report carries, by period: BCWS,
-BCWP and ACWP, with the baseline running on past the status period and,
-optionally, the contractor's EAC and a control account column. From them come
-CV, SV, CPI, SPI, TCPI, the standard independent EACs, and earned schedule.
-SPI(t) and the IEAC(t) completion date are what to watch late in a program,
-since SPI drifts back to 1.0 as the last work is earned, however late.
-
-Two things go further than the formulas:
-
-- **The EAC and the finish as a range.** Every independent EAC formula
-  assumes some future efficiency, and they disagree by as much as the
-  program's performance has varied. `forecast` runs the rest of the program
-  many times on its own record: each simulated period earns schedule and
-  spends at a pace and efficiency drawn, as a pair, from the periods so far,
-  with runs of good and bad periods lasting as long as they did. The result
-  is an EAC and a completion date with a P50 and a P80, their joint
-  confidence, and where the contractor's EAC and each formula fall on it.
-  On synthetic programs whose outcome is known, the P80 holds the true cost
-  and finish 79 to 82% of the time (72 to 77% when performance is strongly
-  persistent), and the test suite holds it to that.
-- **The warning signs, stated.** A contractor EAC whose TCPI is more than
-  0.10 above the CPI, one below every independent EAC, one that needs the CPI
-  to recover more than 0.10 after 20% complete (Christensen's finding on DoD
-  contracts), and an SPI that has recovered while SPI(t) has not.
-
-In the example, three invented control accounts at 32% complete, the
-contractor's EAC of $16.3M sits below the P1 of the forecast, whose P50 is
-$17.0M.
-
-```python
-from cost_core.evm import EvmData, forecast
-data = EvmData.read("cpr.csv")            # period, bcws, bcwp, acwp[, eac][, wbs]
-data.flags()
-forecast(data, seed=1).summary()
-```
-
-**Straight from the IPMDAR (preview).** The Contract Performance Dataset,
-the JSON tables contractors deliver under DI-MGMT-81861, reads directly:
-
-```bash
-ce-core evm --ipmdar cpd_2026_11.zip --out evm/
-ce-core evm --ipmdar cpd_2026_*.zip --out evm/     # cumulative-only deliveries
-```
-
-Table and field names follow the CPD Data Exchange Instructions (March
-2020). Work packages roll up into their control accounts, the baseline to
-complete and the contractor's estimate to complete come from their own
-tables, and the control accounts are reconciled against the PMB summary,
-with any gap stated. A dataset whose to-date values are time-phased holds
-the whole history. One that reports them only cumulative to date gives a
-single point, so pass the monthly deliveries together and the history is
-rebuilt from them, with any missing month named. A folder or ZIP of one JSON
-file per table and a single JSON file keyed by table name both read.
-
-*This reader is a preview.* It follows the published Data Exchange
-Instructions and is tested on datasets written to them, but not yet on a real
-contractor delivery, and how the tables are packaged is still to be checked
-against the File Format Specification. Check the reconciliation note it prints
-against the delivery's own totals, and if a file does not read, please say so
-on [the issue tracker](https://github.com/MichaelFowler1/cost-risk-toolkit/issues)
-(describe the file's layout; never attach the data). Until it is confirmed, a
-CSV export of BCWS, BCWP and ACWP by period is the dependable route.
-
 ## Choosing a portfolio: which programs get funded
 
 Moving money between programs is a capital budgeting problem, and the
@@ -460,6 +346,46 @@ The solver is checked against brute force: on 40 random portfolios, every
 combination of options is enumerated and the integer program has to find the
 same best value.
 
+## Learning curves from production lots
+
+Units and cost per lot is the whole input:
+
+```bash
+ce-core template lots
+ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --forecast "30,40" --out results/
+```
+
+It fits the curve, shows which lots it misses and by how much, puts an interval
+on the slope and forecasts the next buys with prediction intervals.
+[docs/learning-curves.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/learning-curves.md) covers the lot cost
+engine behind it (LC, Rate and LC+Rate, the WBS roll-up, the synthetic
+CSDR/SRDR pipeline), running it as a library, and the four things that quietly
+ruin a lot fit.
+
+## Real programs from public SARs
+
+Every major defense program reports to Congress each year in a Selected
+Acquisition Report, and DoD releases them. Their unit cost pages are the
+longest public record of cost growth there is: what each program expected a
+unit to cost when it started, and what it expects now, in constant dollars.
+
+```bash
+pip install "cost-core[public]"
+ce-core sar-panel --list-cycles
+ce-core sar-panel --programs F-35 --out f35/
+```
+
+The second command reads the F-35's SARs from December 2010 to the FY 2027
+budget and writes three files: `unit_cost.csv` (PAUC and APUC, baseline beside
+current estimate, per subprogram and report), `reports.csv` (what was read and
+what wasn't, and why) and `checks.csv`. Leave off `--programs` for all of them,
+about a thousand reports, which takes an hour or two the first time and
+seconds after, since every download is cached.
+
+It works offline too, from a folder of SAR PDFs you already have
+(`ce-core sar-panel --dir path/to/sars`). How the reports are read and checked,
+and what the numbers mean: [docs/public-sar-data.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/public-sar-data.md).
+
 ## Installation
 
 Bringing it into a lab or a government office, behind a proxy, offline, or
@@ -489,430 +415,19 @@ the extra gives you the whole engine, the CERs, the risk simulation and the Exce
 workbooks, and anything that draws a PNG tells you to add `[plots]` when you
 reach it.
 
-numpy and scipy also carry an upper bound, `numpy<2.5` and `scipy<1.18`. That is
-about reproducing numbers, not about running: above those versions the library
-imports and works, but it stops reproducing the figures this release pins. Both
-land the unbiased MUPE and ZMPE refits in a slightly different place, which moves
-golden leaves by up to 8e-9 and 4.5e-8 relative against a 1e-9 tolerance, and
-scipy 1.18 also changes the simulated draws, which the frozen-draw tests hash.
-Both are seen on Windows, where the goldens were captured. Elsewhere those refit
-leaves carry a measured allowance for the machine's own last bits and the hashes
-are not checked, so a bound has to be measured on Windows. Raising a bound means
-rebaselining the goldens and the frozen draws against the new stack and writing
-down what moved, the same process every other rebaseline here went through.
-`CHANGELOG.md` carries the measurements.
-
-## Quick start
-
-### With your own data
-
-```bash
-ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --forecast "30,40" --out results/
-```
-
-Costs come back in the units they went in, because the fit is scale free and
-this command converts nothing. Headings that read `($K)` are the engine's own
-column names, carried over from the desktop tool whose input column is
-`AUC ($K)`, and the S-curve formats the same numbers as dollars, so read both
-as "cost" in your file's units unless that file really is in thousands.
-
-Prints the fitted slope and first unit cost, the standard error and CV, an
-interval on the slope, and a per lot percentage error showing which lots the
-curve misses. With `--out` it also writes those tables as CSV and an
-`ASSUMPTIONS.md`; the one chart this command draws is the buy S-curve, and that
-needs `--simulate`. See
-[Fitting a curve to your own lot data](https://github.com/MichaelFowler1/cost-risk-toolkit#fitting-a-curve-to-your-own-lot-data).
-
-### With generated data, to see the whole pipeline
-
-Generate synthetic submissions, ingest and normalize them, fit a learning curve
-and a CER, simulate with correlation, then write charts, tables and an
-assumptions log:
-
-```bash
-ce-core full-run --out artifacts/ --seed 7
-```
-
-That writes:
-
-```
-artifacts/
-  ASSUMPTIONS.md              the written assumptions and provenance log
-  charts/                     s_curve, tornado, learning_curve,
-                              cer_diagnostics, summary_table  (PNG, 200 dpi)
-  tables/                     every table behind those charts, as CSV
-  artifacts/source_reports/   the six synthetic submissions
-  artifacts/wbs_crosswalk.csv the persisted name crosswalk
-  artifacts/inflation_index.csv
-```
-
-The same seed reproduces the run exactly.
-
-## The lot cost engine
-
-The lot cost engine is `cost_core.lotmodel`, the code the desktop tool runs
-on. Historical **analogy
-lots** (fiscal year, quantity, unit cost) are the history; **estimate lots**
-(fiscal year, quantity, complexity factor) are the buy being priced.
-
-```python
-from cost_core.lotmodel import run_lot_cost_model, generate_analyst_summary, enrich_run
-
-projections, ctx = run_lot_cost_model(analogy_df, estimate_df)
-summary = generate_analyst_summary(ctx, {"Program": "TEST"})
-extras = enrich_run(ctx, projections, summary)
-```
-
-Three models get fitted to the analogy lots, and every estimate lot is priced
-under all three, so the projections carry the models the tool *didn't* pick
-right alongside the one it did:
-
-```
-LC        ln(cost) = ln(T1) + b*ln(lot midpoint)
-Rate      ln(cost) = ln(T1) + c*ln(lot quantity)
-LC+Rate   both terms together
-```
-
-Selection goes to LC+Rate when its rate coefficient is significant, to Rate when
-the rate slope is significant *and* beats LC by more than the AICc tie
-threshold, and to LC otherwise. Where AICc disagrees with the significance gate,
-the summary says so instead of hiding it. Because the lot midpoint depends on
-the slope you're fitting, the fit iterates to a fixed point. That's the Goal Seek
-the original workbook did by hand.
-
-### What the statistics layer adds
-
-The estimate itself is untouched by any of this. A golden master test fails if a
-single coefficient moves. What `enrich_run` reports is how much confidence
-those numbers can carry.
-
-**Retransformation bias.** The fit is OLS on `ln(cost)`, then exponentiated back.
-That estimates the *median* and understates the *mean* by `exp(s²/2)`. MUPE and
-ZMPE refit the same regressors under a proportional error loss and drive the
-mean percentage error to zero, so the bias gets measured on your data instead of
-argued about.
-
-**Influence.** Six analogy lots is a normal sample here, and at that size one lot
-can set the slope while every summary statistic still looks healthy. Leverage and
-Cook's distance name it. On the reference programme in the tests, analogy lot 1
-carries leverage 0.77 and Cook's D 4.00.
-
-**Prediction intervals** on every projected lot. For a *new* lot, carrying the
-residual scatter, with a t multiplier because sigma is estimated rather than
-known.
-
-**Buy risk.** A distribution over the total of the estimate lots with P50/P80/P90
-and where the point estimate falls on it. Residuals across lots are correlated at
-0.30 by default, for the same reason WBS elements are.
-
-`enrich_run` returns the four tables (`Fit_Methods`, `Influence`,
-`Prediction_Intervals`, `Buy_Risk`) as frames. The desktop tool writes the risk
-ones into its workbook after the original three sheets, so an analyst who wants
-only the original three still gets exactly those.
-
-## Fitting a curve to your own lot data
-
-The simplest way in. Two columns, one row per lot:
-
-```csv
-lot,units,cost
-LRIP 1,22,96800000
-LRIP 2,18,70200000
-FRP 1,25,90000000
-FRP 2,30,100500000
-```
-
-```bash
-ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --forecast "30,40" --out results/
-```
-
-The `lot` column is optional. Common header spellings (`Qty`, `Quantity`,
-`Total Cost`, `Amount`, and so on) are recognized automatically, and anything
-unusual you name with `--units-col` / `--cost-col`. Currency formatting like
-`$1,200,000` parses fine. `.xlsx` works out of the box.
-
-Everything else is derived. Lot 1 is units 1 to 22, lot 2 is units 23 to 40, and
-so on by running total. That's what turns a flat list of lots into positions on a
-curve. You get the fitted slope and first unit cost, standard error and CV, an
-interval on the slope, a per lot percentage error showing which lots the curve
-misses, prediction intervals on forecast lots, and an `ASSUMPTIONS.md`.
-
-### Re-using the curve on another program
-
-The fit is also an estimating relationship you can lift and apply somewhere else.
-The equation gets printed and written to `equation.csv`. The four lots above
-select LC+Rate, so theirs carries both terms:
-
-```
-Unit Cost = 7,424,501.70 * midpoint^(-0.108355) * qty^(-0.093348)
-```
-
-Where only the learning term survives the significance gate the `qty` factor is
-absent. Drop `FRP 2` from that sample and the remaining three lots select LC,
-printing `Unit Cost = 5,586,219.86 * midpoint^(-0.108548)`. The priced lots carry
-whichever terms the equation does. There's a test for exactly that, because for a
-while they didn't.
-
-`--price-lots` applies the selected model to any buy profile from unit 1,
-producing the learning curve table an analyst would build by hand:
-
-```bash
-ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --price-lots "10,15,20,25,30" --out results/
-```
-
-The `lot_midpoint` column is the *algebraic* midpoint, meaning the unit whose
-cost equals the lot average. Most tools approximate it, because they only have an
-approximate lot average to work from. Here the lot average is exact, so the
-midpoint gets solved for directly. There's a test asserting the cost at the
-midpoint equals the lot average, which is its definition.
-
-This is the analogy use case: price a program with no cost history of its own
-using the slope from one that does. **Whether that's valid is a judgement, not a
-result.** The slope carries across only if the two programs are comparable in
-product, process, rate and contractor. Nothing in the data can confirm that, so
-the assumptions log records it as an untested assumption and notes that the extra
-error it introduces isn't in any interval reported.
-
-### Forecasting the next buy, with risk
-
-`--forecast` prices future lots continuing from the last unit built, with
-prediction intervals. `--simulate` then Monte Carlos them:
-
-```bash
-ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --forecast "30,40" --simulate 50000 --out results/
-```
-
-Unlike the WBS level simulator, this needs no elicited distributions. The
-uncertainty is *measured from the program's own history*. Two sources get
-propagated: parameter uncertainty in the fitted slope and T1, which dominates on
-a short series, and lot to lot scatter, which is what makes the answer a
-prediction about a real lot. Residuals across future lots are correlated at 0.30
-by default for the same reason WBS elements are. Consecutive lots share a
-workforce and a schedule, and treating them as independent understates the spread
-of the whole buy.
-
-It does *not* include schedule risk, requirement changes, or rate changes the
-history never saw. That's a narrower claim than a full risk model, and the log
-says so.
-
-### How it fits
-
-Three candidate models against the lot midpoint, one selected:
-
-```
-LC        ln(unit cost) = ln(T1) + b*ln(lot midpoint)
-Rate      ln(unit cost) = ln(T1) + c*ln(lot quantity)
-LC+Rate   both terms together
-```
-
-This engine came across from the desktop tool in lot-cost-model, which since
-its 3.0.0 imports it rather than keeping a copy, so the two are the same code by
-import rather than by descent. All three models get fitted
-and all three price every lot, so the alternatives stay on the record. Because
-the midpoint depends on the slope you're fitting, the fit iterates to a fixed
-point.
-
-### Four things that quietly ruin a lot fit
-
-The tool checks all four, because each one leaves a fit that looks perfectly
-healthy while the slope is several points wrong.
-
-**Nonrecurring cost in the totals.** Nonrecurring is front loaded, so including it
-makes early lots look expensive and the curve reads steeper than the production
-process really is. That overstates future savings. `--cost-basis` has to be
-declared, and `total` warns.
-
-**Escalation left in "constant" dollars.** `--dollar-year` is **required**. No
-index gets applied, but constant dollars are constant relative to a year, and an
-output nobody can place in a year can't be escalated or compared. The tool checks
-whether cumulative average cost ever rises, which can't happen on a learning
-curve, and it also tests the log log residuals for a bend.
-
-Be careful about what that second check can actually do. Fitted against the lot
-midpoint it's a poor escalation detector: the fitted slope moves with the
-escalation, the midpoint moves with the slope, and the trend gets absorbed
-instead of being left in the residuals. It catches a rate break, a design change
-or a production gap, not moderate escalation. The level check needs roughly 10% a
-year before it bites. Below that, moderate escalation and genuinely slower
-learning can't be told apart without a fiscal year attached to each lot, and the
-log says exactly that. There's a parametrized test at 2%, 4% and 6% asserting the
-miss, so the limit is documented rather than discovered later.
-
-**Lots that don't start at unit 1.** If the program has a prior buy the curve has
-already learned through, `--first-unit` shifts the series. Otherwise the fitted
-first unit cost describes a unit nobody built.
-
-**Too few lots.** Degrees of freedom are lots minus 2. Two lots interpolate
-exactly and are refused. Three gives one degree of freedom and an interval too
-wide to support a decision. Five is the practical floor. The tool fits below that
-but says so loudly.
-
-## Usage guide
-
-### Full run
-
-```bash
-ce-core full-run --out artifacts/ --seed 7 --iters 50000 --theory crawford --method mupe --correlation 0.30
-```
-
-`--clean` generates data with no reporting pathologies, which is how the tests
-show that the pipeline recovers the generating truth exactly.
-
-### Fit a learning curve
-
-Takes a CSV with `program`, `lot`, `unit_quantity` and `unit_cost` columns.
-
-```bash
-ce-core fit-curve --csv your_history.csv --out model_params.json
-```
-
-### Forecast future lots
-
-```bash
-ce-core forecast --model model_params.json --quantities "32,64,128" --out forecast.csv
-```
-
-### Run a Monte Carlo simulation
-
-*In PowerShell, wrap the JSON arguments in single quotes.*
-
-```bash
-ce-core simulate --n-iter 10000 --unit-cost-dist '{"type": "lognormal", "mean": 5.0, "sigma": 0.2}' --quantity-dist '{"type": "triangular", "left": 40, "mode": 50, "right": 75}' --out sim_results.csv
-```
-
-### As a library
-
-```python
-from cost_core.synth import generate_program
-from cost_core.ingest import normalize_program
-from cost_core.learning_curve import Theory, fit_from_progress_report
-
-program = generate_program(seed=7)
-data = normalize_program(program)                    # raises if a gate fails
-curve = fit_from_progress_report(
-    data.learning_curve_input(), theory=Theory.CRAWFORD, method="mupe"
-)
-curve.forecast_lots([[109, 132]], level=0.80, kind="prediction")
-```
-
-## Methodological choices
-
-### Why MUPE and ZMPE, not just OLS
-
-The standard cost fit is ordinary least squares in log space, followed by
-exponentiating back to dollars. That retransformation is biased. If the log space
-errors are normal with variance `s²`, then
-
-```
-E[y | x] = f(x) · exp(s² / 2)
-```
-
-so the retransformed value estimates the **median** and understates the **mean**
-by a factor of `exp(s²/2)`. On a 30% CV relationship that's roughly a 4 to 5%
-understatement baked into the estimate before any risk analysis even starts, and
-it runs in the direction that makes a program look cheaper.
-
-Two unbiased alternatives are provided, and both drive the mean percentage error
-to exactly zero:
-
-**MUPE** (minimum unbiased percentage error) minimizes `Σ (y - f)² / f_prev²` by
-iteratively reweighted least squares. At its fixed point, the normal equation for
-a multiplicative scale parameter collapses to `Σ (y - f)/f = 0`.
-
-**ZMPE** (zero percentage bias minimum percentage error) minimizes
-`Σ ((y - f)/f)²` *subject to* `Σ (y - f)/f = 0`. Same zero bias property, but
-imposed as a constraint rather than emerging from the algebra, and it gives a
-different slope.
-
-`retransformation_bias()` measures the bias three ways: the theoretical
-`exp(s²/2)`, Duan's nonparametric smearing estimate, and the observed shift
-against MUPE and ZMPE. So the correction gets quantified instead of asserted.
-
-### Prediction intervals, not confidence intervals
-
-These aren't interchangeable, and the confusion always runs the same direction.
-
-A **confidence interval** covers the *mean response* at a point, meaning where
-the fitted line is. It shrinks toward zero as the sample grows.
-
-A **prediction interval** covers a *single new observation*, meaning where the
-next actual program will land. It carries the residual scatter as well as the
-parameter uncertainty.
-
-The variance relationship is exact:
-
-```
-Var_prediction = Var_confidence + σ²
-```
-
-That extra `σ²` is the spread of programs about the line, and no amount of
-additional data removes it. A cost estimate forecasts one new program, so the
-prediction interval is the correct one. `CER.predict()` takes `kind` explicitly
-and defaults to `"prediction"`.
-
-### Why correlation matters
-
-Sampling WBS elements independently is the spreadsheet default and close to the
-worst assumption available. Elements on one program share a workforce, a
-management chain, a supply base and a schedule. When one runs late they mostly
-all run late. The variance of a sum is
-
-```
-Var(Σ Xᵢ) = Σ Var(Xᵢ) + 2 · Σ_{i<j} ρᵢⱼ · sdᵢ · sdⱼ
-```
-
-so for *k* equally variable elements at a common ρ, ignoring correlation
-understates the variance of the total by exactly `1 + ρ(k-1)`. Ten elements at
-ρ = 0.3 is a factor of **3.7 in variance**, close to a doubling of the standard
-deviation, and it lands on the upper tail, which is where the P80 lives.
-
-Because independence is so rarely right, `RiskModel` applies a non zero default
-correlation when none is supplied, and **warns that it did so**. A default is an
-assumption, and an unstated assumption is the failure this documentation exists
-to prevent. `correlation_impact()` reports the measured and the closed form
-inflation side by side, so the claim doesn't rest on the simulation alone.
-
-### Standard error and CV, not R²
-
-R² measures how tightly points hug the fitted line, which a *wrong* model can do
-perfectly well. In `tests/test_learning_curve.py`, data generated under Crawford
-unit theory and fitted as a Wright curve returns R² of about 0.996 with a
-demonstrably wrong forecast. Standard error is in dollars and CV is a proportion.
-Both are arguable. R² is reported, but last.
-
-### Projections have to satisfy the equation
-
-The original desktop tool priced its Rate lots on the lot midpoint, which isn't
-the variable that model regresses on, and priced LC+Rate without the rate factor
-at all. So it printed an equation and then printed lot costs that didn't satisfy
-it. On `example_lots.csv` that overstates a back cast of the fitted lots by 36%
-against a known total, while the residual columns from the same run showed the
-model tracking those lots to about 1%. One run, two formulas.
-
-Dropping the term isn't a modeling choice you could defend. It evaluates the fit
-at a lot quantity of one unit while keeping the learning position of the real
-lot, and because the rate exponent is negative it only ever biases upward.
-
-The corrected behavior is the default. `LegacyRateOmission` reproduces the old
-numbers for anyone who has to match a legacy workbook, and the command line has
-`--legacy-rate-omission` for it, which prints a warning when you use it. Passing
-the old setting name raises instead of being ignored, because a caller who asked
-for legacy behavior and quietly got something else is worse off than one who
-gets an error.
-
-The guard is a test that retypes the printed equation and evaluates it against
-the printed projections, for all three models. That test is why this is a
-paragraph about a fix rather than a known issue.
-
-### Wright and Crawford are different theories
-
-Wright's cumulative average form says the *average* cost of the first x units
-follows `T1·x^b`. Crawford's unit form says the cost of *unit* x does. Which one
-applies is a property of the production process, not a modeling preference.
-`fit_curve()` makes the caller choose and `compare_theories()` reports both,
-because the same data under the two gives materially different forecasts.
-
-## Mapping to the GAO Cost Estimating and Assessment Guide
+numpy and scipy carry upper bounds so the published numbers reproduce exactly;
+[docs/development.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/development.md) explains why, and how to run
+the tests.
+
+## How the numbers are made
+
+The method choices are argued for, not just made:
+[docs/methods.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/methods.md) explains why MUPE and ZMPE sit beside
+OLS, why intervals are prediction intervals and not confidence intervals, why
+correlation matters, why the fit is judged on standard error and CV rather than
+R², and why Wright and Crawford are different theories.
+
+### Mapping to the GAO Cost Estimating and Assessment Guide
 
 Every run emits an `ASSUMPTIONS.md` organized around the four characteristics of
 a reliable estimate.
@@ -923,98 +438,6 @@ a reliable estimate.
 | **Well-documented** | Row level provenance from every output number back to its source submission. The crosswalk and inflation index are persisted artifacts, not inline logic. The assumptions log separates what was measured from what was assumed, and counts the assumptions |
 | **Accurate** | Validation gates reconcile row counts and dollar totals within and across reports, and fail the run when they disagree. Retransformation bias is measured and corrected. Estimating methods are compared rather than assumed |
 | **Credible** | Prediction intervals on every forecast. Leverage and influence diagnostics on the CER. Extrapolation flagged, including hidden extrapolation. The correlation assumption's effect quantified against independence. P80 convergence checked |
-
-## Project structure
-
-```
-cost_core/
-  fitting.py          shared OLS / MUPE / ZMPE estimator and intervals
-  lots.py             your own lot data: units and cost per lot
-  cli.py              the ce-core command line interface
-  lotmodel/           the lot cost engine: LC / Rate / LC+Rate on lot midpoints, summary, enrichment
-  program/            WBS roll-up of several elements into one programme
-  learning_curve.py   Wright and Crawford theories, rate breaks
-  monte_carlo.py      correlated risk simulation
-  data_io.py          CSV and SQLite loading
-  synth/              synthetic CSDR/SRDR generator
-  ingest/             crosswalk, inflation, normalization pipeline
-  cer/                parametric CERs and diagnostics
-  reporting/          charts, assumptions log, the Excel workbooks, end to end run
-  public/             public SARs: fetch with provenance, catalogue, unit cost parser, panel
-  aoa/                life-cycle cost of alternatives, spec files, growth from SAR history
-  portfolio/          which programs to fund: integer program, marginal value, budget risk
-  schedule/           activity networks, schedule risk and joint cost and schedule confidence
-tests/                property tests, see below
-```
-
-## Tests
-
-```bash
-pip install -e ".[plots]" pytest
-pytest tests/ -q
-```
-
-`requirements.txt` also exists, but it holds the exact versions this repo
-develops against, and four of the five will not install on 3.9, three of them
-not on 3.10. It is the pinned development set, not the way to set up a checkout
-on an older interpreter. Install the package and let the version range in
-`pyproject.toml` resolve.
-
-759 tests, run on Python 3.9, 3.10, 3.11, 3.12, 3.13 and 3.14 on every push,
-which is the whole supported range; four of them, the frozen-draw hashes, run
-on Windows only. They assert mathematics against closed form
-answers rather than against recorded output, with one deliberate exception:
-tests/goldens pins what the lot engine produced on 6 September 2026, so a
-refactor that moves a number has to say so. The strongest ones:
-
-**Our OLS *is* the textbook OLS.** The generic estimator reproduces
-`scipy.stats.linregress` and the normal equations to machine precision, and the
-delta method prediction interval reduces algebraically to
-`s·√(1 + 1/n + (x₀-x̄)²/Sxx)`.
-
-**MUPE and ZMPE drive the mean percentage error to exactly zero.** That's what
-their names mean, and it's asserted to 1e-9. ZMPE's sum of squared percentage
-errors is also proven to be no larger than MUPE's, which is a theorem, not a
-tuning outcome.
-
-**Cook's distance is checked against an actual leave one out refit.** The closed
-form is exact, so the test drops each program, refits, and confirms the formula
-reproduces the movement in the fitted surface.
-
-**Variance inflation is exactly `1 + ρ(k-1)`.** Asserted across element counts
-and correlations, and confirmed against simulation.
-
-**Tornado variance shares sum to exactly one**, because the covariance
-decomposition `Var(T) = Σ Cov(Xᵢ, T)` is an identity when T is the sum.
-
-**A messy program normalizes back to the generating truth to the cent.** Name
-drift, mixed then year and base year dollars, resubmitted periods and a mid
-program quantity change are all reversible by construction, so the pipeline that
-reverses them has no excuse for landing anywhere else.
-
-**Learning curve identities are definitional.** Doubling quantity multiplies the
-right quantity by the slope under each theory. Wright's unit costs telescope back
-to its cumulative total. Crawford's lot cost is the exact sum of its units.
-
-**Simulations are seed deterministic.** A P80 that moves between runs isn't a
-number you can put in front of anyone.
-
-**Limits get tested, not just capabilities.** There's a parametrized test
-asserting that both escalation checks stay silent at 2%, 4% and 6% a year under a
-midpoint fit, while the fitted slope drifts several points off the truth. A
-second test confirms the level check does catch 15%. Documenting where a
-diagnostic stops working matters more than showing where it works.
-
-**The projections satisfy the equation the tool prints.** Retyped by hand for
-all three models and evaluated against the projected costs, to the cent the
-column is rounded to. Flipping the legacy switch back on fails five of these,
-which is how I know they'd have caught the original defect.
-
-**Bad input is refused, not absorbed.** Zero degrees of freedom, a missing base
-year, two lots, fractional units, unmatched WBS names, non positive costs in a
-log fit, a correlation matrix that isn't symmetric, a rate break beyond the data,
-an unknown interval kind, an index asked for a year it doesn't cover. Each one
-raises instead of producing a plausible looking number.
 
 ## License
 

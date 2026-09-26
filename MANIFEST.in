@@ -23,10 +23,9 @@ include CHANGELOG.md
 include CITATION.cff
 include requirements.txt
 
-# The README tells the reader to regenerate the hero figure with this script, so
-# a source release that omits it is a source release the README lies about. The
-# figure itself is not here: the README now points at it by absolute URL, which
-# is what makes it render on PyPI, where nothing from the sdist is served.
+# docs/learning-curves.md tells the reader to regenerate the hero figure with this
+# script, so a source release that omits it is one the docs lie about. The
+# figure itself is not here: the docs point at it by absolute URL.
 include make_hero.py
 
 # The licence check CI runs on the SBOM. tests/test_sbom_licences.py loads it

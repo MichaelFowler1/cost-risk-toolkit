@@ -10,6 +10,23 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Changed
+- The README is a front page now: the pitch, the demo, one short section per
+  command, installation and the licence, in about 460 lines instead of 1,050.
+  The reference material moved, unchanged, to `docs/`: the lot cost engine and
+  learning-curve fitting to `docs/learning-curves.md`, the method choices to
+  `docs/methods.md`, the SAR walkthrough to `docs/public-sar-data.md`, and
+  project structure, tests and the numpy and scipy bounds to
+  `docs/development.md`.
+- Earned value moved up to follow cost risk in the README, since it's the job
+  most people do every month.
+
+### Deprecated
+- `ce-core fit-curve`, `forecast` and `simulate`, the first release's
+  commands, still run but are hidden from `--help` and print what replaced
+  them: `fit-lots` for the first two, `cost-risk` for `simulate`. They'll be
+  removed in 3.0.
+
 ## [2.4.2] - 2026-09-26
 
 Twelve fixes found by a review of the 2.4.0 code: one crash, some silent

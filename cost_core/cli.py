@@ -70,7 +70,25 @@ def need_file(path, what: str, topic: str) -> None:
           f"  {hint}")
 
 
+#: The first release's commands and what replaced each; they go in 3.0.
+DEPRECATED = {
+    "fit-curve": "ce-core fit-lots, which reads units and cost per lot, checks the fit "
+                 "and forecasts in one step (ce-core template lots writes a file for it)",
+    "forecast": "ce-core fit-lots --forecast, which puts prediction intervals on the "
+                "forecast lots",
+    "simulate": "ce-core cost-risk, which takes a whole estimate in Excel with ranges, "
+                "risks and correlation (ce-core demo cost-risk shows it)",
+}
+
+
+def warn_deprecated(command: str) -> None:
+    """Say, once per run, that a command is on its way out and what to use."""
+    print(f"Note: 'ce-core {command}' is deprecated and will be removed in 3.0. "
+          f"Use {DEPRECATED[command]}.", file=sys.stderr)
+
+
 def run_fit(args: argparse.Namespace) -> None:
+    warn_deprecated("fit-curve")
     path = Path(args.csv)
     if not path.is_file():
         abort(f"CSV not found: {path}")
@@ -94,6 +112,7 @@ def run_fit(args: argparse.Namespace) -> None:
         abort(f"Fitting pipeline failed: {e}")
 
 def run_forecast(args: argparse.Namespace) -> None:
+    warn_deprecated("forecast")
     model_file = Path(args.model)
     if not model_file.is_file():
         abort(f"Model file missing: {model_file}")
@@ -117,6 +136,7 @@ def run_forecast(args: argparse.Namespace) -> None:
         abort(f"Forecast execution failed: {e}")
 
 def run_simulate(args: argparse.Namespace) -> None:
+    warn_deprecated("simulate")
     try:
         log.info(f"Starting MC simulation ({args.iters} iterations)")
         res = monte_carlo.run_monte_carlo(
@@ -789,7 +809,9 @@ def main(argv=None) -> None:
         prog="ce-core",
         description="Cost estimating, EVM and schedule analysis. Run with no arguments for "
                     "a guide to what it can do.")
-    sub = parser.add_subparsers(dest="cmd")
+    # The metavar keeps the usage line short and leaves the deprecated
+    # commands, which have no help text, out of the listing.
+    sub = parser.add_subparsers(dest="cmd", metavar="<command>")
 
     # Subcommand: fit
     # Long-form aliases (--quantity-col, --quantities, --n-iter,
@@ -797,7 +819,10 @@ def main(argv=None) -> None:
     # names. The README documented the long forms while the parser only
     # accepted the short ones, so every example in it failed; adding aliases
     # fixes the documented interface without breaking the existing one.
-    p_fit = sub.add_parser("fit-curve", help="Analyze historical cost trends")
+    # fit-curve, forecast and simulate are the first release's commands, kept
+    # running for anyone scripting them but hidden: fit-lots and cost-risk do
+    # the same jobs properly. They go in 3.0.
+    p_fit = sub.add_parser("fit-curve", description="Deprecated: use ce-core fit-lots.")
     p_fit.add_argument("--csv", required=True)
     p_fit.add_argument("--out", required=True)
     p_fit.add_argument("--qty-col", "--quantity-col", dest="qty_col",
@@ -805,14 +830,14 @@ def main(argv=None) -> None:
     p_fit.add_argument("--cost-col", dest="cost_col", default="unit_cost")
 
     # Subcommand: forecast
-    p_fcst = sub.add_parser("forecast", help="Predict costs for target lots")
+    p_fcst = sub.add_parser("forecast", description="Deprecated: use ce-core fit-lots --forecast.")
     p_fcst.add_argument("--model", required=True)
     p_fcst.add_argument("--out", required=True)
     p_fcst.add_argument("--qtys", "--quantities", dest="qtys", required=True,
                         help="Lots e.g. '50,100,500'")
 
     # Subcommand: simulate
-    p_sim = sub.add_parser("simulate", help="Run probabilistic risk models")
+    p_sim = sub.add_parser("simulate", description="Deprecated: use ce-core cost-risk.")
     p_sim.add_argument("--out", required=True)
     p_sim.add_argument("--iters", "--n-iter", dest="iters", type=int,
                        default=10000)

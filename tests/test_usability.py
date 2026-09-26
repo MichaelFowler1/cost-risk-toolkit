@@ -233,3 +233,33 @@ def test_a_negative_seed_is_refused_before_anything_runs(capsys):
     with pytest.raises(SystemExit):
         cli.main(["cost-risk", "--data", "x.xlsx", "--seed", "-3"])
     assert "a seed is a whole number, 0 or more" in capsys.readouterr().err
+
+
+def test_the_first_release_commands_still_run_but_say_what_replaced_them(tmp_path, capsys):
+    # Deprecated in 2.5.0, to go in 3.0: hidden from --help, still working.
+    lots = tmp_path / "hist.csv"
+    pd.DataFrame({"program": ["A"] * 4, "lot": [1, 2, 3, 4],
+                  "unit_quantity": [10, 20, 40, 80],
+                  "unit_cost": [100.0, 85.0, 72.0, 61.0]}).to_csv(lots, index=False)
+    model = tmp_path / "model.json"
+    cli.main(["fit-curve", "--csv", str(lots), "--out", str(model)])
+    cli.main(["forecast", "--model", str(model), "--qtys", "160,320",
+              "--out", str(tmp_path / "f.csv")])
+    cli.main(["simulate", "--out", str(tmp_path / "s.csv"), "--iters", "500",
+              "--cost-dist", '{"type": "triangular", "left": 4, "mode": 5, "right": 7}',
+              "--qty-dist", '{"type": "triangular", "left": 9, "mode": 10, "right": 12}'])
+    err = capsys.readouterr().err
+    for old, new in (("fit-curve", "fit-lots"), ("forecast", "fit-lots --forecast"),
+                     ("simulate", "cost-risk")):
+        assert f"'ce-core {old}' is deprecated" in err and f"Use ce-core {new}" in err
+    assert (tmp_path / "f.csv").is_file() and (tmp_path / "s.csv").is_file()
+
+
+def test_the_help_lists_only_current_commands(capsys):
+    with pytest.raises(SystemExit):
+        cli.main(["--help"])
+    out = capsys.readouterr().out
+    listed = {line.split()[0] for line in out.splitlines()
+              if line.startswith("    ") and not line.startswith("     ")}
+    assert {"cost-risk", "fit-lots", "evm"} <= listed
+    assert not listed & {"fit-curve", "forecast", "simulate"}

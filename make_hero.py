@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 """
-Generate docs/hero.png - the README image.
+Generate docs/hero.png - the learning-curve image in docs/learning-curves.md.
 
 Runs the REAL cost_core pipeline on the bundled data.csv: fits a Wright learning
 curve (log-log regression), forecasts future lots, and runs the Monte Carlo cost
