@@ -51,7 +51,12 @@ pip install "cost-core[plots]"   # the charts need the [plots] part
 ce-core                          # what it can do, in plain English
 ce-core demo cost-risk           # see it work on example data: no files needed
 ce-core template cost-risk       # a workbook to fill in with your own estimate
+ce-core open my_file.xlsx        # have a file already? it works out what it is
 ```
+
+On Windows, `ce-core open --send-to` adds cost-core to the right-click
+**Send to** menu: pick a file, send it, and the report opens in a folder
+beside it.
 
 If `ce-core` isn't found after installing (common on managed Windows PCs),
 `python -m cost_core` does exactly the same. [docs/getting-started.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/getting-started.md)
@@ -65,6 +70,7 @@ walks through each task from "what do I need" to "what does this tell me".
 | Know the chance of meeting a budget *and* a date (JCL) | `ce-core demo jcl` | `ce-core jcl --spec my_jcl.xlsx` |
 | Compare alternatives on life-cycle cost (AoA) | `ce-core demo aoa` | `ce-core aoa --spec my_aoa.xlsx` |
 | Choose which programs to fund within a budget | `ce-core demo portfolio` | `ce-core portfolio --spec my_portfolio.xlsx` |
+| Convert base-year and then-year dollars (with your index) | `ce-core demo inflate` | `ce-core inflate --index my_index.csv --data my_phasing.csv --from by2026 --to ty` |
 | Fit a learning curve to production lots | `ce-core template lots` | `ce-core fit-lots --csv my_lots.csv --dollar-year 2026` |
 | See how real programs' unit costs grew | | `ce-core sar-panel --programs F-35` |
 
@@ -83,6 +89,23 @@ WBS and write the workbook, all through this library.
 > **No proprietary data is committed to this repository.** Examples and tests
 > use invented numbers, apart from text from a few public Selected Acquisition
 > Reports, which are U.S. government works.
+
+## Ready for the office
+
+- **Markings.** `--marking "CUI"` stamps exactly that text at the top and
+  bottom of every slide and in the header and footer of every sheet.
+  cost-core doesn't decide, check or validate markings; your organisation
+  does.
+- **Your slide master.** `--template house.potx` (or .pptx) builds
+  `brief.pptx` on your organisation's template, using its "Title Slide" and
+  "Title Only" layouts by name and scaling to its slide size, and says so if
+  it has to fall back.
+- **Set it once.** `ce-core settings --write` starts a `ce-core.toml` for
+  the marking, the template, units, seed, iterations and the fiscal-year
+  start (October by default). A flag on the command line always wins, and
+  `ce-core settings` shows what's in effect and where each value came from.
+- **Bug reports.** `ce-core --about` prints the versions to paste into an
+  issue; nothing is sent anywhere.
 
 ## What it does
 
@@ -126,6 +149,11 @@ Settings sheet says otherwise),
 because leaving correlation out makes the P80 too low. The workbook never
 leaves your machine.
 
+It also shares the P80 out: how much of the reserve each element and risk
+needs, taken from the simulations whose total lands at the P80, so the shares
+add up to the P80 of the whole. Funding every element at its own P80 instead
+would overfund it, since percentiles don't add; the report shows by how much.
+
 ## Earned value: where the program is heading
 
 ```bash
@@ -160,7 +188,14 @@ Two things go further than the formulas:
 - **The warning signs, stated.** A contractor EAC whose TCPI is more than
   0.10 above the CPI, one below every independent EAC, one that needs the CPI
   to recover more than 0.10 after 20% complete (Christensen's finding on DoD
-  contracts), and an SPI that has recovered while SPI(t) has not.
+  contracts), an SPI that has recovered while SPI(t) has not, and earned value
+  beyond the budget.
+- **The monthly checks.** Per control account: earned value or cost that went
+  backwards, cost with nothing earned, earned value with no cost, and an
+  account that's earned its whole budget but is still being charged, each
+  listed as a question to ask. And the accounts whose cumulative variance
+  breaks your thresholds (`--cv-pct`, `--sv-pct`, `--cv-dollars`,
+  `--sv-dollars`; 10% by default) and so owe a variance analysis report.
 
 In the example, three invented control accounts at 32% complete, the
 contractor's EAC of $16.3M sits below the P1 of the forecast, whose P50 is
@@ -359,6 +394,23 @@ The optimum is where the analysis starts, and three more tables come with it:
 The solver is checked against brute force: on 40 random portfolios, every
 combination of options is enumerated and the integer program has to find the
 same best value.
+
+## Base-year and then-year dollars
+
+```bash
+ce-core demo inflate                  # an invented phased estimate, illustrative index
+ce-core inflate --index my_index.csv --data my_phasing.csv --from by2026 --to ty
+ce-core inflate --index my_index.csv --amount 100 --year 2030 --from by2026 --to ty
+```
+
+The index comes from you: your agency's published tables (the NASA New Start
+Inflation Index, OSD inflation guidance), as `index_name, fiscal_year,
+index_value`. cost-core never carries those numbers itself;
+`ce-core template inflate` shows the layout with an index that's plainly
+marked as invented. Any year converts to any other, dates become fiscal years
+(October start by default), every converted row keeps its original amount,
+the factor and the index used, and a year outside the table is refused
+rather than guessed.
 
 ## Learning curves from production lots
 

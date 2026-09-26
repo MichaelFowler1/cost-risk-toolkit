@@ -5,6 +5,19 @@ has never used `cost-core`. No Python is needed: everything here is typed
 at a command prompt (Command Prompt or PowerShell on Windows, Terminal on a
 Mac or Linux).
 
+
+## Already have a file?
+
+```bash
+ce-core open my_file.xlsx
+```
+
+`open` looks inside the file (its sheets, its columns, the root of an XML
+file, the tables of an IPMDAR dataset), says what it takes it to be, runs the
+matching command and puts the results in a folder beside the file. On
+Windows, `ce-core open --send-to` puts it on the right-click Send to menu.
+When it can't place a file it says what it looked for.
+
 ## 1. Install it
 
 ```bash
