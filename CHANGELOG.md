@@ -10,6 +10,12 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-09-26
+
+Twelve fixes found by a review of the 2.4.0 code: one crash, some silent
+mistakes in reading workbooks, and messages that now say what to do. No
+number from a valid input moves.
+
 ### Fixed
 - `ce-core cost-risk` crashed with a division by zero on an estimate with no
   uncertainty at all (no ranges, no risks). It now says there's nothing to
@@ -716,7 +722,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.2...HEAD
+[2.4.2]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.3.0...v2.3.1
