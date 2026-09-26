@@ -1,0 +1,43 @@
+name: A result looks wrong
+description: It ran, but a number doesn't match what you'd expect or what another tool says.
+labels: [results]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This is a public page.** Don't post real program, contractor, sponsor or rate data, or CUI. The best report is a small invented example that gives the wrong answer, with the number you think is right and how you got it (a hand calculation, Excel, @RISK, a textbook). A scaled or relabelled copy of real data can still be sensitive, so check with whoever clears releases first.
+  - type: checkboxes
+    id: data
+    attributes:
+      label: Data check
+      options:
+        - label: Everything I'm posting uses invented or public numbers, and nothing here is CUI, proprietary or sponsor data.
+          required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: What you ran
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: got
+    attributes:
+      label: The number you got
+      description: Which output (screen, report.xlsx sheet, CSV), and the value.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: The number you expected, and where it comes from
+      description: A hand calculation, another tool, a published example. Simulation results move a little with the seed and the number of iterations, so say which you used.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: cost-core version
+      placeholder: "2.4.0"
+    validations:
+      required: true

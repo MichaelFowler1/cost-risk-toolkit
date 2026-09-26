@@ -10,6 +10,18 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Added
+- Issue forms for bug reports, results that look wrong, output that wasn't
+  clear, feature wishes and licence questions. Each warns that the tracker is
+  public and asks the reporter to confirm they're using invented or public
+  numbers, never real program data or CUI; blank issues are turned off so
+  every report sees that.
+
+### Changed
+- The README opens with cost risk from an Excel estimate, and says up front
+  that data stays on the machine, that government work is covered by the
+  licence, and where to report problems.
+
 ## [2.4.0] - 2026-09-25
 
 Estimates live in Excel, so now the inputs can too. Cost risk runs straight
