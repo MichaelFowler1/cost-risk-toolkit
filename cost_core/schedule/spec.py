@@ -94,13 +94,22 @@ def _project_kwargs(spec) -> Dict[str, float]:
 
 
 def _settings(spec) -> Dict[str, Any]:
-    return {k: spec[k] for k in ("units", "confidence", "n_iter", "seed") if k in spec}
+    out = {k: spec[k] for k in ("units", "confidence", "n_iter", "seed") if k in spec}
+    if "confidence" in out and not 0.0 < float(out["confidence"]) < 1.0:
+        raise ScheduleError(f"confidence is a fraction between 0 and 1, like 0.7 for 70%; "
+                            f"got {out['confidence']}.")
+    return out
 
 
 def _load_mspdi(path: Path, spec) -> Tuple[Project, Dict[str, Any]]:
     from cost_core.schedule.mspdi import read_mspdi
 
-    sched = read_mspdi(path.parent / spec["mspdi"])
+    xml = path.parent / spec["mspdi"]
+    if not xml.is_file():
+        raise ScheduleError(f"{path.name} names the schedule {spec['mspdi']!r}, which isn't "
+                            f"there (looked in {xml.parent}). The path is relative to the "
+                            "spec file.")
+    sched = read_mspdi(xml)
     detail = sched.detail
     by_name: Dict[str, str] = {}
     for uid, name in zip(detail["uid"], detail["name"]):

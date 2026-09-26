@@ -70,6 +70,10 @@ def load_spec(path) -> Dict[str, Any]:
     if "inflation_csv" in spec:
         inflation = InflationTable.load(path.parent / spec["inflation_csv"])
     elif "inflation_rate" in spec:
+        rate = float(spec["inflation_rate"])
+        if not -0.1 <= rate <= 0.5:
+            raise AoAError(f"{path.name}: inflation_rate {rate:g} is outside -10% to 50% a "
+                           "year; it's a fraction, like 0.021 for 2.1%.")
         inflation = InflationTable.from_rate(
             float(spec["inflation_rate"]), base_year=base_year, first_year=min(years),
             last_year=max(years), source=f"constant {float(spec['inflation_rate']):.2%} a year, "
@@ -78,6 +82,9 @@ def load_spec(path) -> Dict[str, Any]:
         raise AoAError(f"{path.name}: give inflation_rate or inflation_csv.")
     kwargs = {"alternatives": alts, "base_year": base_year, "inflation": inflation,
               "discount_rate": float(spec["discount_rate"])}
+    if "pv_year" in spec and abs(int(spec["pv_year"]) - base_year) > 100:
+        raise AoAError(f"{path.name}: pv_year {spec['pv_year']} is more than a century from "
+                       f"the base year {base_year}; is it a typo?")
     for key, cast in (("basis", str), ("pv_year", int), ("n_iter", int), ("seed", int),
                       ("units", str)):
         if key in spec:

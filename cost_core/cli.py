@@ -29,6 +29,36 @@ from cost_core import data_io, learning_curve, monte_carlo
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
+def _whole_numbers(text: str, flag: str) -> list:
+    """``30,40`` as [30, 40], or a message naming the flag."""
+    try:
+        return [int(x) for x in text.replace(" ", "").split(",") if x]
+    except ValueError:
+        abort(f"{flag} takes lot sizes as whole numbers separated by commas, for example "
+              f"{flag} \"30,40\"; got {text!r}.")
+
+
+def _positive(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if not value > 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return value
+
+
+def _iterations(text: str) -> int:
+    """Enough draws to read a P80 from."""
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number") from None
+    if value < 1000:
+        raise argparse.ArgumentTypeError("use 1,000 or more, or the P80 is mostly noise")
+    return value
+
+
 def _seed(text: str) -> int:
     """A random seed: numpy takes whole numbers from 0 up."""
     try:
@@ -177,7 +207,7 @@ def run_fit_lots(args: argparse.Namespace) -> None:
 
         forecast = None
         if args.forecast:
-            forecast = [int(x) for x in args.forecast.replace(" ", "").split(",") if x]
+            forecast = _whole_numbers(args.forecast, "--forecast")
 
         report = analyse_lots(
             series, forecast=forecast, complexity=args.complexity,
@@ -207,21 +237,21 @@ def run_fit_lots(args: argparse.Namespace) -> None:
 
         print()
         print("Models compared (the engine fits all three):")
-        print(report.model_comparison().to_string(index=False))
+        print(report.model_comparison().to_string(na_rep="", index=False))
 
         print()
         print(f"Selected: {report.selected_model}")
         print(f"  {report.equation()}")
         print()
         print("Coefficients:")
-        print(report.fit.equation_detail().to_string(index=False))
+        print(report.fit.equation_detail().to_string(na_rep="", index=False))
 
         print()
         print("Analogy lots as fitted:")
         print(report.per_lot[[
             "lot", "units", "lot_midpoint", "lot_average_cost",
             "fitted_unit_cost", "percent_error",
-        ]].to_string(index=False))
+        ]].to_string(na_rep="", index=False))
 
         print()
         print("Retransformation bias, measured on this data:")
@@ -229,16 +259,16 @@ def run_fit_lots(args: argparse.Namespace) -> None:
         print(f"  OLS understates the mean by {methods.percent_understated:.3f}%"
               f"   exp(s2/2) = {methods.theoretical_factor:.5f}"
               f"   Duan smearing = {methods.smearing_factor:.5f}")
-        print(methods.frame.to_string(index=False))
+        print(methods.frame.to_string(na_rep="", index=False))
 
         print()
         print("Influence on the analogy lots:")
-        print(report.influence().to_string(index=False))
+        print(report.influence().to_string(na_rep="", index=False))
 
         label = "Forecast" if forecast else "Back-cast of the fitted lots"
         print()
         print(f"{label} ({args.level:.0%} prediction interval):")
-        print(report.intervals().to_string(index=False))
+        print(report.intervals().to_string(na_rep="", index=False))
 
         simulation = None
         if args.simulate:
@@ -247,17 +277,17 @@ def run_fit_lots(args: argparse.Namespace) -> None:
             print(f"Monte Carlo of the buy ({args.simulate:,} iterations):")
             print(simulation.narrative())
             print()
-            print(simulation.summary().to_string(index=False))
+            print(simulation.summary().to_string(na_rep="", index=False))
 
         priced = None
         if args.price_lots:
-            plan = [int(x) for x in args.price_lots.replace(" ", "").split(",") if x]
+            plan = _whole_numbers(args.price_lots, "--price-lots")
             priced = report.price_lot_plan(plan, first_unit=args.price_from_unit)
             print()
             print(f"This model applied to a lot plan of {plan}, from unit "
                   f"{args.price_from_unit} (analogy for a programme with no "
                   f"history of its own):")
-            print(priced.to_string(index=False))
+            print(priced.to_string(na_rep="", index=False))
 
         if args.out:
             out = Path(args.out)
@@ -416,7 +446,7 @@ def run_aoa(args) -> None:
     cols = [c for c in ("alternative", "by", "ty", "pv", "p50", "p80", "p_cheapest",
                         "effectiveness", "cost_per_effectiveness", "dominated_by")
             if c in result.summary]
-    print(result.summary[cols].to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
+    print(result.summary[cols].to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.2f}"))
     from cost_core import plain
     print(plain.show(plain.aoa(result, str(result.assumptions.get("units") or ""))))
     from cost_core.reporting.brief import aoa_brief
@@ -454,21 +484,21 @@ def run_portfolio(args) -> None:
     written = ["selected.csv", "spend.csv"]
     print(f"\nValue {result.value:,.2f}, funding {len(result.funded)} of "
           f"{len(portfolio.candidates)} candidates. Costs in {units}.\n")
-    print(result.selected.to_string(index=False, float_format=money))
+    print(result.selected.to_string(na_rep="", index=False, float_format=money))
     print("\nSpend by year:")
-    print(result.spend.to_string(index=False, float_format=money))
+    print(result.spend.to_string(na_rep="", index=False, float_format=money))
     delta = settings.get("delta")
     if delta:
         mv = marginal_value(portfolio, float(delta))
         mv.to_csv(out / "marginal_value.csv", index=False)
         written.append("marginal_value.csv")
         print(f"\nWhat {float(delta):,.0f} more in one year would buy:")
-        print(mv.to_string(index=False, float_format=lambda v: f"{v:,.3f}"))
+        print(mv.to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.3f}"))
     fr = frontier(portfolio, settings.get("frontier_scales", [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]))
     fr.to_csv(out / "frontier.csv", index=False)
     written.append("frontier.csv")
     print("\nBest value at other budget levels:")
-    print(fr.to_string(index=False, float_format=money))
+    print(fr.to_string(na_rep="", index=False, float_format=money))
     risk = None
     if "growth" in settings:
         risk = budget_risk(portfolio, result.choice, settings["growth"],
@@ -478,7 +508,7 @@ def run_portfolio(args) -> None:
         risk.to_csv(out / "budget_risk.csv", index=False)
         written.append("budget_risk.csv")
         print("\nChance each year breaks its budget once costs grow:")
-        print(risk.to_string(index=False, float_format=money))
+        print(risk.to_string(na_rep="", index=False, float_format=money))
     from cost_core import plain
     print(plain.show(plain.portfolio(result, len(portfolio.candidates), risk, units)))
     from cost_core.reporting.excel_report import portfolio_workbook
@@ -509,6 +539,8 @@ def run_jcl(args) -> None:
     except (ScheduleError, OSError, KeyError, ValueError) as e:
         abort(f"JCL failed: {e}")
     conf = float(args.confidence or settings.get("confidence", 0.7))
+    if not 0.0 < conf < 1.0:
+        abort(f"--confidence is a fraction between 0 and 1, like 0.7 for 70%; got {conf:g}.")
     units = settings.get("units", "as entered")
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -543,9 +575,9 @@ def run_jcl(args) -> None:
     except ImportError:
         pass
     print(f"\n{project.name}: {result.n_iter:,} simulated projects, costs in {units}.\n")
-    print(summary.to_string(index=False, float_format=lambda v: f"{v:,.3f}"))
+    print(summary.to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.3f}"))
     print("\nWhere the schedule risk is:")
-    print(result.criticality().to_string(index=False, float_format=lambda v: f"{v:,.2f}"))
+    print(result.criticality().to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.2f}"))
     from cost_core import plain
     print(plain.show(plain.jcl(result, conf, units)))
     from cost_core.reporting.brief import jcl_brief
@@ -627,7 +659,7 @@ def run_evm(args) -> None:
     print(f"\n{data.name}: status period {data.periods[data.status - 1]}, "
           f"costs in {args.units}.\n")
     shown = summary.assign(value=summary["value"].map(fmt))
-    print(shown.to_string(index=False, justify="left"))
+    print(shown.to_string(na_rep="", index=False, justify="left"))
     raised = data.flags()
     raised = raised[raised["raised"]]
     if len(raised):
@@ -653,7 +685,7 @@ def _evm_without_forecast(data, out, why: str) -> None:
     data.flags().to_csv(out / "flags.csv", index=False)
     data.summary().to_csv(out / "summary.csv", index=False)
     print(f"\n{data.name}: status period {data.periods[data.status - 1]}.\n")
-    print(data.summary().to_string(index=False))
+    print(data.summary().to_string(index=False, na_rep=""))
     raised = data.flags()
     raised = raised[raised["raised"]]
     if len(raised):
@@ -662,8 +694,9 @@ def _evm_without_forecast(data, out, why: str) -> None:
             print(f"  - {r.flag}. {r.detail}")
     for note in data.notes:
         print(f"  note: {note}")
-    print(f"\nNo forecast of the final cost and finish: {why}")
-    print(f"\nWrote metrics.csv, flags.csv and summary.csv to {out}")
+    from cost_core import plain
+    print(plain.show(plain.evm_status(data, why)))
+    print(f"Wrote metrics.csv, flags.csv and summary.csv to {out}")
 
 
 def run_schedule_check(args) -> None:
@@ -697,7 +730,7 @@ def run_schedule_check(args) -> None:
         count=result.table["count"].map(lambda v: "" if pd.isna(v) else f"{int(v)}"))
     print(f"\n{sched.name}: {len(sched.detail)} detail tasks, {len(sched.links)} links.\n")
     print(shown[["check", "name", "count", "value", "threshold", "result"]]
-          .to_string(index=False))
+          .to_string(na_rep="", index=False))
     print(f"\n{result.passed} passed, {result.failed} failed, "
           f"{14 - result.passed - result.failed} not assessable from this file.")
     for note in sched.notes:
@@ -863,7 +896,7 @@ def main(argv=None) -> None:
                         help="'total' includes nonrecurring and warns")
     p_lots.add_argument("--first-unit", type=int, default=1,
                         help="Unit number the first lot starts at")
-    p_lots.add_argument("--complexity", type=float, default=1.0,
+    p_lots.add_argument("--complexity", type=_positive, default=1.0,
                         help="Complexity factor applied to the priced lots")
     p_lots.add_argument("--t-gate", type=float, default=2.0,
                         help="Significance cutoff on the rate coefficient")
@@ -907,7 +940,7 @@ def main(argv=None) -> None:
                        help="Output directory for charts, tables and the log")
     p_run.add_argument("--seed", type=_seed, default=7,
                        help="Master seed; the same seed reproduces the run")
-    p_run.add_argument("--iters", "--n-iter", dest="iters", type=int,
+    p_run.add_argument("--iters", "--n-iter", dest="iters", type=_iterations,
                        default=50000, help="Monte Carlo iterations")
     p_run.add_argument("--theory", default="crawford",
                        choices=["crawford", "wright"],
@@ -994,7 +1027,7 @@ def main(argv=None) -> None:
                        help="The values are cumulative to date, not per period")
     p_evm.add_argument("--bac", type=float, default=None,
                        help="Budget at completion (default: the baseline's total)")
-    p_evm.add_argument("--iters", "--n-iter", dest="iters", type=int, default=20000,
+    p_evm.add_argument("--iters", "--n-iter", dest="iters", type=_iterations, default=20000,
                        help="Simulated completions")
     p_evm.add_argument("--seed", type=_seed, default=0, help="Random seed")
     p_evm.add_argument("--units", default="as entered",
