@@ -1271,9 +1271,10 @@ def correlation_impact(
         )
 
     analytic = model.variance_inflation()
-    empirical = float(np.var(correlated.totals, ddof=1)) / float(
-        np.var(independent.totals, ddof=1)
-    )
+    # A model with no uncertainty at all has no variance to compare.
+    independent_var = float(np.var(independent.totals, ddof=1))
+    empirical = (float(np.var(correlated.totals, ddof=1)) / independent_var
+                 if independent_var > 0 else float("nan"))
 
     impact = CorrelationImpact(
         correlated=correlated,

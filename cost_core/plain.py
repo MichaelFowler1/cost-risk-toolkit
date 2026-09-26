@@ -181,13 +181,28 @@ def cost_risk(result, units: str = "") -> List[str]:
     """A cost risk analysis of an estimate."""
     sim = result.sim
     point = result.point_estimate
-    over = 1.0 - sim.point_estimate_percentile / 100.0
-    out = [f"The point estimate of {_money(point, units)} has {_chance(over)} of being "
-           f"exceeded: only {_pct(1.0 - over)} of the simulated costs come in at or under it."]
-    out.append(f"To be 50% sure takes {_money(sim.p50, units)}, and 80% sure "
-               f"{_money(sim.p80, units)}: {_money(sim.p80 - point, units)} "
-               f"({sim.p80 / point - 1:.0%}) over the point estimate. 90% takes "
-               f"{_money(sim.p90, units)}.")
+    below = sim.point_estimate_percentile / 100.0
+    if below < 0.5:
+        out = [f"The point estimate of {_money(point, units)} has {_chance(1.0 - below)} of "
+               f"being exceeded: only {_pct(below)} of the simulated costs come in at or "
+               "under it."]
+    elif below < 1.0:
+        out = [f"The point estimate of {_money(point, units)} is already {_pct(below)} "
+               f"sure: there's {_chance(1.0 - below)} of it being exceeded."]
+    else:
+        out = [f"The point estimate of {_money(point, units)} is above every simulated "
+               "cost: it already carries more than the ranges and risks call for."]
+    reserve = sim.p80 - point
+    if reserve >= 0:
+        out.append(f"To be 50% sure takes {_money(sim.p50, units)}, and 80% sure "
+                   f"{_money(sim.p80, units)}: {_money(reserve, units)} "
+                   f"({sim.p80 / point - 1:.0%}) over the point estimate. 90% takes "
+                   f"{_money(sim.p90, units)}.")
+    else:
+        out.append(f"To be 50% sure takes {_money(sim.p50, units)}, and 80% sure "
+                   f"{_money(sim.p80, units)}, {_money(-reserve, units)} "
+                   f"({1 - sim.p80 / point:.0%}) below the point estimate. 90% takes "
+                   f"{_money(sim.p90, units)}.")
     top = result.drivers()
     top = top[top["variance_share"] > 0].head(3)
     if len(top):
@@ -199,7 +214,10 @@ def cost_risk(result, units: str = "") -> List[str]:
                    + (f", then {rest}." if rest else ".")
                    + " Narrowing those ranges moves the P80 most.")
     impact = result.impact
-    if impact.correlated.p80 > impact.independent.p80:
+    # Only while there is a reserve to lose: with the estimate above the P80
+    # the share is undefined.
+    if impact.correlated.p80 > impact.independent.p80 and \
+            np.isfinite(impact.reserve_understatement):
         out.append(f"Treating the elements as independent would put the P80 at "
                    f"{_money(impact.independent.p80, units)} and lose "
                    f"{impact.reserve_understatement:.0%} of the reserve it needs.")

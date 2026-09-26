@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import re
 import warnings
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -97,6 +98,29 @@ CONFIDENCE_LEVELS = tuple(range(5, 100, 5))
 
 def _norm(name) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
+
+
+def _blank(v) -> bool:
+    return v is None or (isinstance(v, float) and np.isnan(v)) or \
+        (isinstance(v, str) and not v.strip())
+
+
+def excel_rows(frame: pd.DataFrame) -> List[int]:
+    """The Excel row each record of a sheet came from. The heading is row 1,
+    and blank rows dropped along the way still count, so a message can send
+    someone to the right line."""
+    return [int(i) + 2 for i in frame.index]
+
+
+def open_workbook(path: Path, error=ValueError, hint: str = "") -> Dict[str, pd.DataFrame]:
+    """Every sheet of a workbook, or ``error`` saying in plain words why not."""
+    try:
+        return pd.read_excel(path, sheet_name=None)
+    except (ValueError, KeyError, zipfile.BadZipFile) as e:
+        raise error(
+            f"{path.name} can't be read as an Excel workbook: it may be damaged, still "
+            "downloading, password-protected, or an old .xls. Open it in Excel and save "
+            f"it again as .xlsx{hint}. (Details: {e})") from None
 
 
 def _columns(frame: pd.DataFrame, wanted: Dict[str, Tuple[str, ...]], sheet: str,
@@ -202,7 +226,7 @@ def _read_elements(frame: pd.DataFrame) -> Tuple[List[CostElement], pd.DataFrame
         raise CostRiskError("The Elements sheet needs a 'Point Estimate' or a 'Most Likely' "
                             "column; ce-core template cost-risk writes one with both.")
     elements, rows = [], []
-    for i, rec in enumerate(frame.to_dict("records"), start=2):
+    for i, rec in zip(excel_rows(frame), frame.to_dict("records")):
         name = rec.get(cols["element"])
         if name is None or (isinstance(name, float) and np.isnan(name)) or not str(name).strip():
             raise CostRiskError(f"Elements sheet, row {i}: the element has no name.")
@@ -226,7 +250,8 @@ def _read_elements(frame: pd.DataFrame) -> Tuple[List[CostElement], pd.DataFrame
                                 "a Most Likely.")
         elements.append(CostElement(name, spec, point_estimate=float(point)))
         rows.append({"element": name, "point_estimate": point, "low": get.get("low"),
-                     "most_likely": get.get("mode", point), "high": get.get("high"),
+                     "most_likely": get["mode"] if get.get("mode") is not None else point,
+                     "high": get.get("high"),
                      "distribution": spec["type"]})
     if not elements:
         raise CostRiskError("The Elements sheet has no rows. Put one WBS element on each row.")
@@ -249,7 +274,7 @@ def _read_risks(frame: Optional[pd.DataFrame], names: Sequence[str]
         return [], empty
     cols = _columns(frame, RISK_COLUMNS, "Risks", ["risk", "probability"])
     risks, rows = [], []
-    for i, rec in enumerate(frame.to_dict("records"), start=2):
+    for i, rec in zip(excel_rows(frame), frame.to_dict("records")):
         name = str(rec.get(cols["risk"]) or "").strip()
         if not name or name == "nan":
             raise CostRiskError(f"Risks sheet, row {i}: the risk has no name.")
@@ -285,8 +310,11 @@ def _read_pairs(frame: Optional[pd.DataFrame], names: Sequence[str], default: fl
     cols = _columns(frame, PAIR_COLUMNS, "Correlation", ["a", "b", "rho"])
     index = {n: j for j, n in enumerate(names)}
     rows = []
-    for i, rec in enumerate(frame.to_dict("records"), start=2):
-        a, b = (str(rec.get(cols[c]) or "").strip() for c in ("a", "b"))
+    for i, rec in zip(excel_rows(frame), frame.to_dict("records")):
+        if any(_blank(rec.get(cols[c])) for c in ("a", "b")):
+            raise CostRiskError(f"Correlation sheet, row {i}: name both elements of the "
+                                "pair, or delete the row.")
+        a, b = (str(rec.get(cols[c])).strip() for c in ("a", "b"))
         for n in (a, b):
             if n not in index:
                 raise CostRiskError(f"Correlation sheet, row {i}: {n!r} is not on the "
@@ -312,24 +340,41 @@ def _read_pairs(frame: Optional[pd.DataFrame], names: Sequence[str], default: fl
     return fixed, pd.DataFrame(rows, columns=pairs.columns), notes
 
 
+#: The Settings sheet's labels, as normalised headings, and what each sets.
+SETTING_NAMES = {"units": "units", "default_correlation": "default_correlation",
+                 "iterations": "iterations", "iters": "iterations", "draws": "iterations",
+                 "simulations": "iterations", "seed": "seed", "random_seed": "seed",
+                 "description": None, "notes": None}
+
+
 def _read_settings(frame: Optional[pd.DataFrame]) -> Dict:
     out = dict(SETTINGS_DEFAULTS)
     if frame is None or frame.empty:
         return out
     frame = frame.dropna(how="all")
-    for rec in frame.itertuples(index=False):
-        if len(rec) < 2:
+    for row, rec in zip(excel_rows(frame), frame.itertuples(index=False)):
+        if len(rec) < 2 or _blank(rec[0]):
             continue
-        key, value = _norm(rec[0]), rec[1]
-        if key in ("iterations", "iters", "draws"):
-            key = "iterations"
-        if key not in out or value is None or (isinstance(value, float) and np.isnan(value)):
+        label = _norm(rec[0])
+        if label not in SETTING_NAMES:
+            # A misspelt setting would otherwise be ignored without a word, and
+            # the default used in its place.
+            raise CostRiskError(
+                f"Settings sheet, row {row}: {str(rec[0]).strip()!r} is not a setting. The "
+                "settings are Units, Default Correlation, Iterations and Seed.")
+        key, value = SETTING_NAMES[label], rec[1]
+        if key is None or _blank(value):
             continue
         if key == "units":
             out[key] = str(value).strip()
-        else:
-            v = _number(value, "Settings", 0, key.replace("_", " "))
-            out[key] = int(v) if key in ("iterations", "seed") else float(v)
+            continue
+        v = _number(value, "Settings", row, str(rec[0]).strip())
+        if key in ("iterations", "seed"):
+            if v != int(v) or v < 0:
+                raise CostRiskError(f"Settings sheet, row {row}: {str(rec[0]).strip()} is a "
+                                    f"whole number, 0 or more, not {v:g}.")
+            v = int(v)
+        out[key] = v
     return out
 
 
@@ -339,11 +384,7 @@ def read_workbook(path) -> CostRiskInput:
     if path.suffix.lower() == ".csv":
         sheets = {"elements": pd.read_csv(path)}
     else:
-        try:
-            raw = pd.read_excel(path, sheet_name=None)
-        except ValueError as e:
-            raise CostRiskError(f"{path.name} can't be read as an Excel workbook ({e}). Save "
-                                "it as .xlsx, or give the elements alone as a .csv.") from None
+        raw = open_workbook(path, CostRiskError, ", or give the elements alone as a .csv")
         sheets = {_norm(k): v for k, v in raw.items()}
         if "elements" not in sheets:
             first = next(iter(raw), None)
@@ -359,6 +400,13 @@ def read_workbook(path) -> CostRiskInput:
         raise CostRiskError(f"Settings sheet: a default correlation of {default:g} is not "
                             "between -1 and 1.")
     matrix, pairs, notes = _read_pairs(sheets.get("correlation"), names, default)
+    for e in elements:
+        d = e.distribution
+        lo, hi = d.get("left", d.get("low")), d.get("right", d.get("high"))
+        if lo is not None and not lo <= e.point_estimate <= hi:
+            notes.append(f"{e.name!r} has a point estimate of {e.point_estimate:,g}, outside "
+                         f"its own range of {lo:,g} to {hi:,g}: check the units, or the "
+                         "range.")
     fixed = [e.name for e in elements if e.distribution["type"] == "fixed"]
     if fixed:
         notes.append(f"{len(fixed)} element{'s' if len(fixed) > 1 else ''} "
@@ -446,10 +494,20 @@ def analyse(inputs: CostRiskInput, n_iter: Optional[int] = None, seed: Optional[
     n = int(n_iter or inputs.n_iter)
     if n < 1000:
         raise CostRiskError(f"{n} iterations is too few to read a P80 from; use 1,000 or more.")
+    seed = inputs.seed if seed is None else seed
+    if seed < 0:
+        raise CostRiskError(f"The seed is a whole number, 0 or more, not {seed}.")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", CorrelationWarning)
-        impact = correlation_impact(inputs.model, n_iter=n,
-                                    seed=inputs.seed if seed is None else seed)
+        impact = correlation_impact(inputs.model, n_iter=n, seed=seed)
+    if not impact.correlated.std > 0:
+        m = inputs.model
+        raise CostRiskError(
+            f"There's no uncertainty to simulate: none of the {len(m.elements)} elements has "
+            f"a range{' and none of the risks can vary' if m.risks else ' and there are no risks'}"
+            f", so every confidence level is the point estimate, {m.point_estimate:,g}. Give "
+            "the elements a Low and a High (the Instructions sheet says how), or add the "
+            "risks.")
     return CostRiskResult(inputs=inputs, impact=impact,
                           units=inputs.units if units is None else units)
 

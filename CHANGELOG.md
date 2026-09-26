@@ -10,6 +10,33 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Fixed
+- `ce-core cost-risk` crashed with a division by zero on an estimate with no
+  uncertainty at all (no ranges, no risks). It now says there's nothing to
+  simulate and how to add ranges; `correlation_impact` no longer divides by a
+  zero variance.
+- Errors from the Excel readers named the wrong row when a sheet had blank
+  rows above the problem. They now count from the sheet itself.
+- A misspelt setting on the cost-risk Settings sheet was ignored and the
+  default used in its place; it's now refused by name. Bad setting values name
+  their row instead of "row 0", and seeds and iteration counts must be whole
+  numbers.
+- An estimate above its own P80 was described as "$-69M over the point
+  estimate" and losing "nan%" of its reserve. It now says the estimate is
+  already above the simulated costs, and how far.
+- A point estimate outside its own low to high range (usually a units slip)
+  is now flagged in the summary.
+- A JCL workbook with a Cost Low and High but no Fixed Cost ran the activity
+  with no cost at all; it's now refused. A risk delay with a Low and High but
+  no Most Likely is refused rather than quietly given the midpoint.
+- A damaged or password-protected workbook stopped every command with a
+  traceback; an old .xls given as a spec was reported as a UTF-8 decoding
+  error. Both now say to save the file again as .xlsx.
+- A negative `--seed` stopped with a traceback; it's now refused up front.
+- The cost-risk report showed a blank Most Likely where the point estimate
+  stood in for it, and a blank name in a correlation pair was reported as
+  'nan'.
+
 ## [2.4.1] - 2026-09-25
 
 A wording fix, and a front door for new users. No number moves.

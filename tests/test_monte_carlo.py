@@ -1021,3 +1021,13 @@ def test_the_original_two_variable_simulation_still_works():
     assert isinstance(result, SimulationResult)
     assert result.mean == pytest.approx(5_000.0, rel=0.02)
     assert result.p50 <= result.p80 <= result.p90
+
+
+def test_correlation_impact_of_a_model_with_no_uncertainty_does_not_divide_by_zero():
+    from cost_core.monte_carlo import CostElement, RiskModel, correlation_impact
+
+    model = RiskModel(elements=[CostElement("a", {"type": "fixed", "value": 5.0}),
+                                CostElement("b", {"type": "fixed", "value": 7.0})])
+    impact = correlation_impact(model, n_iter=1000, seed=0)
+    assert impact.correlated.p80 == 12.0
+    assert np.isnan(impact.empirical_variance_ratio)

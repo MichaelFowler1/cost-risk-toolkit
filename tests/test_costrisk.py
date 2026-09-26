@@ -183,3 +183,81 @@ def test_a_broken_workbook_stops_with_the_reason(tmp_path, caplog):
     with pytest.raises(SystemExit):
         cli.main(["cost-risk", "--data", str(path), "--out", str(tmp_path / "o")])
     assert "Cost risk failed" in caplog.text and "'Element'" in caplog.text
+
+
+# ------------------------------------------------ fixed in 2.4.2, one each
+def test_a_blank_row_does_not_shift_the_row_an_error_names(tmp_path):
+    e = pd.concat([EXAMPLE_ELEMENTS.iloc[:3], pd.DataFrame([[None] * 6],
+                   columns=EXAMPLE_ELEMENTS.columns), EXAMPLE_ELEMENTS.iloc[3:]]
+                  ).reset_index(drop=True)
+    e.loc[6, "Low"] = 99.0   # 6.0 Integration and test, on Excel row 8
+    with pytest.raises(CostRiskError, match="row 8 "):
+        read_workbook(workbook(tmp_path, elements=e))
+
+
+def test_a_misspelt_setting_is_refused_not_ignored(tmp_path):
+    settings = pd.DataFrame([("Units", "millions"), ("Default Corelation", 0.9)],
+                            columns=["Setting", "Value"])
+    with pytest.raises(CostRiskError, match="row 3: 'Default Corelation' is not a setting"):
+        read_workbook(workbook(tmp_path, settings=settings))
+
+
+@pytest.mark.parametrize("value,message", [("lots", "row 2: the Iterations 'lots' is not a number"),
+                                           (-5, "row 2: Iterations is a whole number"),
+                                           (2.5, "row 2: Iterations is a whole number")])
+def test_a_bad_setting_value_names_its_row(tmp_path, value, message):
+    settings = pd.DataFrame([("Iterations", value)], columns=["Setting", "Value"])
+    with pytest.raises(CostRiskError, match=message):
+        read_workbook(workbook(tmp_path, settings=settings))
+
+
+def test_an_estimate_with_no_uncertainty_says_so_instead_of_crashing(tmp_path):
+    bare = EXAMPLE_ELEMENTS[["Element", "Point Estimate"]]
+    inputs = read_workbook(workbook(tmp_path, elements=bare, risks=EXAMPLE_RISKS.iloc[0:0],
+                                    pairs=EXAMPLE_PAIRS.iloc[0:0]))
+    with pytest.raises(CostRiskError, match="no uncertainty to simulate.*156"):
+        analyse(inputs, n_iter=2000)
+
+
+def test_a_padded_estimate_reads_sensibly(tmp_path):
+    padded = EXAMPLE_ELEMENTS.assign(**{"Point Estimate": EXAMPLE_ELEMENTS["High"].fillna(4.0)})
+    lines = plain.cost_risk(analyse(read_workbook(workbook(tmp_path, elements=padded)),
+                                    n_iter=3000), "$M")
+    text = " ".join(lines)
+    assert "above every simulated cost" in text and "below the point estimate" in text
+    assert "nan" not in text and "$-" not in text and "100% of" not in text
+
+
+def test_a_point_estimate_outside_its_range_is_flagged(tmp_path):
+    e = EXAMPLE_ELEMENTS.copy()
+    e.loc[0, "Point Estimate"] = 12000.0
+    notes = read_workbook(workbook(tmp_path, elements=e)).notes
+    assert any("12,000, outside its own range of 11 to 18" in n for n in notes)
+
+
+def test_a_negative_seed_is_refused_in_words(tmp_path):
+    with pytest.raises(CostRiskError, match="whole number, 0 or more"):
+        analyse(read_workbook(example_path("cost-risk")), n_iter=2000, seed=-1)
+
+
+def test_a_damaged_workbook_says_so(tmp_path):
+    bad = tmp_path / "broken.xlsx"
+    bad.write_bytes(b"PK\x03\x04not really a workbook")
+    with pytest.raises(CostRiskError, match="damaged, still downloading"):
+        read_workbook(bad)
+
+
+def test_most_likely_left_blank_shows_the_point_estimate_used(tmp_path):
+    e = EXAMPLE_ELEMENTS.copy()
+    e["Most Likely"] = e["Most Likely"].astype(object)
+    e.loc[0, "Most Likely"] = None
+    row = read_workbook(workbook(tmp_path, elements=e)).elements.iloc[0]
+    assert row["most_likely"] == row["point_estimate"] == 12.0
+
+
+def test_a_correlation_pair_with_a_blank_name_says_what_is_missing(tmp_path):
+    p = EXAMPLE_PAIRS.copy()
+    p["Element B"] = p["Element B"].astype(object)
+    p.loc[0, "Element B"] = None
+    with pytest.raises(CostRiskError, match="row 2: name both elements"):
+        read_workbook(workbook(tmp_path, pairs=p))
