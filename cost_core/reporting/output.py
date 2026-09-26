@@ -35,10 +35,26 @@ def configure(marking: Optional[str] = None, slide_template=None) -> None:
     text = (marking or "").strip()
     _state["marking"] = text or None
     _state["slide_template"] = Path(slide_template) if slide_template else None
-    if _state["slide_template"] is not None and not _state["slide_template"].is_file():
-        path = _state["slide_template"]
+    path = _state["slide_template"]
+    if path is None:
+        return
+    if not path.is_file():
         _state["slide_template"] = None
         raise FileNotFoundError(f"The slide template {path} isn't there.")
+    # Opened now, so a file that isn't a PowerPoint template stops the run
+    # before any work is done rather than after it.
+    try:
+        from pptx import Presentation
+    except ImportError:
+        return  # no briefing will be written without python-pptx anyway
+    from cost_core.reporting.brief import _open_template
+    try:
+        Presentation(_open_template(path))
+    except Exception:  # noqa: BLE001 - any failure to open means the same thing
+        _state["slide_template"] = None
+        raise ValueError(f"The slide template {path.name} isn't a PowerPoint file "
+                         "(.pptx) or template (.potx) that can be opened. Save it from "
+                         "PowerPoint again, as a .pptx or .potx.") from None
 
 
 @contextlib.contextmanager

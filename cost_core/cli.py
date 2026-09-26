@@ -835,7 +835,10 @@ def run_settings(args) -> None:
         print(f"Wrote {path}. Open it, delete the # in front of the settings you want, "
               "and every ce-core command run from this folder uses them.")
         return
-    loaded = settings.load()
+    try:
+        loaded = settings.load()
+    except settings.SettingsError as e:
+        abort(f"{e}\n  Until it's fixed, commands that use it stop with this message.")
     print("Settings in effect (a flag on the command line always wins):\n")
     for key, (value, source) in loaded.items():
         shown = "(not set)" if value is None else str(value)
@@ -904,12 +907,16 @@ def run_inflate(args) -> None:
         data = Path(args.data)
         frame = pd.read_excel(data) if data.suffix.lower() in (".xlsx", ".xlsm") \
             else pd.read_csv(data)
+        if frame.empty:
+            abort(f"{data.name} has no rows to convert.")
         out_frame = convert(frame, index, src, dst, args.amount_col, args.year_col, start, name)
     except InflateError as e:
         abort(f"Inflate failed: {e}")
     new_col = out_frame.columns[-2]
     old_col = [c for c in frame.columns if f"{c}_" in new_col][0]
-    out = Path(args.out) if args.out else data.with_name(f"{data.stem} {dst}.csv")
+    out = Path(args.out) if args.out else data.parent
+    if out.suffix.lower() not in (".csv", ".xlsx"):   # a folder
+        out = out / f"{data.stem} {dst}.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     if out.suffix.lower() == ".xlsx":
         out_frame.to_excel(out, index=False)
@@ -988,10 +995,12 @@ def run_demo(args) -> None:
     out = Path(args.out or Path("ce-core-demo") / topic)
     argv = [a.format(path=path, out=out, index=path.parent / "inflate_index.csv")
             for a in DEMOS[topic]]
-    # The demo's own --marking and --template go through to the command.
-    for flag, value in (("--marking", args.marking), ("--template", args.template)):
-        if value:
-            argv += [flag, str(value)]
+    # The demo's own --marking and --template go through to a command that
+    # writes a report; inflate, which writes a table, takes neither.
+    if argv[0] in REPORT_COMMANDS:
+        for flag, value in (("--marking", args.marking), ("--template", args.template)):
+            if value:
+                argv += [flag, str(value)]
     print(f"Demo: {EXAMPLES[topic][1]}\nExample data: {path}\n"
           f"Running: ce-core {' '.join(_quote(a) for a in argv)}")
     main(argv)
@@ -1350,8 +1359,8 @@ def main(argv=None) -> None:
     p_inf.add_argument("--year", type=int, default=None,
                        help="With --amount: the fiscal year it's spent in")
     p_inf.add_argument("--out", default=None,
-                       help="File for the converted table (.csv or .xlsx; default: beside "
-                            "the data)")
+                       help="File (.csv or .xlsx) or folder for the converted table "
+                            "(default: beside the data)")
 
     # Subcommand: open
     p_open = sub.add_parser(
@@ -1379,7 +1388,12 @@ def main(argv=None) -> None:
     try:
         apply_settings(sub, settings_mod.values())
     except settings_mod.SettingsError as e:
-        abort(str(e))
+        # A broken settings file mustn't stop the commands used to report or
+        # look into it.
+        words = sys.argv[1:] if argv is None else [str(a) for a in argv]
+        if not {"--version", "--about", "settings", "-h", "--help"} & set(words):
+            abort(str(e))
+        log.warning(f"{e} (ignored for this command)")
 
     args = parser.parse_args(argv)
     if args.about:
@@ -1414,7 +1428,7 @@ def main(argv=None) -> None:
     from cost_core.reporting import output
     try:
         output.configure(getattr(args, "marking", None), getattr(args, "template", None))
-    except FileNotFoundError as e:
+    except (FileNotFoundError, ValueError) as e:
         abort(f"{e} Check --template, or slide_template in ce-core.toml.")
     try:
         dispatch[args.cmd](args)

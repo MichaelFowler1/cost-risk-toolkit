@@ -67,8 +67,8 @@ def _is_ipmdar_json(path: Path) -> bool:
 def _spec_kind(path: Path):
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, UnicodeDecodeError):
-        return None
+    except (OSError, ValueError, UnicodeDecodeError) as e:
+        raise OpenError(f"{path.name} isn't valid JSON ({e}).") from None
     if not isinstance(doc, dict):
         return None
     for key, kind in (("activities", "jcl"), ("mspdi", "jcl"), ("alternatives", "aoa"),
@@ -151,7 +151,10 @@ def plan(path, out=None) -> Plan:
     if suffix == ".csv":
         try:
             columns = pd.read_csv(path, nrows=0).columns
-        except (ValueError, UnicodeDecodeError) as e:
+        except UnicodeDecodeError:
+            raise OpenError(f"{path.name} isn't saved as UTF-8 text. In Excel, save it as "
+                            "'CSV UTF-8 (Comma delimited)'.") from None
+        except ValueError as e:
             raise OpenError(f"{path.name} can't be read as a CSV ({e}).") from None
         return _by_columns(path, columns, o)
     if suffix in (".xls", ".xlsb", ".mpp"):

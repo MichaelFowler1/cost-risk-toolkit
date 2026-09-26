@@ -411,3 +411,70 @@ def test_the_allocation_level_is_a_fraction(cost_risk):
     with pytest.raises(CostRiskError, match="between 0 and 1"):
         cost_risk.allocation(80)
     assert cost_risk.allocation(0.5)["allocated_p50"].sum() == pytest.approx(cost_risk.sim.p50)
+
+
+# ------------------------------------------------ found by the bug sweep
+@pytest.mark.parametrize("name,content", [("junk.pptx", b"PK\x03\x04junk"),
+                                          ("text.potx", b"hello"), ("book.xlsx", None)])
+def test_a_template_that_is_not_powerpoint_is_refused_before_work_starts(tmp_path, name,
+                                                                         content, caplog,
+                                                                         capsys):
+    pytest.importorskip("pptx")
+    path = tmp_path / name
+    if content is None:
+        import openpyxl
+        openpyxl.Workbook().save(path)
+    else:
+        path.write_bytes(content)
+    msg = refused(["cost-risk", "--data", example_path("cost-risk"), "--out", tmp_path / "o",
+                   "--template", path], caplog, capsys)
+    assert "isn't a PowerPoint file (.pptx) or template (.potx)" in msg
+    assert not (tmp_path / "o").exists()
+
+
+def test_a_broken_settings_file_does_not_block_version_about_or_settings(tmp_path, monkeypatch,
+                                                                         capsys, caplog):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "nohome")
+    (tmp_path / "ce-core.toml").write_text('seed = "x"\n', encoding="utf-8")
+    assert "cost-core" in run(["--about"], capsys)
+    msg = refused(["settings"], caplog, capsys)
+    assert "seed is a whole number" in msg
+    msg = refused(["demo", "evm"], caplog, capsys)
+    assert "seed is a whole number" in msg
+
+
+def test_inflate_refuses_an_empty_table(tmp_path, caplog, capsys):
+    data = tmp_path / "empty.csv"
+    pd.DataFrame({"fy": [], "amount": []}).to_csv(data, index=False)
+    msg = refused(["inflate", "--index", example_path("inflate").with_name("inflate_index.csv"),
+                   "--data", data, "--from", "by2026", "--to", "ty"], caplog, capsys)
+    assert "has no rows to convert" in msg
+
+
+@pytest.mark.parametrize("name,content,message", [
+    ("bad.json", b"{nope", "isn't valid JSON"),
+    ("u16.csv", "period,bcws\n1,2\n".encode("utf-16"), "CSV UTF-8"),
+])
+def test_open_explains_unreadable_text_files(tmp_path, name, content, message):
+    path = tmp_path / name
+    path.write_bytes(content)
+    with pytest.raises(opener.OpenError, match=message):
+        opener.plan(path)
+
+
+def test_excel_csv_utf8_with_a_byte_order_mark_reads(tmp_path):
+    path = tmp_path / "bom.csv"
+    pd.read_csv(example_path("evm")).to_csv(path, index=False, encoding="utf-8-sig")
+    assert opener.plan(path).argv[0] == "evm"
+
+
+def test_every_demo_runs_with_a_marking_in_the_settings(tmp_path, monkeypatch, capsys):
+    # Found by the sweep: the marking went on to inflate, which takes none.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "nohome")
+    (tmp_path / "ce-core.toml").write_text('marking = "CUI"\n', encoding="utf-8")
+    for topic in ("inflate", "cost-risk"):
+        run(["demo", topic], capsys)
+    written = list((tmp_path / "ce-core-demo" / "inflate").glob("*.csv"))
+    assert [p.name for p in written] == ["inflate_example then-year.csv"]
