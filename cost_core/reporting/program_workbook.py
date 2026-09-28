@@ -193,6 +193,8 @@ def save_program_workbook(
                             _nice_bounds, _money_axis_fmt, ScatterChart,
                             Series, Reference)
 
+    from cost_core.reporting.output import mark_workbook
+    mark_workbook(wb)
     wb.save(filename)
 
 

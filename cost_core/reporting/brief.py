@@ -40,16 +40,92 @@ def _pptx():
 NAVY = (0x1F, 0x4E, 0x79)
 GREY = (0x59, 0x59, 0x59)
 
+#: The template's layouts are chosen by these names, as PowerPoint's own
+#: layouts and most house templates call them.
+TITLE_LAYOUT, HEADING_LAYOUT, BLANK_LAYOUT = "title slide", "title only", "blank"
+
+
+def _open_template(path: Path):
+    """A .pptx as it is; a .potx (a template) as the presentation it describes.
+    python-pptx refuses the template's content type, which is the only
+    difference between the two."""
+    if path.suffix.lower() != ".potx":
+        return str(path)
+    import io
+    import zipfile
+
+    src = zipfile.ZipFile(path)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out:
+        for item in src.infolist():
+            data = src.read(item.filename)
+            if item.filename == "[Content_Types].xml":
+                data = data.replace(b"presentationml.template.main+xml",
+                                    b"presentationml.presentation.main+xml")
+            out.writestr(item, data)
+    buf.seek(0)
+    return buf
+
+
+def _drop_slides(prs) -> None:
+    """A template's own sample slides don't belong in the briefing."""
+    ids = prs.slides._sldIdLst
+    for sld in list(ids):
+        prs.part.drop_rel(sld.rId)
+        ids.remove(sld)
+
+
+def _layout(prs, name: str):
+    for layout in prs.slide_layouts:
+        if layout.name.strip().lower() == name:
+            return layout
+    return None
+
 
 class Brief:
-    """A 16:9 deck built slide by slide."""
+    """A deck built slide by slide: 16:9 by default, or on the slide master
+    set with ``cost_core.reporting.output.configure(slide_template=...)``."""
 
     def __init__(self, title: str, subtitle: str = ""):
+        from cost_core.reporting import output
+
         Presentation, Inches, Pt = _pptx()
         self.Inches, self.Pt = Inches, Pt
-        self.prs = Presentation()
-        self.prs.slide_width, self.prs.slide_height = Inches(13.333), Inches(7.5)
+        template = output.slide_template()
+        self.notes = []
+        if template is None:
+            self.prs = Presentation()
+            self.prs.slide_width, self.prs.slide_height = Inches(13.333), Inches(7.5)
+            self.layouts = {BLANK_LAYOUT: self.prs.slide_layouts[6]}
+        else:
+            self.prs = Presentation(_open_template(template))
+            _drop_slides(self.prs)
+            self.layouts = {n: _layout(self.prs, n)
+                            for n in (TITLE_LAYOUT, HEADING_LAYOUT, BLANK_LAYOUT)}
+            if self.layouts[BLANK_LAYOUT] is None:
+                # The fallback: the layout with the fewest placeholders to fill.
+                self.layouts[BLANK_LAYOUT] = min(self.prs.slide_layouts,
+                                                 key=lambda lay: len(lay.placeholders))
+            missing = [n for n in (TITLE_LAYOUT, HEADING_LAYOUT) if self.layouts[n] is None]
+            if missing:
+                import logging
+
+                self.notes.append(f"{template.name} has no {' or '.join(map(repr, missing))} "
+                                  f"layout, so those slides use "
+                                  f"{self.layouts[BLANK_LAYOUT].name!r} with cost-core's "
+                                  "own heading.")
+                logging.getLogger(__name__).warning(self.notes[-1])
+        # Every position below is laid out on a 13.333 x 7.5 inch slide and
+        # scaled to the one in use, so a 4:3 house template still fits.
+        self.sx = self.prs.slide_width / Inches(13.333)
+        self.sy = self.prs.slide_height / Inches(7.5)
         self._title_slide(title, subtitle)
+
+    def X(self, inches: float) -> int:
+        return int(self.Inches(inches) * self.sx)
+
+    def Y(self, inches: float) -> int:
+        return int(self.Inches(inches) * self.sy)
 
     def _rgb(self, rgb):
         from pptx.dml.color import RGBColor
@@ -57,8 +133,8 @@ class Brief:
 
     def _textbox(self, slide, left, top, width, height, text, size=18, bold=False,
                  color=None, italic=False):
-        box = slide.shapes.add_textbox(self.Inches(left), self.Inches(top), self.Inches(width),
-                                       self.Inches(height))
+        box = slide.shapes.add_textbox(self.X(left), self.Y(top), self.X(width),
+                                       self.Y(height))
         tf = box.text_frame
         tf.word_wrap = True
         p = tf.paragraphs[0]
@@ -69,12 +145,31 @@ class Brief:
         return tf
 
     def _blank(self, heading: str):
-        slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
+        layout = self.layouts.get(HEADING_LAYOUT)
+        if layout is not None:
+            slide = self.prs.slides.add_slide(layout)
+            if slide.shapes.title is not None:
+                slide.shapes.title.text = heading   # in the house style
+                return slide
+        slide = self.prs.slides.add_slide(self.layouts[BLANK_LAYOUT])
         self._textbox(slide, 0.6, 0.35, 12.1, 0.8, heading, size=28, bold=True, color=NAVY)
         return slide
 
     def _title_slide(self, title, subtitle):
-        slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
+        layout = self.layouts.get(TITLE_LAYOUT)
+        if layout is not None:
+            slide = self.prs.slides.add_slide(layout)
+            if slide.shapes.title is not None:
+                slide.shapes.title.text = title
+                others = [p for p in slide.placeholders
+                          if p.placeholder_format.idx != 0 and p.has_text_frame]
+                if subtitle and others:
+                    others[0].text = subtitle
+                self._textbox(slide, 0.8, 6.6, 11.7, 0.5,
+                              f"Prepared {date.today():%d %B %Y} with cost-core", size=12,
+                              color=GREY)
+                return
+        slide = self.prs.slides.add_slide(self.layouts[BLANK_LAYOUT])
         self._textbox(slide, 0.8, 2.6, 11.7, 1.2, title, size=36, bold=True, color=NAVY)
         if subtitle:
             self._textbox(slide, 0.8, 3.8, 11.7, 0.8, subtitle, size=18, color=GREY)
@@ -101,8 +196,15 @@ class Brief:
         slide = self._blank(heading)
         path = Path(path)
         if path.exists():
-            slide.shapes.add_picture(str(path), self.Inches(1.4), self.Inches(1.2),
-                                     height=self.Inches(5.6 if caption else 5.9))
+            pic = slide.shapes.add_picture(str(path), self.X(1.4), self.Y(1.2),
+                                           height=self.Y(5.6 if caption else 5.9))
+            room = self.X(12.1)
+            if pic.width > room:   # a narrow template: fit the width instead
+                pic.height = int(pic.height * room / pic.width)
+                pic.width = room
+            pic.left = int((self.prs.slide_width - pic.width) / 2)
+            # Alt text, so a screen reader says what the chart is.
+            pic._element.nvPicPr.cNvPr.set("descr", f"{heading}. {caption}".strip(". "))
         else:
             self._textbox(slide, 0.6, 3.0, 12, 1, "(chart not available: install the plots "
                           "extra for charts)", size=16, italic=True, color=GREY)
@@ -119,8 +221,8 @@ class Brief:
         shown = df.head(max_rows)
         rows, cols = len(shown) + 1, len(shown.columns)
         height = min(0.37 * rows, 5.4)
-        shape = slide.shapes.add_table(rows, cols, self.Inches(0.6), self.Inches(1.3),
-                                       self.Inches(12.1), self.Inches(height))
+        shape = slide.shapes.add_table(rows, cols, self.X(0.6), self.Y(1.3),
+                                       self.X(12.1), self.Y(height))
         t = shape.table
         for j, col in enumerate(shown.columns):
             t.cell(0, j).text = str(col)
@@ -133,7 +235,7 @@ class Brief:
         lengths = [min(max(n, 4), 60) for n in lengths]
         total = sum(lengths)
         for j, n in enumerate(lengths):
-            t.columns[j].width = int(self.Inches(12.1) * n / total)
+            t.columns[j].width = int(self.X(12.1) * n / total)
         size = self.Pt(12 if rows <= 10 else 10)
         for r in range(rows):
             for c in range(cols):
@@ -159,7 +261,27 @@ class Brief:
             p.space_after = self.Pt(6)
         return slide
 
+    def _mark(self) -> None:
+        """The marking, centred at the top and bottom of every slide."""
+        from pptx.enum.text import PP_ALIGN
+
+        from cost_core.reporting import output
+
+        text = output.marking()
+        if not text:
+            return
+        height = self.Y(0.3)
+        for slide in self.prs.slides:
+            for top in (0, self.prs.slide_height - height):
+                box = slide.shapes.add_textbox(0, top, self.prs.slide_width, height)
+                p = box.text_frame.paragraphs[0]
+                p.text = text
+                p.alignment = PP_ALIGN.CENTER
+                p.font.size, p.font.bold = self.Pt(11), True
+                box.name = "Marking"
+
     def save(self, path) -> Path:
+        self._mark()
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.prs.save(path)
@@ -214,6 +336,18 @@ def evm_brief(data, fc, out_dir, units: str = "") -> Path:
             pct.rename(columns={"confidence": "Confidence", "eac": "Final cost",
                                 "finish": "Finish (period)"}),
             note="Simulated from the program's own period-by-period record.")
+    from cost_core.evm.checks import thresholds, variance_breaches
+
+    breaches = variance_breaches(data, **thresholds(data))
+    if len(breaches):
+        b.table("Accounts owing a variance analysis report", pd.DataFrame({
+            "Account": breaches["account"],
+            "Cost variance": [f"{_money(v, units)} ({p:+.1f}%)"
+                              for v, p in zip(breaches["cv"], breaches["cv_pct"])],
+            "Schedule variance": [f"{_money(v, units)} ({p:+.1f}%)"
+                                  for v, p in zip(breaches["sv"], breaches["sv_pct"])]}),
+            note="Cumulative variance against the thresholds; the Variance reports sheet has "
+                 "the detail.")
     if data.accounts:
         rows = sorted(((n, a.metrics().iloc[-1]) for n, a in data.accounts.items()),
                       key=lambda t: t[1].cpi)
@@ -303,6 +437,15 @@ def cost_risk_brief(result, out_dir) -> Path:
                    ("P50", _money(sim.p50, units)), ("P80", _money(sim.p80, units))])
     b.image("How sure: the S-curve", out_dir / "cost_risk_s_curve.png")
     b.image("What drives the uncertainty", out_dir / "cost_risk_drivers.png")
+    alloc = result.allocation(0.8)
+    b.table("Where the P80 reserve goes", pd.DataFrame({
+        "Element or risk": alloc["component"],
+        "Point estimate": alloc["point_estimate"].map(lambda v: _money(v, units)),
+        "Share of the P80": alloc["allocated_p80"].map(lambda v: _money(v, units)),
+        "Reserve": alloc["reserve"].map(lambda v: _money(v, units)),
+        "Of the reserve": alloc["share_of_reserve"].map(lambda v: f"{v:.0%}")}),
+        note="Shares add up to the P80 of the total. Each element's own P80 would add up to "
+             "more: percentiles don't add.")
     conf = result.confidence_table((50, 70, 80, 90))
     b.table("Cost at each confidence level", pd.DataFrame({
         "Confidence": conf["confidence"].map(lambda v: f"{v:.0%}"),

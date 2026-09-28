@@ -10,6 +10,42 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Added
+- **Markings.** `--marking "TEXT"` on every command that writes a report
+  stamps exactly that text at the top and bottom of every slide and in every
+  sheet's header and footer, and on the Summary sheet. It isn't checked or
+  chosen for you.
+- **Your slide master.** `--template` builds `brief.pptx` on a house
+  `.pptx` or `.potx`: the template's sample slides are left out, its "Title
+  Slide" and "Title Only" layouts are used by name (falling back to its
+  emptiest layout, with a note), positions scale to its slide size so a 4:3
+  master fits, and charts carry alt text.
+- **Settings.** `ce-core.toml` in the folder you run from, then in your home
+  folder, sets the marking, template, units, seed, iterations and fiscal-year
+  start; a flag always wins, and a workbook's own Settings sheet wins for that
+  workbook. `ce-core settings` shows each value and where it came from;
+  `--write` starts a commented file. Unknown or malformed settings are refused
+  by name.
+- **`ce-core open FILE`** works out what a file is from its contents (sheets,
+  columns, XML root, IPMDAR tables) and runs the matching command, with the
+  results beside the file. `--send-to` adds it to the Windows Send to menu.
+- **`ce-core inflate`** converts between base-year and then-year dollars with
+  an index table you supply, a table at a time or one amount with the
+  arithmetic shown; dates become fiscal years (October start by default).
+  `ce-core template inflate` and `ce-core demo inflate` use an index that's
+  labelled as invented.
+- **EVM monthly checks.** `ce-core evm` lists data checks per control account
+  (earned value or cost that went backwards, cost with nothing earned, earned
+  value with no cost, a complete account still being charged) and the
+  accounts whose variance breaks `--cv-pct`, `--sv-pct`, `--cv-dollars` and
+  `--sv-dollars` and so owe a variance analysis report, in the terminal, the
+  summary, `report.xlsx`, `brief.pptx` and two CSVs.
+- **Cost-risk reserve allocation.** The P80 shared out across elements and
+  risks by what each averages in the simulations whose total lands at the
+  P80, so the shares add to the P80 exactly; each element's own P80 is shown
+  beside it, and the summary says how far funding those would overshoot.
+- `ce-core --version`, and `ce-core --about` for bug reports.
+
 ## [2.5.0] - 2026-09-26
 
 Ten fixes to the older commands, found by running 139 broken inputs through

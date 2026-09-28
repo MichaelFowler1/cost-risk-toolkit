@@ -469,6 +469,49 @@ class CostRiskResult:
             out["expected_cost"] = [r.expected_value for r in self.inputs.model.risks]
         return out
 
+    def allocation(self, level: float = 0.8, band: float = 0.025) -> pd.DataFrame:
+        """The total's ``level`` confidence cost, shared out across the elements
+        and risks, with the reserve each needs over its point estimate.
+
+        Percentiles don't add: each element's own P80 sums to far more than the
+        total's P80, so handing every element its P80 funds the program well
+        above 80%. Instead this takes the simulations whose total lands at the
+        ``level`` percentile (within ``band`` either side) and asks what each
+        element and risk averaged in them. Those shares add up to the total's
+        P80 by construction, which is what makes them a budget that can be
+        allocated. Each element's own P80 is shown beside it for comparison.
+        """
+        if not 0.0 < level < 1.0:
+            raise CostRiskError(f"The allocation level is a fraction between 0 and 1; got "
+                                f"{level}.")
+        sim = self.sim
+        totals = sim.totals
+        lo, hi = np.quantile(totals, [max(level - band, 0.0), min(level + band, 1.0)])
+        near = (totals >= lo) & (totals <= hi)
+        target = float(np.quantile(totals, level))
+        parts = [sim.element_samples] + ([sim.risk_samples] if sim.risk_samples.size else [])
+        draws = np.column_stack(parts)
+        names = list(sim.element_names) + list(sim.risk_names)
+        kinds = ["element"] * len(sim.element_names) + ["risk"] * len(sim.risk_names)
+        points = [e.point_estimate for e in self.inputs.model.elements] + \
+            [0.0] * len(sim.risk_names)
+        share = draws[near].mean(axis=0)
+        # The band's mean total is the P80 only to within sampling noise. The
+        # difference goes to each component in proportion to its share of the
+        # total's variance, so one with no uncertainty keeps its point
+        # estimate exactly and the shares add to the P80.
+        cov = np.array([np.cov(draws[:, j], totals)[0, 1] for j in range(draws.shape[1])])
+        weights = cov / cov.sum() if cov.sum() > 0 else np.full(len(cov), 1.0 / len(cov))
+        share = share + (target - share.sum()) * weights
+        own = np.quantile(draws, level, axis=0)
+        frame = pd.DataFrame({"component": names, "kind": kinds, "point_estimate": points,
+                              f"own_p{level * 100:.0f}": own,
+                              f"allocated_p{level * 100:.0f}": share})
+        frame["reserve"] = frame[f"allocated_p{level * 100:.0f}"] - frame["point_estimate"]
+        total_reserve = target - float(np.sum(points))
+        frame["share_of_reserve"] = frame["reserve"] / total_reserve if total_reserve else np.nan
+        return frame.sort_values("reserve", ascending=False).reset_index(drop=True)
+
     def correlation_matrix(self) -> pd.DataFrame:
         names = self.inputs.model.element_names
         return pd.DataFrame(self.inputs.model.correlation, index=names, columns=names)

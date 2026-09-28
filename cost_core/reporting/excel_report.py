@@ -162,6 +162,15 @@ class ReportWorkbook:
             ws.page_setup.fitToWidth = 1
             ws.page_setup.fitToHeight = 0
             ws.page_setup.orientation = "landscape"
+        from cost_core.reporting import output
+
+        # The marking prints at the top and bottom of every page, and shows
+        # on screen at the top of the Summary.
+        output.mark_workbook(self.wb)
+        if output.marking():
+            cell = self.summary_sheet["A3"]
+            cell.value = output.marking()
+            cell.font = BOLD
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         self.wb.save(path)
@@ -288,8 +297,21 @@ def evm_workbook(data, fc, path, units: str = "") -> Path:
                  {c: fmt for c in ("BAC", "BCWS", "BCWP", "ACWP", "CV", "SV", "IEAC (CPI)")}
                  | {"CPI": RATIO, "SPI": RATIO, "SPI(t)": RATIO},
                  note="Status period values per control account, worst CPI first.")
+    from cost_core.evm.checks import data_checks, thresholds, variance_breaches
+
+    limits = thresholds(data)
+    rb.table("Data checks", data_checks(data),
+             note="Questions to ask about the data before trusting the metrics. A negative "
+                  "period value can be a legitimate correction.")
+    rb.table("Variance reports", variance_breaches(data, **limits),
+             {"cv": fmt, "sv": fmt, "cv_pct": "0.0", "sv_pct": "0.0", "cpi": RATIO,
+              "spi": RATIO},
+             note="Accounts whose cumulative variance breaks the thresholds "
+                  f"({limits or 'the defaults: 10% of BCWP for cost, 10% of BCWS for schedule'}).")
     rb.assumptions({"status period": status, "BAC": data.bac, "simulated completions": fc.n_iter,
-                    "seed": fc.seed, "units": units}, list(data.notes) + list(fc.notes))
+                    "seed": fc.seed, "units": units,
+                    "variance thresholds": limits or "10% cost, 10% schedule (defaults)"},
+                   list(data.notes) + list(fc.notes))
     return rb.save(path)
 
 
@@ -443,6 +465,12 @@ def cost_risk_workbook(result, path) -> Path:
                             Reference(ws, min_col=2, min_row=2, max_row=1 + n),
                             title="Total cost"))
     ws.add_chart(ch, "F2")
+    rb.table("Reserve allocation", result.allocation(0.8),
+             {"point_estimate": money, "own_p80": money, "allocated_p80": money,
+              "reserve": money, "share_of_reserve": PCT},
+             note="The total's P80 shared across elements and risks: what each averages in "
+                  "the simulations whose total lands at the P80. The allocated column adds up "
+                  "to the P80; the own P80 column does not, because percentiles don't add.")
     rb.table("Drivers", result.drivers(), {"std_dev": money, "covariance_with_total": NUM,
                                            "variance_share": PCT})
     rb.table("Elements", result.element_table(),

@@ -73,6 +73,9 @@ NEXT_STEPS = {
                  "in $M); replace the Elements rows with your estimate, and the Risks and "
                  "Correlation rows with yours or none (the Instructions sheet says what goes "
                  "where). Then run:\n  ce-core cost-risk --data {path}",
+    "inflate": "It shows the layout with an INVENTED 2% index. Replace the rows with your "
+               "agency's published index (index_name, fiscal_year, index_value), then run:\n"
+               "  ce-core inflate --index {path} --data my_phasing.csv --from by2026 --to ty",
     "jcl": "It holds a worked example (a small spacecraft). Edit the activities, their "
            "durations, links, costs and risks (the Instructions sheet says what goes "
            "where), then run:\n  ce-core jcl --spec {path}",
@@ -102,6 +105,10 @@ def write(topic: str, out) -> Path:
     if topic == "cost-risk":
         from cost_core.costrisk import write_workbook
         return write_workbook(out)
+    if topic == "inflate":
+        from cost_core.inflate import illustrative_index
+        illustrative_index().to_csv(out, index=False)
+        return out
     if topic == "lots":
         _LOTS.to_csv(out, index=False)
         return out

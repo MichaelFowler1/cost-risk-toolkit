@@ -39,7 +39,11 @@ dependencies = [
     "scipy>=1.11.0,<1.18",
     # The desktop lot cost model writes an Excel workbook as its deliverable,
     # and the lot reader accepts .xlsx, so this is core rather than optional.
-    "openpyxl>=3.1.0"
+    "openpyxl>=3.1.0",
+    # ce-core.toml is read with the standard library's tomllib from 3.11; before
+    # that, with tomli, the same parser before it joined the standard library
+    # (MIT).
+    "tomli>=1.1.0; python_version < '3.11'"
 ]
 
 # Mirrors CITATION.cff, which is the record for the same release. No email:
