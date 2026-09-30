@@ -84,13 +84,14 @@ _STYLE = {
 def _money(value: float, _pos: float | None = None) -> str:
     """Format a value as dollars, scaled to whatever reads cleanly."""
     magnitude = abs(value)
+    sign = "-" if value < 0 else ""
     if magnitude >= 1e9:
-        return f"${value / 1e9:,.2f}B"
+        return f"{sign}${magnitude / 1e9:,.2f}B"
     if magnitude >= 1e6:
-        return f"${value / 1e6:,.1f}M"
+        return f"{sign}${magnitude / 1e6:,.1f}M"
     if magnitude >= 1e3:
-        return f"${value / 1e3:,.0f}K"
-    return f"${value:,.0f}"
+        return f"{sign}${magnitude / 1e3:,.0f}K"
+    return f"{'-' if round(value) < 0 else ''}${magnitude:,.0f}"
 
 
 #: What one unit is in dollars, for costs entered in thousands and so on.
@@ -123,7 +124,9 @@ def _money_formatter(values) -> FuncFormatter:
     decimals = 0 if scaled_span >= 8 else (1 if scaled_span >= 0.8 else 2)
 
     def fmt(value: float, _pos: float | None = None) -> str:
-        return f"${value / scale:,.{decimals}f}{suffix}"
+        text = f"{abs(value) / scale:,.{decimals}f}"
+        sign = "-" if value < 0 and text.strip("0.,") else ""
+        return f"{sign}${text}{suffix}"
 
     return FuncFormatter(fmt)
 

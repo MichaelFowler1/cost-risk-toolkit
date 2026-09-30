@@ -518,7 +518,7 @@ def run_portfolio(args) -> None:
     result.spend.to_csv(out / "spend.csv", index=False)
     written = ["selected.csv", "spend.csv"]
     print(f"\nValue {result.value:,.2f}, funding {len(result.funded)} of "
-          f"{len(portfolio.candidates)} candidates. Costs in {units}.\n")
+          f"{len(portfolio.candidates)} candidates, {_costs_in(units)}.\n")
     print(result.selected.to_string(na_rep="", index=False, float_format=money))
     print("\nSpend by year:")
     print(result.spend.to_string(na_rep="", index=False, float_format=money))
@@ -621,7 +621,7 @@ def run_jcl(args) -> None:
         written.append("jcl.png")
     except ImportError:
         pass
-    print(f"\n{project.name}: {result.n_iter:,} simulated projects, costs in {units}.\n")
+    print(f"\n{project.name}: {result.n_iter:,} simulated projects, {_costs_in(units)}.\n")
     print(summary.to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.3f}"))
     print("\nWhere the schedule risk is:")
     print(result.criticality().to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.2f}"))
@@ -645,13 +645,27 @@ def run_evm(args) -> None:
     args.units = units_label(args.units)
     try:
         if args.ipmdar:
+            import glob
+
             from cost_core.evm.ipmdar import read_ipmdar
+            # Windows passes cpd_*.zip through as typed; a Unix shell has
+            # already expanded it.
+            args.ipmdar = [hit for p in args.ipmdar for hit in
+                           (sorted(glob.glob(p)) if any(c in p for c in "*?[") else [])
+                           or [p]]
             for p in args.ipmdar:
                 need_file(p, "the IPMDAR dataset", "evm")
             data = read_ipmdar(args.ipmdar, bac=args.bac)
         elif args.data:
             need_file(args.data, "the EVM data", "evm")
             data = EvmData.read(args.data, cumulative=args.cumulative, bac=args.bac)
+            if not args.cumulative and _looks_cumulative(data):
+                note = ("Every BCWS, BCWP and ACWP value is at least the one before it, which "
+                        "is what cumulative-to-date figures look like. If they are, rerun with "
+                        "--cumulative: read as per-period values, every total here is far too "
+                        "large.")
+                log.warning(note)
+                data.notes.append(note)
         else:
             abort("Which data? Give --data my_evm.xlsx (a spreadsheet or CSV) or --ipmdar "
                   "delivery.zip.\n  To see it work first: ce-core demo evm\n"
@@ -671,7 +685,7 @@ def run_evm(args) -> None:
     except EvmError as e:
         # The metrics and the warning signs need only the status; a forecast
         # needs a history. Without one, report what can be reported.
-        _evm_without_forecast(data, Path(args.out), str(e))
+        _evm_without_forecast(data, Path(args.out), str(e), args.units)
         return
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -712,7 +726,7 @@ def run_evm(args) -> None:
         return str(v)
 
     print(f"\n{data.name}: status period {data.periods[data.status - 1]}, "
-          f"costs in {args.units}.\n")
+          f"{_costs_in(args.units)}.\n")
     shown = summary.assign(value=summary["value"].map(fmt))
     print(shown.to_string(na_rep="", index=False, justify="left"))
     raised = data.flags()
@@ -758,12 +772,37 @@ def _print_monthly(data, out) -> None:
             print(f"  - {r.account}: {r.why}")
 
 
-def _evm_without_forecast(data, out, why: str) -> None:
+def _looks_cumulative(data) -> bool:
+    """Whether per-period EVM figures rise every period, as cumulative ones do.
+
+    A spend plan peaks and falls away, so a baseline that only ever rises
+    over six or more periods is almost always cumulative figures read as
+    per-period ones."""
+    import numpy as np
+
+    n = int(data.status)
+    if n < 6:
+        return False
+    # EvmData holds running totals; the figures as the file gave them are
+    # the steps between those.
+    series = [np.diff(np.concatenate([[0.0], np.asarray(x, dtype=float)]))
+              for x in (data.bcws, np.asarray(data.bcwp)[:n], np.asarray(data.acwp)[:n])]
+    return all(np.all(np.diff(s[np.isfinite(s)]) >= 0) and np.nansum(s) > 0 for s in series)
+
+
+def _costs_in(units: str) -> str:
+    """"costs in $K", or "costs as entered" rather than "costs in as entered"."""
+    units = (units or "").strip()
+    return "costs as entered" if units in ("", "as entered") else f"costs in {units}"
+
+
+def _evm_without_forecast(data, out, why: str, units: str = "") -> None:
     out.mkdir(parents=True, exist_ok=True)
     data.metrics().to_csv(out / "metrics.csv", index=False)
     data.flags().to_csv(out / "flags.csv", index=False)
     data.summary().to_csv(out / "summary.csv", index=False)
-    print(f"\n{data.name}: status period {data.periods[data.status - 1]}.\n")
+    print(f"\n{data.name}: status period {data.periods[data.status - 1]}, "
+          f"{_costs_in(units)}.\n")
     print(data.summary().to_string(index=False, na_rep=""))
     raised = data.flags()
     raised = raised[raised["raised"]]
@@ -775,8 +814,14 @@ def _evm_without_forecast(data, out, why: str) -> None:
     for note in data.notes:
         print(f"  note: {note}")
     from cost_core import plain
-    print(plain.show(plain.evm_status(data, why)))
-    print(f"Wrote metrics.csv, flags.csv and summary.csv to {out}")
+    print(plain.show(plain.evm_status(data, why, units)))
+    # The status still goes in a report, carrying any marking; a briefing
+    # waits for the forecast.
+    from cost_core.reporting.excel_report import evm_workbook
+    evm_workbook(data, None, out / "report.xlsx", units, why=why)
+    print("No brief.pptx or forecast yet: they need the history a forecast is made from.")
+    print(f"Wrote report.xlsx, metrics.csv, flags.csv, summary.csv, data_checks.csv and "
+          f"variance_reports.csv to {out}")
 
 
 def run_schedule_check(args) -> None:
@@ -1005,8 +1050,11 @@ def run_open(args) -> None:
               "XML and JCL, AoA and portfolio specs.")
     failed = []
     for name in args.files:
+        # One file's results go to --out itself; several each get a folder in it.
+        out = args.out if not args.out or len(args.files) == 1 else \
+            Path(args.out) / f"{Path(name).stem} results"
         try:
-            plan = opener.plan(name, args.out if len(args.files) == 1 else None)
+            plan = opener.plan(name, out)
         except opener.OpenError as e:
             log.error(str(e))
             failed.append(name)
@@ -1090,9 +1138,14 @@ def run_template(args) -> None:
     if out.exists() and not args.force:
         abort(f"{out} already exists; choose another name with --out, or add --force "
               "to replace it.")
-    written = templates.write(topic, out)
-    print(f"Wrote {written}.\n")
-    print(templates.NEXT_STEPS[topic].format(path=written))
+    try:
+        written = templates.write(topic, out)
+    except ValueError as e:
+        abort(str(e))
+    extra = templates.write_companion(topic, written)
+    print(f"Wrote {written}{f' and {extra}' if extra else ''}.\n")
+    print(templates.NEXT_STEPS[topic].format(path=written,
+                                             phasing=templates.companion_path(written)))
 
 
 def run_sar_panel(args) -> None:

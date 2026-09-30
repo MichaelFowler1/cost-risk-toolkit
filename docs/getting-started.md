@@ -161,8 +161,9 @@ The message says what's wrong and what to do next. A missing file names
 the folder it looked in and the command that makes one. A missing column
 lists the columns it found and the ones it needs.
 
-If a result looks wrong, `assumptions.json` beside it records every setting
-and every simplification made on the way in. Please report bugs at
+If a result looks wrong, the Assumptions sheet of the `report.xlsx` beside
+it records every setting and every note made on the way in (evm, jcl and aoa
+also write them to `assumptions.json`). Please report bugs at
 <https://github.com/MichaelFowler1/cost-risk-toolkit/issues>, using
 invented numbers, never real program data.
 

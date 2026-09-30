@@ -842,3 +842,84 @@ def test_the_portfolio_report_records_what_it_ran_with(tmp_path, capsys):
     ws = load_workbook(tmp_path / "report.xlsx")["Assumptions"]
     got = {r[0] for r in ws.iter_rows(min_row=2, values_only=True)}
     assert {"delta", "growth", "growth correlation", "iterations", "seed"} <= got
+
+
+# ------------------------------------------------------------ command line
+def test_open_with_several_files_puts_each_in_the_out_folder(tmp_path, capsys):
+    from cost_core.examples import example_path
+
+    a, b = tmp_path / "a.csv", tmp_path / "b.csv"
+    for p in (a, b):
+        p.write_bytes(example_path("evm").read_bytes())
+    cli.main(["open", str(a), str(b), "--out", str(tmp_path / "all")])
+    capsys.readouterr()
+    assert (tmp_path / "all" / "a results" / "report.xlsx").exists()
+    assert (tmp_path / "all" / "b results" / "report.xlsx").exists()
+
+
+def test_cumulative_figures_read_as_per_period_are_flagged(tmp_path, capsys, caplog):
+    from cost_core.examples import example_path
+
+    per_period = pd.DataFrame({"period": range(1, 13),
+                               "bcws": [5, 10, 20, 30, 40, 40, 30, 20, 10, 5, 3, 2],
+                               "bcwp": [4, 9, 18, 27, 36, 36, 0, 0, 0, 0, 0, 0],
+                               "acwp": [5, 10, 20, 30, 40, 40, 0, 0, 0, 0, 0, 0]})
+    cum = per_period.assign(**{c: per_period[c].cumsum() for c in ("bcws", "bcwp", "acwp")})
+    cum.loc[6:, ["bcwp", "acwp"]] = None
+    cum.to_csv(tmp_path / "cum.csv", index=False)
+    cli.main(["evm", "--data", str(tmp_path / "cum.csv"), "--out", str(tmp_path / "o"),
+              "--iters", "1000"])
+    assert "rerun with --cumulative" in capsys.readouterr().out
+    cli.main(["evm", "--data", str(example_path("evm")), "--out", str(tmp_path / "e"),
+              "--iters", "1000"])
+    assert "rerun with --cumulative" not in capsys.readouterr().out
+
+
+def test_an_early_evm_status_still_writes_a_marked_report(tmp_path, capsys):
+    from openpyxl import load_workbook
+
+    p = tmp_path / "early.csv"
+    pd.DataFrame({"period": [1, 2], "bcws": [10, 20], "bcwp": [8, None],
+                  "acwp": [9, None]}).to_csv(p, index=False)
+    cli.main(["evm", "--data", str(p), "--out", str(tmp_path / "o"), "--marking", "CUI"])
+    out = capsys.readouterr().out
+    assert "Wrote report.xlsx" in out and "data_checks.csv" in out
+    wb = load_workbook(tmp_path / "o" / "report.xlsx")
+    assert wb["Summary"].oddHeader.center.text == "CUI" and "Forecast" not in wb.sheetnames
+
+
+def test_a_template_is_refused_under_another_formats_name(tmp_path, caplog, capsys):
+    msg = refused(["template", "cost-risk", "--out", tmp_path / "mine.csv"], caplog, capsys)
+    assert "a .xlsx file; name it mine.xlsx" in msg
+    assert not (tmp_path / "mine.csv").exists()
+
+
+def test_the_inflate_template_writes_the_amounts_its_next_step_names(tmp_path, capsys):
+    cli.main(["template", "inflate", "--out", str(tmp_path / "idx.csv")])
+    out = capsys.readouterr().out
+    phasing = tmp_path / "my_phasing.csv"
+    assert phasing.exists() and f"--data {phasing}" in out
+    phasing.write_text("fiscal_year,amount\n2027,1\n")
+    cli.main(["template", "inflate", "--out", str(tmp_path / "idx2.csv")])
+    capsys.readouterr()
+    assert phasing.read_text() == "fiscal_year,amount\n2027,1\n"
+
+
+def test_an_ipmdar_pattern_is_expanded_where_the_shell_does_not(tmp_path, capsys):
+    from test_ipmdar import cpd_tables, write_folder
+
+    write_folder(cpd_tables(), tmp_path / "cpd_2026_11")
+    cli.main(["evm", "--ipmdar", str(tmp_path / "cpd_2026_*"), "--out", str(tmp_path / "o"),
+              "--iters", "1000"])
+    capsys.readouterr()
+    assert (tmp_path / "o" / "report.xlsx").exists()
+
+
+def test_negative_money_puts_the_sign_first():
+    from cost_core import plain
+    from cost_core.reporting.charts import _money
+
+    assert plain._money(-290, "$K") == "-$290K"
+    assert _money(-2000.0) == "-$2K"
+    assert cli._costs_in("as entered") == "costs as entered"
+    assert cli._costs_in("$K") == "costs in $K"

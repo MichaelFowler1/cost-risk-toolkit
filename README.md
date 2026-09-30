@@ -498,8 +498,9 @@ R², and why Wright and Crawford are different theories.
 
 ### Mapping to the GAO Cost Estimating and Assessment Guide
 
-Every run emits an `ASSUMPTIONS.md` organized around the four characteristics of
-a reliable estimate.
+`ce-core full-run` and `fit-lots --out` write an `ASSUMPTIONS.md` organized
+around the four characteristics of a reliable estimate; the other commands keep
+their settings on the Assumptions sheet of `report.xlsx`.
 
 | Characteristic | How this library addresses it |
 | --- | --- |

@@ -38,7 +38,8 @@ def _money(v: float, units: str = "") -> str:
     if units in ("", "as entered", "file currency"):
         return f"{v:,.0f}"
     if units.startswith("$"):
-        return f"${v:,.0f}{units[1:]}"
+        sign = "-" if round(v) < 0 else ""
+        return f"{sign}${abs(v):,.0f}{units[1:]}"
     return f"{v:,.0f} {units}"
 
 
@@ -155,7 +156,7 @@ def _cpi_sentence(m, units: str = "") -> str:
             "budget.")
 
 
-def evm_status(data, why: str, units: str = "") -> List[str]:
+def evm_status(data, why: str, units: str = "", where: str = "listed above") -> List[str]:
     """An EVM status without a forecast: early in a program, say."""
     m = data.metrics().iloc[-1]
     out = [_cpi_sentence(m, units)]
@@ -167,7 +168,7 @@ def evm_status(data, why: str, units: str = "") -> List[str]:
     n = int(raised["raised"].sum())
     if n:
         out.append(f"There {'is 1 warning sign' if n == 1 else f'are {n} warning signs'}, "
-                   "listed above.")
+                   f"{where}.")
     out.extend(_evm_monthly(data))
     return out
 
