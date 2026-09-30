@@ -46,6 +46,103 @@ housekeeping detail here, because someone may have put the old one in a budget.
   beside it, and the summary says how far funding those would overshoot.
 - `ce-core --version`, and `ce-core --about` for bug reports.
 
+### Changed
+Numbers that move, all from fixes below. In the bundled examples only two do:
+the AoA's (by sampling noise, about 0.1%) and the example schedule's DCMA
+checks 2 to 4, now counted on its 7 links rather than 10, with no check
+changing between pass and fail.
+- **Lot fits.** An LC+Rate fit whose fixed-point iteration never settles is no
+  longer selected (on clean 85% data it had been picked with a 98.98% or
+  0.00% slope); the solve falls back to a bracketed root, and the models
+  table says why each model was or wasn't chosen. Settings with MaxIter under
+  20 keep the old behaviour exactly.
+- **Earned value.** Period labels such as `Oct-25` are read as the months they
+  are; they had been read as 25 October of year 1, which put the periods out of
+  order (on the reviewer's data, SPI 0.349 instead of 0.730). A
+  finished account's EAC now carries into the program's, and earned schedule
+  counts the zero-plan periods before anything is earned.
+- **DCMA 14-point.** Checks 2 to 4 count the links as the file has them, so
+  one summary-to-summary link no longer counts once per pair of tasks. Check
+  12 can now fail (a hard constraint or an unlinked task holding the finish),
+  and checks 6 and 7 say "not assessable" when the file holds no float. A
+  status-date JCL no longer counts a lag that has already run out.
+- **Data pipeline.** Then-year rows with no dollar year deflate from their own
+  period, resubmissions are ordered by date rather than as text, learning
+  curve units come from each report's own first and last unit, and software
+  size adds up across builds instead of repeating per activity.
+- **Cost risk.** A range entered below zero (a credit, an opportunity) is
+  simulated below zero, where it had been clamped to 0 while the tables showed
+  it negative. An element with no range is carried at its point estimate, not
+  at a Most Likely that differs from it.
+- **AoA.** Each alternative draws from a stream set by its name, so reordering
+  the alternatives no longer changes anyone's numbers; seeded results move by
+  sampling noise once. A tie for cheapest is shared instead of going to the
+  first listed.
+- **`candidates_from_aoa`** inflates each year's cost to then-year dollars with
+  the AoA's own index, to sit against a then-year budget. `basis="by"` keeps
+  the old base-year behaviour.
+
+### Fixed
+Found by a second sweep: seven reviewers, one per area, each trying to get a
+wrong answer out of cost-core. Their 82 reports came to 75 distinct problems;
+74 are fixed, each with a test that failed before the fix, and one was
+rejected because it's the documented Wright model working as described. Every
+number in the tests is invented.
+- **Lot engine.** A lot with no cost in the middle of a series is refused
+  instead of renumbering every lot after it. With both recurring and total
+  cost columns, the declared cost basis picks the column. `forecast()` keeps
+  the report's selection settings. `fit-lots --simulate` needs `--forecast`.
+  A confidence interval across cost granularities is refused, and program
+  lots must be in fiscal-year order.
+- **Data pipeline.** Undated rows vanished while every gate passed; undated
+  duplicates are now flagged. A missing `report_type` column no longer turns
+  the cross-report reconciliation off. FlexFile units match whatever their
+  case, and unknown units are refused. Fractional quantities are refused
+  rather than truncated. The full-run log states the gate results as they came
+  out and gives the CER prediction in the run's base year.
+- **Schedules.** A start link from a summary task starts with its first child,
+  not its last. Check 1's exemption applies per side, so a task with no links
+  at all is always counted. A task name two tasks share is refused in a JCL
+  spec. Remaining fixed cost can't exceed the file's remaining cost, and an
+  opportunity larger than an activity floors it at zero. The summary no longer
+  calls the logic sound when key checks couldn't be made.
+- **Earned value.** The TCPI warnings fire once actual cost passes the budget
+  or the EAC. An account that stops reporting is noted. The EAC warning uses
+  the same independent EACs as the summary. IPMDAR earned schedule is blank
+  where the baseline was filled in, and the BAC is reconciled with the PMB's.
+  `--cv-dollars` and `--sv-dollars` given alone decide alone. `evm` warns when
+  per-period figures only ever rise, as cumulative ones do. An early-program
+  status with no forecast yet still writes `report.xlsx`, with any marking.
+- **Cost risk.** The S-curve chart ignored the units: 2,000 in $M was labelled
+  "$2K". The reserve sentence could say "$-21M more" when the own P80s add to
+  less than the total's (a register of unlikely risks), and "mostly" for a 19%
+  share. Sheets named Risk Register or Correlations are read, and any sheet not
+  read is named. A correlation pair entered twice, a budget year listed twice,
+  a Phased row repeated and a line with both a Total and an Annual Amount are
+  refused rather than one silently dropped. A Settings sheet with no heading
+  row keeps its first setting. The assumptions record the seed actually used.
+  Money in `report.xlsx` is formatted in the units given ("millions" had
+  rounded 18.5 to 19). An `&` in a marking prints in Excel headers and footers
+  ("R&D" had printed as "R" and the date).
+- **AoA and portfolio.** Two options of one candidate with the same name are
+  refused (the second could never be funded). `"mandatory": "no"` meant yes.
+  The AoA summary called the P50 "most likely" and could call an alternative
+  both cheapest and dominated; it now says P50 and explains dominance on the
+  mean. An alternative with no effectiveness score is no longer "on the
+  frontier". The portfolio report records delta, growth, seed and iterations.
+- **Settings.** `ce-core.toml`'s seed, iterations and units now fill in what
+  a cost-risk workbook or a JCL, AoA or portfolio spec leaves out; they had
+  been ignored by those commands.
+- **Command line.** `ce-core open` with several files and `--out` puts each
+  file's results in a folder there instead of ignoring `--out`. A template
+  named with the wrong extension is refused instead of written in the wrong
+  format. `template inflate` also writes the `my_phasing.csv` its next step
+  names. `--ipmdar cpd_*.zip` works on Windows. `inflate` reads its own output
+  and hyphenated column names, and prints `--amount` as given. Negative money
+  reads "-$290K", and costs with no units read "costs as entered".
+- **Docs.** The workbook instructions list every spread profile and say what
+  Delta does. The README no longer says every run writes `ASSUMPTIONS.md`.
+
 ## [2.5.0] - 2026-09-26
 
 Ten fixes to the older commands, found by running 139 broken inputs through
