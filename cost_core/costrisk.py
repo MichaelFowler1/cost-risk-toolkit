@@ -221,6 +221,9 @@ class CostRiskInput:
     n_iter: int = 20_000
     seed: int = 0
     notes: List[str] = field(default_factory=list)
+    #: The settings the workbook itself gave, so a ce-core.toml default only
+    #: fills in the ones it left out.
+    stated: frozenset = frozenset()
 
 
 def _read_elements(frame: pd.DataFrame) -> Tuple[List[CostElement], pd.DataFrame]:
@@ -395,6 +398,7 @@ def _read_settings(frame: Optional[pd.DataFrame]) -> Dict:
         key, value = SETTING_NAMES[label], rec[1]
         if key is None or _blank(value):
             continue
+        out.setdefault("_stated", set()).add(key)
         if key == "units":
             out[key] = str(value).strip()
             continue
@@ -480,7 +484,8 @@ def read_workbook(path) -> CostRiskInput:
         raise CostRiskError(str(e)) from None
     return CostRiskInput(model=model, elements=element_rows, risks=risk_rows, pairs=pairs,
                          units=settings["units"], n_iter=settings["iterations"],
-                         seed=settings["seed"], notes=notes)
+                         seed=settings["seed"], notes=notes,
+                         stated=frozenset(settings.get("_stated", ())))
 
 
 @dataclass

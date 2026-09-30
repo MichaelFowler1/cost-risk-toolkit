@@ -222,7 +222,9 @@ GitHub's "Cite this repository" button reads it.
   by name when it has them.
 - `ce-core settings --write` starts a `ce-core.toml` in the folder you run
   from (one in your home folder applies everywhere), so the marking, template,
-  units, seed and fiscal-year start don't have to be typed each time.
+  units, seed and fiscal-year start don't have to be typed each time. A flag
+  wins over it, and so does a seed, iteration count or units set in the input
+  workbook or spec itself.
   `ce-core settings` shows every value in effect and the file it came from.
 - `ce-core --about` lists the versions of cost-core, Python and its libraries
   for a bug report. It reads nothing of yours and sends nothing anywhere.

@@ -710,3 +710,135 @@ def test_an_ampersand_in_the_marking_prints_as_one(tmp_path):
     with configured(marking="R&D ONLY"):
         mark_workbook(wb)
     assert wb.active.oddHeader.center.text == "R&&D ONLY"
+
+
+# ------------------------------------------------- AoA, portfolio, inflate
+def _alt(name, cost, spec=None, effectiveness=None):
+    from cost_core.aoa import Alternative, CostLine
+    return Alternative(name, [CostLine("Buy", "Procurement", {2027: float(cost)}, spec)],
+                       effectiveness)
+
+
+def _evaluate(alts, **kw):
+    from cost_core.aoa import evaluate
+    from cost_core.ingest import InflationTable
+    infl = InflationTable.from_rate(0.0, base_year=2026, first_year=2026, last_year=2030)
+    return evaluate(alts, base_year=2026, inflation=infl, discount_rate=0.0,
+                    **{"basis": "by", "n_iter": 20000, "seed": 1, **kw})
+
+
+def test_two_options_with_one_name_are_refused():
+    from cost_core.portfolio import Candidate, Option, PortfolioError
+
+    with pytest.raises(PortfolioError, match="used twice"):
+        Candidate("Radar", [Option("Fund", {2027: 60}, 3), Option("Fund", {2027: 40}, 13)])
+
+
+def test_mandatory_no_means_no(tmp_path):
+    import json
+    from cost_core.portfolio import PortfolioError
+    from cost_core.portfolio.spec import load_portfolio
+
+    spec = {"budget": {"2027": 100}, "candidates": [
+        {"name": "Radar", "mandatory": "no",
+         "options": [{"name": "Full", "value": 2, "cost_by_year": {"2027": 60}}]}]}
+    p = tmp_path / "p.json"
+    p.write_text(json.dumps(spec))
+    assert load_portfolio(p)[0].candidates[0].mandatory is False
+    spec["candidates"][0]["mandatory"] = "maybe"
+    p.write_text(json.dumps(spec))
+    with pytest.raises(PortfolioError, match="true or false"):
+        load_portfolio(p)
+
+
+def test_the_aoa_summary_does_not_contradict_itself():
+    from cost_core import plain
+
+    tri = {"type": "triangular", "left": 0.9, "mode": 0.95, "right": 1.6}
+    r = _evaluate([_alt("Risky", 100, tri, 0.6), _alt("Steady", 113, None, 0.7)])
+    text = " ".join(plain.aoa(r, "$M"))
+    assert "most likely" not in text
+    assert "'Risky' costs more on average than 'Steady'" in text
+    assert "Its 50% cost is lower" in text
+
+
+def test_a_tie_for_cheapest_is_shared():
+    r = _evaluate([_alt("A", 100), _alt("B", 100)], n_iter=2000)
+    assert list(r.summary["p_cheapest"]) == [0.5, 0.5]
+
+
+def test_an_unscored_alternative_is_not_on_the_frontier():
+    r = _evaluate([_alt("Cheap", 100, None, 0.8), _alt("Unscored", 300),
+                   _alt("Middle", 200, None, 0.5)], n_iter=2000)
+    s = r.summary.set_index("alternative")
+    assert not s.loc["Unscored", "on_frontier"] and s.loc["Cheap", "on_frontier"]
+
+
+def test_an_alternatives_draws_do_not_depend_on_its_place_in_the_list():
+    tri = {"type": "triangular", "left": 0.8, "mode": 1.0, "right": 1.6}
+    a, b, c = _alt("A", 100, tri), _alt("B", 110, tri), _alt("C", 90, tri)
+    r1, r2 = _evaluate([a, b, c], n_iter=2000), _evaluate([c, a, b], n_iter=2000)
+    assert np.array_equal(r1.draws["A"], r2.draws["A"])
+
+
+def test_ce_core_toml_fills_in_what_the_input_file_leaves_out(tmp_path, monkeypatch, capsys):
+    import json
+    from cost_core.examples import example_path
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "ce-core.toml").write_text("seed = 11\niterations = 3000\n", encoding="utf-8")
+    spec = json.loads(example_path("aoa").read_text())
+    for key in ("seed", "n_iter"):
+        spec.pop(key, None)
+    (tmp_path / "aoa.json").write_text(json.dumps(spec))
+    cli.main(["aoa", "--spec", "aoa.json", "--out", "a"])
+    record = json.loads((tmp_path / "a" / "assumptions.json").read_text())
+    assert record["seed"] == 11 and record["n_iter"] == 3000
+
+    p = _risk_workbook(tmp_path / "r.xlsx", [("A", 100, 90, 100, 130), ("B", 50, 45, 50, 70)],
+                       settings=[("Iterations", 2000)])
+    cli.main(["cost-risk", "--data", str(p), "--out", "c"])
+    capsys.readouterr()
+    from openpyxl import load_workbook
+    ws = load_workbook(tmp_path / "c" / "report.xlsx")["Assumptions"]
+    got = {r[0]: r[1] for r in ws.iter_rows(min_row=2, values_only=True)}
+    assert got["seed"] == 11 and got["iterations"] == 2000
+
+
+def test_inflate_reads_its_own_output_and_hyphenated_names(tmp_path, capsys):
+    index = tmp_path / "idx.csv"
+    pd.DataFrame({"index_name": "i", "fiscal_year": range(2025, 2031),
+                  "index_value": [1.02 ** k for k in range(6)]}).to_csv(index, index=False)
+    data = tmp_path / "d.csv"
+    pd.DataFrame({"fy": [2027, 2028], "cost-basis": [10.0, 20.0]}).to_csv(data, index=False)
+    cli.main(["inflate", "--data", str(data), "--index", str(index), "--from", "BY2025",
+              "--to", "TY", "--amount-col", "cost-basis", "--out", str(tmp_path / "o1.csv")])
+    cli.main(["inflate", "--data", str(tmp_path / "o1.csv"), "--index", str(index), "--from",
+              "BY2025", "--to", "TY", "--amount-col", "cost-basis",
+              "--out", str(tmp_path / "o2.csv")])
+    out = capsys.readouterr().out
+    assert "cost-basis  cost_basis_then_year_2" in out
+    again = pd.read_csv(tmp_path / "o2.csv")
+    assert list(again["cost_basis_then_year"]) == list(again["cost_basis_then_year_2"])
+
+
+def test_inflate_prints_the_amount_it_was_given(tmp_path, capsys):
+    index = tmp_path / "idx.csv"
+    pd.DataFrame({"index_name": "i", "fiscal_year": range(2025, 2031),
+                  "index_value": [1.02 ** k for k in range(6)]}).to_csv(index, index=False)
+    cli.main(["inflate", "--amount", "1234567.5", "--index", str(index), "--from", "BY2025",
+              "--to", "TY", "--year", "2027"])
+    assert "1,234,567.5 in BY2025 dollars" in capsys.readouterr().out
+
+
+def test_the_portfolio_report_records_what_it_ran_with(tmp_path, capsys):
+    from openpyxl import load_workbook
+    from cost_core.examples import example_path
+
+    pytest.importorskip("pulp")
+    cli.main(["portfolio", "--spec", str(example_path("portfolio")), "--out", str(tmp_path)])
+    text = capsys.readouterr().out
+    assert "as history says" not in text
+    ws = load_workbook(tmp_path / "report.xlsx")["Assumptions"]
+    got = {r[0] for r in ws.iter_rows(min_row=2, values_only=True)}
+    assert {"delta", "growth", "growth correlation", "iterations", "seed"} <= got

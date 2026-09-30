@@ -681,8 +681,8 @@ INSTRUCTIONS = {
          "scale that is the same for all of them. Correlation (default 0.3) is how much its "
          "cost lines overrun together."),
         ("Lines sheet", "One cost line per row, naming its Alternative. Give its cost one of "
-         "three ways: a Total spread over Years from a Start Year (Profile uniform, or "
-         "bell); an Annual Amount from a First Year to a Last Year; or a row on the Phased "
+         "three ways: a Total spread over Years from a Start Year (Profile uniform, "
+         "front, back or bell); an Annual Amount from a First Year to a Last Year; or a row on the Phased "
          "sheet with the amount in each year."),
         ("Uncertainty", "Low, Most Likely and High Factor multiply the line: 0.9, 1.0, 1.4 "
          "means 10% under to 40% over. Leave them blank for a line with no uncertainty."),
@@ -702,8 +702,9 @@ INSTRUCTIONS = {
         ("Exclusive sheet", "Candidates only one of which may be funded, separated by ; on "
          "a row."),
         ("Settings sheet", "Growth Low, Most Likely and High are the cost growth factors "
-         "for the risk analysis (0.92, 1.0, 1.45). Delta is the budget step for the "
-         "trade-off curve."),
+         "for the risk analysis (0.92, 1.0, 1.45). Delta is the extra money to test in "
+         "one year: what it would buy if added to each year in turn. Frontier Scales "
+         "are the budget levels for the trade-off curve (0.9; 1.0; 1.1)."),
     ],
 }
 

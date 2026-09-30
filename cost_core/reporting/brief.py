@@ -465,7 +465,7 @@ def aoa_brief(result, out_dir) -> Path:
               f"{result.assumptions.get('basis', '').upper()} dollars")
     s = result.summary.sort_values("p50")
     b.bottom_line(plain.aoa(result, units),
-                  [(f"{r.alternative}: most likely", _money(r.p50, units)) for r in s.itertuples()])
+                  [(f"{r.alternative}: P50", _money(r.p50, units)) for r in s.itertuples()])
     b.image("Life-cycle cost S-curves", Path(out_dir) / "aoa_s_curves.png")
     cols = {"alternative": "Alternative", "p50": "P50", "p80": "P80",
             "p_cheapest": "Chance cheapest", "dominated_by": "Dominated by"}
@@ -478,7 +478,8 @@ def aoa_brief(result, out_dir) -> Path:
     return b.save(Path(out_dir) / "brief.pptx")
 
 
-def portfolio_brief(result, portfolio, out_dir, units: str = "", risk=None) -> Path:
+def portfolio_brief(result, portfolio, out_dir, units: str = "", risk=None,
+                    settings: Optional[dict] = None) -> Path:
     from cost_core import plain
 
     b = Brief("Portfolio: which programs to fund", f"{len(portfolio.candidates)} candidates")
@@ -495,6 +496,7 @@ def portfolio_brief(result, portfolio, out_dir, units: str = "", risk=None) -> P
             "Year": risk["year"].astype(int), "Budget": risk["budget"].map(lambda v: _money(v, units)),
             "Planned": risk["planned"].map(lambda v: _money(v, units)),
             "Chance over": risk["p_over_budget"].map(lambda v: f"{v:.0%}")}))
-    b.assumptions(["Value scores and costs as given in the spec.",
-                   "The full tables are in report.xlsx beside this briefing."])
+    b.assumptions(["Value scores and costs as given in the spec."]
+                  + [f"{k}: {v}" for k, v in (settings or {}).items()]
+                  + ["The full tables are in report.xlsx beside this briefing."])
     return b.save(Path(out_dir) / "brief.pptx")

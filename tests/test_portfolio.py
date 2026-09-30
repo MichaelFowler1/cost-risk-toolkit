@@ -180,7 +180,11 @@ def test_an_aoa_feeds_the_portfolio_as_exclusive_alternatives():
                    inflation=InflationTable.from_rate(0.02, 2026, 2020, 2050))
     cands, groups = candidates_from_aoa(aoa, years=YEARS, prefix="Sensor: ")
     assert [c.name for c in cands] == ["Sensor: Upgrade", "Sensor: New"]
-    assert sum(cands[0].options[0].cost_by_year.values()) == pytest.approx(60)  # O&S is outside
+    # Then-year by default, to sit against a then-year budget; O&S is outside.
+    assert sum(cands[0].options[0].cost_by_year.values()) == pytest.approx(
+        sum(20 * 1.02 ** (y - 2026) for y in (2027, 2028, 2029)))
+    by, _ = candidates_from_aoa(aoa, years=YEARS, basis="by")
+    assert sum(by[0].options[0].cost_by_year.values()) == pytest.approx(60)
     p = Portfolio(cands + [Candidate("Other", [opt("Full", [20, 20, 20], 15)])],
                   {y: 50 for y in YEARS}, groups)
     r = solve(p)

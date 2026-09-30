@@ -533,7 +533,8 @@ def aoa_workbook(result, path) -> Path:
 
 # ---------------------------------------------------------------- portfolio
 def portfolio_workbook(result, portfolio, path, units: str = "", tables: Optional[Dict[str, pd.DataFrame]] = None,
-                       risk: Optional[pd.DataFrame] = None) -> Path:
+                       risk: Optional[pd.DataFrame] = None,
+                       settings: Optional[dict] = None) -> Path:
     from cost_core import plain
 
     rb = ReportWorkbook("Portfolio: which programs to fund",
@@ -557,5 +558,5 @@ def portfolio_workbook(result, portfolio, path, units: str = "", tables: Optiona
         rb.table(name, df)
     if risk is not None:
         rb.table("Budget risk", risk, {"p_over_budget": PCT})
-    rb.assumptions({"units": units})
+    rb.assumptions({"units": units, **(settings or {})})
     return rb.save(path)

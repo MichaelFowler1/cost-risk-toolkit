@@ -45,6 +45,7 @@ chooses along.
 from __future__ import annotations
 
 import math
+import zlib
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
 
@@ -200,6 +201,14 @@ def _scale_spec(spec: Optional[Dict[str, Any]], k: float) -> Dict[str, Any]:
     return s
 
 
+def _stream(seed: int, name: str) -> int:
+    """One alternative's seed, from the run's seed and the alternative's name,
+    so adding, removing or reordering alternatives leaves the others' draws
+    alone."""
+    entropy = [int(seed), zlib.crc32(name.encode("utf-8"))]
+    return int(np.random.SeedSequence(entropy).generate_state(1)[0])
+
+
 # ----------------------------------------------------------------- result ---
 @dataclass
 class AoAResult:
@@ -215,6 +224,8 @@ class AoAResult:
         assumptions: Every setting the answer depends on, for the record.
         alternatives: The alternatives as evaluated, so the result can feed
             :func:`cost_core.portfolio.candidates_from_aoa`.
+        inflation: The index used, so the same feed can reach then-year
+            dollars.
     """
 
     lines: pd.DataFrame
@@ -222,6 +233,7 @@ class AoAResult:
     draws: Dict[str, np.ndarray]
     assumptions: Dict[str, Any] = field(default_factory=dict)
     alternatives: Sequence[Alternative] = field(default_factory=list)
+    inflation: Optional[InflationTable] = None
 
     def s_curves(self, points: Iterable[float] = range(5, 100, 5)) -> pd.DataFrame:
         """Percentiles of each alternative's simulated cost, one column each."""
@@ -315,7 +327,7 @@ def evaluate(
                                 distribution=_scale_spec(ln.uncertainty, float(amount)),
                                 point_estimate=float(amount))
                     for ln, amount in zip(alt.lines, sub[basis])]
-        stream = None if seed is None else int(seed) * 1000 + i
+        stream = None if seed is None else _stream(seed, alt.name)
         try:
             result = simulate_risk_model(
                 RiskModel(elements=elements,
@@ -327,7 +339,10 @@ def evaluate(
         draws[alt.name] = result.totals
 
     stack = np.vstack([draws[n] for n in names])
-    cheapest = np.bincount(stack.argmin(axis=0), minlength=len(names)) / stack.shape[1]
+    # A tie (two alternatives with no uncertainty and the same cost, say) is
+    # shared between them rather than given to the first listed.
+    lowest = stack == stack.min(axis=0)
+    cheapest = (lowest / lowest.sum(axis=0)).sum(axis=1) / stack.shape[1]
     totals = lines.groupby("alternative", sort=False)[["by", "ty", "pv"]].sum()
     summary = pd.DataFrame({
         "alternative": names,
@@ -340,7 +355,10 @@ def evaluate(
         "p_cheapest": cheapest,
         "effectiveness": [a.effectiveness for a in alternatives],
     })
-    eff = list(summary["effectiveness"])
+    # From the alternatives, not the table: pandas turns a missing score into
+    # NaN, which "is not None" would count as a score.
+    eff = [None if e is None or (isinstance(e, float) and math.isnan(e)) else e
+           for e in (a.effectiveness for a in alternatives)]
     if any(e is not None for e in eff):
         summary["cost_per_effectiveness"] = [
             (m / e) if e not in (None, 0) else np.nan for m, e in zip(summary["mean"], eff)]
@@ -350,6 +368,7 @@ def evaluate(
 
     return AoAResult(
         lines=lines, summary=summary, draws=draws, alternatives=list(alternatives),
+        inflation=inflation,
         assumptions={"base_year": base_year, "pv_year": pv_year,
                      "discount_rate": discount_rate, "basis": basis,
                      "inflation_index": index, "inflation_source": inflation.source,

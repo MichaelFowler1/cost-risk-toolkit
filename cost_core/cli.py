@@ -365,6 +365,24 @@ def run_full(args: argparse.Namespace) -> None:
         abort(f"Full run failed: {e}")
 
 
+def toml_defaults(label_units: bool = True) -> dict:
+    """ce-core.toml's seed, iterations and units, as n_iter, seed and units.
+
+    For the commands whose input file can carry its own: a flag wins, then
+    the file, then these. Units come as the label ($M) unless asked not to."""
+    from cost_core import plain
+    from cost_core import settings as settings_mod
+
+    try:
+        v = settings_mod.values()
+    except settings_mod.SettingsError:
+        return {}
+    out = {"n_iter": v.get("iterations"), "seed": v.get("seed"), "units": v.get("units")}
+    if out["units"] is not None and label_units:
+        out["units"] = plain.units_label(out["units"])
+    return {k: x for k, x in out.items() if x is not None}
+
+
 def run_cost_risk(args) -> None:
     """Simulate an estimate kept in Excel and write its cost risk analysis."""
     from pathlib import Path
@@ -375,7 +393,12 @@ def run_cost_risk(args) -> None:
     need_file(args.data, "the estimate", "cost-risk")
     try:
         inputs = read_workbook(args.data)
-        result = analyse(inputs, n_iter=args.iters, seed=args.seed, units=args.units)
+        toml = toml_defaults(label_units=False)
+        given = {"n_iter": args.iters, "seed": args.seed, "units": args.units}
+        for key, stated in (("n_iter", "iterations"), ("seed", "seed"), ("units", "units")):
+            if given[key] is None and stated not in inputs.stated:
+                given[key] = toml.get(key)
+        result = analyse(inputs, **given)
     except (CostRiskError, OSError) as e:
         abort(f"Cost risk failed: {e}")
     out = Path(args.out)
@@ -432,7 +455,7 @@ def run_aoa(args) -> None:
 
     need_file(args.spec, "the AoA spec", "aoa")
     try:
-        result = run_spec(args.spec)
+        result = run_spec(args.spec, defaults=toml_defaults())
     except (AoAError, OSError, KeyError, ValueError) as e:
         abort(f"AoA failed: {e}")
     out = Path(args.out)
@@ -467,6 +490,7 @@ def run_aoa(args) -> None:
 
 def run_portfolio(args) -> None:
     """Solve a portfolio spec and write the choice and its analyses."""
+    import json
     from pathlib import Path
 
     try:
@@ -478,6 +502,8 @@ def run_portfolio(args) -> None:
     need_file(args.spec, "the portfolio spec", "portfolio")
     try:
         portfolio, settings = load_portfolio(args.spec)
+        for key, value in toml_defaults().items():
+            settings.setdefault(key, value)
         result = solve(portfolio)
     except ImportError:
         abort("Choosing a portfolio needs a solver, which comes with the optimize extra:\n"
@@ -524,11 +550,21 @@ def run_portfolio(args) -> None:
     extra = {"Value against budget": fr}
     if delta:
         extra["Marginal value"] = mv
-    portfolio_workbook(result, portfolio, out / "report.xlsx", units, extra, risk)
+    record = {"delta": delta or "not set (no marginal value run)",
+              "frontier scales": ", ".join(f"{s:g}" for s in settings.get(
+                  "frontier_scales", [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]))}
+    if "growth" in settings:
+        record.update({"growth": json.dumps(settings["growth"]),
+                       "growth correlation": float(settings.get("growth_correlation", 0.0)),
+                       "iterations": int(settings.get("n_iter", 20000)),
+                       "seed": settings.get("seed", 0)})
+    else:
+        record["growth"] = "not set (no budget risk run)"
+    portfolio_workbook(result, portfolio, out / "report.xlsx", units, extra, risk, record)
     written.insert(0, "report.xlsx")
     from cost_core.reporting.brief import portfolio_brief
-    written[1:1] = [w for w in [write_brief(portfolio_brief, result, portfolio, out, units, risk)]
-                    if w]
+    written[1:1] = [w for w in [write_brief(portfolio_brief, result, portfolio, out, units, risk,
+                                            record)] if w]
     print(f"Wrote {', '.join(written)} to {out}")
 
 
@@ -543,6 +579,8 @@ def run_jcl(args) -> None:
     need_file(args.spec, "the JCL spec", "jcl")
     try:
         project, settings = load_project(args.spec)
+        for key, value in toml_defaults().items():
+            settings.setdefault(key, value)
         result = simulate(project, n_iter=int(settings.get("n_iter", 20000)),
                           seed=settings.get("seed", 0))
     except (ScheduleError, OSError, KeyError, ValueError) as e:
@@ -906,10 +944,10 @@ def run_inflate(args) -> None:
             f = float(factors(index, [year], src, dst)[0])
             i_from = index[year] if src.kind == "ty" else index[src.year]
             i_to = index[year] if dst.kind == "ty" else index[dst.year]
-            print(f"\n{args.amount:,.4g} in {src} dollars"
+            print(f"\n{args.amount:,.10g} in {src} dollars"
                   f"{f' spent in FY{year}' if 'ty' in (src.kind, dst.kind) else ''} is "
                   f"{args.amount * f:,.4f} in {dst} dollars.")
-            print(f"  = {args.amount:,.4g} x {i_to:.6g} / {i_from:.6g}   (index {name!r})")
+            print(f"  = {args.amount:,.10g} x {i_to:.10g} / {i_from:.10g}   (index {name!r})")
             return
         if not args.data:
             abort("Give --data (a table of amounts and fiscal years) or --amount.")
@@ -922,8 +960,9 @@ def run_inflate(args) -> None:
         out_frame = convert(frame, index, src, dst, args.amount_col, args.year_col, start, name)
     except InflateError as e:
         abort(f"Inflate failed: {e}")
-    new_col = out_frame.columns[-2]
-    old_col = [c for c in frame.columns if f"{c}_" in new_col][0]
+    new_col = out_frame.attrs["converted_column"]
+    old_col = out_frame.attrs["amount_column"]
+    year_col = out_frame.attrs["year_column"]
     out = Path(args.out) if args.out else data.parent
     if out.suffix.lower() not in (".csv", ".xlsx"):   # a folder
         out = out / f"{data.stem} {dst}.csv"
@@ -932,7 +971,7 @@ def run_inflate(args) -> None:
         out_frame.to_excel(out, index=False)
     else:
         out_frame.to_csv(out, index=False)
-    by_year = out_frame.groupby("fiscal_year")[[old_col, new_col]].sum()
+    by_year = out_frame.groupby(year_col)[[old_col, new_col]].sum()
     print(f"\n{len(out_frame)} amounts from {src} to {dst} dollars, index {name!r}:\n")
     print(by_year.to_string(float_format=lambda v: f"{v:,.2f}"))
     total_old, total_new = by_year[old_col].sum(), by_year[new_col].sum()

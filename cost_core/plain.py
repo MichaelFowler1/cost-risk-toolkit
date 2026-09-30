@@ -234,16 +234,22 @@ def aoa(result, units: str = "") -> List[str]:
     s = result.summary.sort_values("p50")
     best = s.iloc[0]
     out = [f"{best.alternative!r} is the cheapest in {best.p_cheapest:.0%} of simulations, "
-           f"with a most likely life-cycle cost of {_money(best.p50, units)} "
+           f"with a life-cycle cost of {_money(best.p50, units)} to be 50% sure "
            f"({_money(best.p80, units)} to be 80% sure)."]
     if len(s) > 1:
         second = s.iloc[1]
         out.append(f"Next is {second.alternative!r} at {_money(second.p50, units)}, "
                    f"{second.p50 / best.p50 - 1:.0%} more.")
     dom = s[s["dominated_by"].notna()] if "dominated_by" in s else s.iloc[0:0]
+    by_name = s.set_index("alternative")
     for r in dom.itertuples():
-        out.append(f"{r.alternative!r} costs more than {r.dominated_by!r} and does no more, "
-                   "so it can be set aside.")
+        other = by_name.loc[r.dominated_by]
+        text = (f"{r.alternative!r} costs more on average than {r.dominated_by!r} "
+                f"({_money(r.mean, units)} against {_money(other['mean'], units)}) and does "
+                "no more, so it can be set aside.")
+        if r.p50 < other["p50"]:
+            text += " Its 50% cost is lower, but its range runs higher."
+        out.append(text)
     return out
 
 
@@ -335,8 +341,9 @@ def portfolio(result, n_candidates: int, risk=None, units: str = "") -> List[str
             worst = risk.sort_values(col).iloc[-1]
             year = worst.get("year", "")
             year = int(year) if isinstance(year, float) and year.is_integer() else year
-            out.append(f"Once costs grow as history says they do, the riskiest year is {year}, "
-                       f"with {_chance(float(worst[col]))} of going over its budget.")
+            out.append(f"With costs growing over the range in the Growth settings, the "
+                       f"riskiest year is {year}, with {_chance(float(worst[col]))} of going "
+                       "over its budget.")
     return out
 
 

@@ -104,6 +104,13 @@ class Candidate:
     def __post_init__(self) -> None:
         if not self.options:
             raise PortfolioError(f"{self.name}: a candidate needs at least one option.")
+        names = [o.name for o in self.options]
+        dup = sorted({n for n in names if names.count(n) > 1})
+        if dup:
+            # The solver keys each option by its name, so the second would
+            # replace the first and could never be funded.
+            raise PortfolioError(f"{self.name}: option name(s) {dup} are used twice; give "
+                                 "each option its own name.")
 
 
 @dataclass(frozen=True)
@@ -432,11 +439,11 @@ def budget_risk(
 
 # ------------------------------------------------------------- from an AoA ---
 def candidates_from_aoa(result, years: Optional[Iterable[int]] = None,
-                        prefix: str = "") -> "tuple[list, list]":
+                        prefix: str = "", basis: str = "ty") -> "tuple[list, list]":
     """Turn an AoA's alternatives into mutually exclusive portfolio candidates.
 
-    Each alternative becomes a candidate with one option costing its
-    base-year lines by year, valued at its effectiveness score; the returned
+    Each alternative becomes a candidate with one option costing its lines by
+    year, valued at its effectiveness score; the returned
     exclusive group says at most one of them can be funded. So an AoA feeds
     the portfolio directly, and the portfolio decides whether the need is
     worth meeting at all given everything else competing for the money.
@@ -449,10 +456,22 @@ def candidates_from_aoa(result, years: Optional[Iterable[int]] = None,
             treatment and worth saying out loud in the briefing: the
             portfolio then weighs each alternative's near-term cost only.
         prefix: Prepended to candidate names, to keep several AoAs apart.
+        basis: ``"ty"`` (the default) inflates each year's cost to then-year
+            dollars with the AoA's own index, because budgets are in then-year
+            dollars; ``"by"`` keeps the base-year dollars the lines are
+            stated in, for a budget stated in them too.
 
     Returns:
         ``(candidates, [group])``.
     """
+    if basis not in ("ty", "by"):
+        raise PortfolioError(f"basis is 'ty' or 'by', not {basis!r}.")
+    inflation = getattr(result, "inflation", None)
+    if basis == "ty" and inflation is None:
+        raise PortfolioError("This AoA result has no inflation index to reach then-year "
+                             "dollars; pass basis='by' if the budget is in base-year dollars.")
+    base_year = int(result.assumptions.get("base_year", 0))
+    index = result.assumptions.get("inflation_index")
     keep = None if years is None else {int(y) for y in years}
     cands = []
     for a in result.alternatives:
@@ -462,6 +481,7 @@ def candidates_from_aoa(result, years: Optional[Iterable[int]] = None,
         for line in a.lines:
             for y, v in line.by_year.items():
                 if keep is None or int(y) in keep:
-                    costs[int(y)] = costs.get(int(y), 0.0) + float(v)
+                    k = inflation.factor(base_year, int(y), index) if basis == "ty" else 1.0
+                    costs[int(y)] = costs.get(int(y), 0.0) + float(v) * k
         cands.append(Candidate(prefix + a.name, [Option("Fund", costs, float(a.effectiveness))]))
     return cands, [[c.name for c in cands]]

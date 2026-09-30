@@ -102,8 +102,9 @@ WBS and write the workbook, all through this library.
   it has to fall back.
 - **Set it once.** `ce-core settings --write` starts a `ce-core.toml` for
   the marking, the template, units, seed, iterations and the fiscal-year
-  start (October by default). A flag on the command line always wins, and
-  `ce-core settings` shows what's in effect and where each value came from.
+  start (October by default). A flag on the command line always wins, then a
+  setting in the input workbook or spec, then the file; `ce-core settings`
+  shows what's in effect and where each value came from.
 - **Bug reports.** `ce-core --about` prints the versions to paste into an
   issue; nothing is sent anywhere.
 
@@ -374,7 +375,9 @@ rate, defer two years), each with a cost in every budget year and a value
 score. The solver maximises value within every year's budget, funds the
 mandatory programs, keeps dependencies ("integration needs the missile") and
 picks at most one of each set of exclusive alternatives, which is what an AoA's
-alternatives are: `candidates_from_aoa` turns an AoA result straight into them.
+alternatives are: `candidates_from_aoa` turns an AoA result straight into them,
+inflated to then-year dollars with the AoA's own index to sit against a
+then-year budget (`basis="by"` keeps base-year dollars).
 
 The optimum is where the analysis starts, and three more tables come with it:
 
