@@ -119,9 +119,12 @@ def test_dcma_14_point_as_worked_by_hand(ims):
     # Orphan no links; Test prep ends the project and is not counted.
     assert (t.loc[1, "count"], t.loc[1, "base"]) == (2, 7)
     assert r.tasks[1] == ["Ship", "Orphan"]
-    # Ten links into incomplete tasks: one lead, three lags, two not FS.
-    assert t.loc[2, "value"] == pytest.approx(0.1) and t.loc[3, "value"] == pytest.approx(0.3)
-    assert t.loc[4, "value"] == pytest.approx(0.8) and not t.loc[4, "passed"]
+    # Seven links into incomplete tasks as the file holds them (the Design to
+    # Build summary link counts once, not once per pair of their tasks): one
+    # lead, three lags, two not FS.
+    assert (t.loc[2, "count"], t.loc[2, "base"]) == (1, 7)
+    assert t.loc[2, "value"] == pytest.approx(1 / 7) and t.loc[3, "value"] == pytest.approx(3 / 7)
+    assert t.loc[4, "value"] == pytest.approx(5 / 7) and not t.loc[4, "passed"]
     assert r.tasks[5] == ["Ship"] and r.tasks[6] == ["Orphan"] and r.tasks[7] == ["Test prep"]
     assert r.tasks[8] == ["Fabricate"]        # 50 baseline days
     assert r.tasks[9] == ["Software"]         # forecast start before the status date

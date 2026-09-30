@@ -741,7 +741,7 @@ def plot_jcl(
         ax.plot([result.point_finish], [result.point_cost], marker="D", color=ACCENT,
                 markersize=9, markeredgecolor=INK, linestyle="none",
                 label=f"point estimate ({result.point_jcl:.0%} joint)")
-        ax.set_xlabel("Finish, months from start")
+        ax.set_xlabel(f"Finish, months from {getattr(result, 'measured_from', 'start')}")
         ax.set_ylabel(f"Cost ({units})")
         ax.yaxis.set_major_formatter(FuncFormatter(_plain))
         ax.legend(frameon=False, loc="upper left", fontsize=9.5)

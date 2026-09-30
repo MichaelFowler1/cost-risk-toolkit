@@ -197,6 +197,9 @@ class Project:
     cost_correlation: float = 0.3
     cross_correlation: float = 0.0
     name: str = "project"
+    #: What month 0 is: "start", or "status date" for a schedule read with its
+    #: progress, where the months are the time remaining.
+    measured_from: str = "start"
 
     def __post_init__(self) -> None:
         ids = [a.id for a in self.activities]
@@ -338,6 +341,12 @@ class JclResult:
     risk_hits: Dict[str, np.ndarray] = field(default_factory=dict)
     notes: List[str] = field(default_factory=list)
     seed: Optional[int] = None
+    activity_names: Dict[str, str] = field(default_factory=dict)
+    measured_from: str = "start"
+
+    def name_of(self, activity_id: str) -> str:
+        """An activity's name where it has one, else its id."""
+        return self.activity_names.get(activity_id) or activity_id
 
     @property
     def n_iter(self) -> int:
@@ -416,6 +425,7 @@ class JclResult:
             varies = np.ptp(d) > 0
             rows.append({
                 "activity": a,
+                "name": self.name_of(a),
                 "criticality": float(self.critical[:, j].mean()),
                 "duration_mean": float(d.mean()),
                 "rank_corr_finish": float(stats.spearmanr(d, self.finish)[0]) if varies else 0.0,
@@ -493,6 +503,12 @@ def simulate(project: Project, n_iter: int = 20_000, seed: Optional[int] = 0) ->
         for a in r.activities:
             durations[:, col[a]] += np.where(occurs, delay, 0.0)
         risk_cost += np.where(occurs, r.cost, 0.0)
+    if (durations < 0).any():
+        # An opportunity (a negative delay) larger than the activity can bring
+        # it to zero, not below.
+        notes.append("A negative risk delay was larger than an activity it hit; that "
+                     "activity was floored at zero duration.")
+        durations = np.maximum(durations, 0.0)
 
     start = np.zeros_like(durations)
     fin = np.zeros_like(durations)
@@ -530,4 +546,6 @@ def simulate(project: Project, n_iter: int = 20_000, seed: Optional[int] = 0) ->
     pf, pc = point_estimate(project)
     return JclResult(finish=finish, cost=cost, durations=durations, critical=crit,
                      activity_ids=list(order), point_finish=pf, point_cost=pc,
-                     risk_hits=hits, notes=notes, seed=seed)
+                     risk_hits=hits, notes=notes, seed=seed,
+                     activity_names={a.id: a.name for a in project.activities if a.name},
+                     measured_from=getattr(project, "measured_from", "start"))

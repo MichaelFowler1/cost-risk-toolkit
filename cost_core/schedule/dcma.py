@@ -117,18 +117,32 @@ def dcma_14_point(schedule: MspdiSchedule) -> DcmaResult:
     ends = detail[~detail["uid"].isin(has_succ)].sort_values("finish")
     if len(ends):
         exempt.add(int(ends["uid"].iloc[-1]))
-    missing = sorted((set(no_pred) | set(no_succ)) - exempt)
+    # The first task is excused only its missing predecessor and the last only
+    # its missing successor: a task with no links at all is still counted.
+    first_task = int(starts["uid"].iloc[0]) if len(starts) else None
+    last_task = int(ends["uid"].iloc[-1]) if len(ends) else None
+    missing = sorted({u for u in no_pred if u != first_task}
+                     | {u for u in no_succ if u != last_task})
     add(1, "Logic (missing predecessor or successor)", missing, len(incomplete), 0.05,
         note="the project's first and last task are not counted")
 
     # 2-4. Leads, lags and relationship types, on links into incomplete tasks.
-    live = links[links["succ_uid"].isin(inc_uids)]
+    # Counted on the links as the file has them: one summary-to-summary link
+    # moved onto every pair of their tasks would otherwise count many times
+    # and dilute the shares.
+    leaves = schedule._leaves()
+    file_links = schedule.links
+    into_incomplete = file_links["succ_uid"].map(
+        lambda u: u in inc_uids or any(c in inc_uids for c in leaves.get(u, [])))
+    live = file_links[into_incomplete]
     lead = live[live["lag_days"] < 0]
     lag = live[live["lag_days"] > 0]
     add(2, "Leads (negative lag)", sorted(set(lead["succ_uid"])), len(live), 0.0,
         value=_share(len(lead), len(live)))
+    rows[-1]["count"] = len(lead)
     add(3, "Lags", sorted(set(lag["succ_uid"])), len(live), 0.05,
         value=_share(len(lag), len(live)))
+    rows[-1]["count"] = len(lag)
     non_fs = live[live["type"] != "FS"]
     fs_share = _share(len(live) - len(non_fs), len(live))
     add(4, "Relationship types (finish-to-start share)", sorted(set(non_fs["succ_uid"])),
@@ -142,9 +156,14 @@ def dcma_14_point(schedule: MspdiSchedule) -> DcmaResult:
 
     # 6-7. Float.
     tf = incomplete["total_float_days"]
-    add(6, f"High float (over {HIGH_DAYS:g} working days)",
-        list(incomplete.loc[tf > HIGH_DAYS, "uid"]), len(incomplete), 0.05)
-    add(7, "Negative float", list(incomplete.loc[tf < -1e-9, "uid"]), len(incomplete), 0.0)
+    if tf.notna().any():
+        add(6, f"High float (over {HIGH_DAYS:g} working days)",
+            list(incomplete.loc[tf > HIGH_DAYS, "uid"]), len(incomplete), 0.05)
+        add(7, "Negative float", list(incomplete.loc[tf < -1e-9, "uid"]), len(incomplete), 0.0)
+    else:
+        add(6, f"High float (over {HIGH_DAYS:g} working days)", None, 0, 0.05,
+            note="the file holds no total float")
+        add(7, "Negative float", None, 0, 0.0, note="the file holds no total float")
 
     # 8. High duration, on the baseline duration where there is one.
     work = incomplete[~incomplete["milestone"]]
@@ -196,6 +215,23 @@ def dcma_14_point(schedule: MspdiSchedule) -> DcmaResult:
     # 12. Critical path test.
     project = schedule.to_project(remaining=True)
     bad12, note12 = _critical_path_test(project, names)
+    # The network test can't see what the file does to its finish: the
+    # network drops date constraints, and a task with no predecessors joins
+    # the finish only through its own dates. So look at the task that
+    # finishes the file: a hard constraint on it, or no predecessor at all,
+    # means a delay upstream can't reach the finish.
+    if bad12 is not None and len(incomplete):
+        last = incomplete.sort_values("finish", kind="stable").iloc[-1]
+        holder = None
+        if last["constraint"] in HARD_CONSTRAINTS:
+            holder = (f"{last['name']!r} finishes the schedule with a "
+                      f"{last['constraint']} constraint, which holds the finish in place")
+        elif int(last["uid"]) not in has_pred:
+            holder = (f"{last['name']!r} finishes the schedule and has no predecessor, so "
+                      "no delay upstream reaches the finish")
+        if holder:
+            bad12 = [int(last["uid"])]
+            note12 = holder
     add(12, "Critical path test", bad12, None, 0.0, note=note12,
         value=None if bad12 is None else float(len(bad12)))
     rows[-1]["count"] = None if bad12 is None else len(bad12)

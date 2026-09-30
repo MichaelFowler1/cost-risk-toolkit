@@ -245,3 +245,169 @@ def test_fractional_quantities_are_refused_not_truncated(tmp_path):
                   "unit_cost": [100.0, 90.0]}).to_csv(path, index=False)
     with pytest.raises(ValidationError, match="whole numbers"):
         load_cost_csv(path)
+
+
+# ------------------------------------------------------------- schedules
+def _task(uid, name, level=1, summary=False, dur_days=None, pct=0, start=None, finish=None,
+          slack=None, links=(), milestone=False, extra="", actual_start=None,
+          actual_finish=None, cost=None, fixed=None, constraint=0):
+    """A tiny MSPDI task, 8-hour days, lags in days."""
+    x = [f"<Task><UID>{uid}</UID><ID>{uid}</ID><Name>{name}</Name>"
+         f"<OutlineLevel>{level}</OutlineLevel><Summary>{int(summary)}</Summary>"
+         f"<Milestone>{int(milestone)}</Milestone>"]
+    if dur_days is not None:
+        x.append(f"<Duration>PT{dur_days * 8}H0M0S</Duration><DurationFormat>7</DurationFormat>"
+                 f"<RemainingDuration>PT{dur_days * (100 - pct) / 100 * 8}H0M0S"
+                 "</RemainingDuration>")
+    x.append(f"<PercentComplete>{pct}</PercentComplete>")
+    for tag, v in (("Start", start), ("Finish", finish), ("ActualStart", actual_start),
+                   ("ActualFinish", actual_finish)):
+        if v:
+            x.append(f"<{tag}>{v}</{tag}>")
+    if slack is not None:
+        x.append(f"<TotalSlack>{int(slack * 4800)}</TotalSlack>")
+    x.append(f"<ConstraintType>{constraint}</ConstraintType>")
+    if cost is not None:
+        x.append(f"<Cost>{int(cost * 100)}</Cost>")
+    if fixed is not None:
+        x.append(f"<FixedCost>{int(fixed * 100)}</FixedCost>")
+    for link in links:
+        pred, typ, lag = (list(link) + [1, 0])[:3] if isinstance(link, tuple) else (link, 1, 0)
+        x.append(f"<PredecessorLink><PredecessorUID>{pred}</PredecessorUID><Type>{typ}</Type>"
+                 f"<LinkLag>{int(lag * 4800)}</LinkLag><LagFormat>7</LagFormat>"
+                 "</PredecessorLink>")
+    return "".join(x) + extra + "</Task>"
+
+
+def _project(tmp_path, tasks, status=None, finish=None):
+    head = ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<Project xmlns=\"http://schemas.microsoft.com/project\"><Title>T</Title>"
+            "<StartDate>2026-01-05T08:00:00</StartDate>")
+    if finish:
+        head += f"<FinishDate>{finish}</FinishDate>"
+    if status:
+        head += f"<StatusDate>{status}</StatusDate>"
+    head += ("<MinutesPerDay>480</MinutesPerDay><MinutesPerWeek>2400</MinutesPerWeek>"
+             "<DaysPerMonth>20</DaysPerMonth><Tasks><Task><UID>0</UID><ID>0</ID><Name>T</Name>"
+             "<OutlineLevel>0</OutlineLevel><Summary>1</Summary></Task>")
+    path = tmp_path / "ims.xml"
+    path.write_text(head + "".join(tasks) + "</Tasks></Project>", encoding="utf-8")
+    from cost_core.schedule.mspdi import read_mspdi
+    return read_mspdi(path)
+
+
+def test_check_12_fails_when_a_constraint_holds_the_finish(tmp_path):
+    from cost_core.schedule.dcma import dcma_14_point
+
+    s = _project(tmp_path, [
+        _task(1, "A", dur_days=10, start="2026-01-05T08:00:00", finish="2026-01-16T17:00:00",
+              slack=0, cost=10),
+        _task(2, "B", dur_days=10, links=[1], start="2026-01-19T08:00:00",
+              finish="2026-01-30T17:00:00", slack=0, cost=10),
+        _task(3, "Launch", dur_days=0, milestone=True, links=[2], start="2026-02-13T17:00:00",
+              finish="2026-02-13T17:00:00", slack=0, constraint=3,
+              extra="<ConstraintDate>2026-02-13T17:00:00</ConstraintDate>")])
+    row = dcma_14_point(s).table.set_index("check").loc[12]
+    assert row["passed"] == False  # noqa: E712
+    assert "holds the finish" in row["note"]
+
+
+def test_a_lag_already_used_up_is_not_counted_again(tmp_path):
+    from cost_core.schedule import critical_path
+
+    s = _project(tmp_path, [
+        _task(1, "A", dur_days=10, pct=100, start="2026-01-05T08:00:00",
+              finish="2026-01-16T17:00:00", actual_start="2026-01-05T08:00:00",
+              actual_finish="2026-01-16T17:00:00", cost=50),
+        _task(2, "B", dur_days=10, links=[(1, 1, 10)], start="2026-03-03T08:00:00",
+              finish="2026-03-16T17:00:00", cost=100)],
+        status="2026-03-02T17:00:00", finish="2026-03-16T17:00:00")
+    cpm = critical_path(s.to_project()).set_index("activity")
+    assert cpm.loc["T2", "early_start"] == pytest.approx(0.0)
+    assert cpm["early_finish"].max() == pytest.approx(0.5)
+
+
+def test_a_start_link_from_a_summary_starts_with_its_first_child(tmp_path):
+    from cost_core.schedule import critical_path
+
+    s = _project(tmp_path, [
+        _task(1, "Phase 1", summary=True), _task(2, "A", level=2, dur_days=10),
+        _task(3, "B", level=2, dur_days=10, links=[2]),
+        _task(4, "C", dur_days=15, links=[(1, 3, 0)]), _task(5, "D", dur_days=2, links=[3, 4])])
+    cpm = critical_path(s.to_project())
+    assert cpm["early_finish"].max() * 20 == pytest.approx(22.0)
+
+
+def test_link_checks_count_the_files_own_links(tmp_path):
+    from cost_core.schedule.dcma import dcma_14_point
+
+    tasks = [_task(1, "Design", summary=True)]
+    tasks += [_task(10 + i, f"D{i}", level=2, dur_days=5, links=[9 + i] if i > 1 else [])
+              for i in range(1, 6)]
+    tasks.append(_task(2, "Build", summary=True, links=[1]))
+    kinds = {2: (21, 1, 3), 3: (22, 3, 0), 4: (23, 3, 0), 5: (24, 1, 0)}
+    tasks += [_task(20 + i, f"B{i}", level=2, dur_days=5,
+                    links=[kinds[i]] if i in kinds else []) for i in range(1, 6)]
+    t = dcma_14_point(_project(tmp_path, tasks)).table.set_index("check")
+    assert t.loc[3, "base"] == 9 and t.loc[3, "count"] == 1 and not t.loc[3, "passed"]
+    assert t.loc[4, "value"] == pytest.approx(7 / 9) and not t.loc[4, "passed"]
+
+
+def test_a_task_with_no_links_is_counted_even_if_it_finishes_last(tmp_path):
+    from cost_core.schedule.dcma import dcma_14_point
+
+    tasks = [_task(i, f"T{i}", dur_days=2, links=[i - 1] if i > 1 else []) for i in range(1, 21)]
+    tasks.append(_task(99, "Orphan", dur_days=40, start="2026-01-12T08:00:00",
+                       finish="2026-03-06T17:00:00"))
+    r = dcma_14_point(_project(tmp_path, tasks))
+    assert "Orphan" in r.tasks[1] and not r.table.set_index("check").loc[1, "passed"]
+
+
+def test_float_checks_need_float_in_the_file(tmp_path):
+    from cost_core import plain
+    from cost_core.schedule.dcma import dcma_14_point
+
+    s = _project(tmp_path, [_task(1, "A", dur_days=5, cost=10),
+                            _task(2, "B", dur_days=5, links=[1], cost=10),
+                            _task(3, "C", dur_days=5, links=[2], cost=10)])
+    r = dcma_14_point(s)
+    t = r.table.set_index("check")
+    assert t.loc[6, "passed"] is None and t.loc[7, "passed"] is None
+    assert "sound enough" not in " ".join(plain.dcma(r, s))
+
+
+def test_a_shared_task_name_in_a_jcl_spec_is_refused(tmp_path):
+    import json
+    from cost_core.schedule import ScheduleError
+    from cost_core.schedule.spec import load_project
+
+    _project(tmp_path, [_task(1, "Bus", summary=True),
+                        _task(2, "Design review", level=2, dur_days=5),
+                        _task(3, "Payload", summary=True),
+                        _task(4, "Design review", level=2, dur_days=5)])
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"mspdi": "ims.xml", "risks": [
+        {"name": "Slip", "probability": 1.0, "activities": ["Design review"], "delay": 1}]}))
+    with pytest.raises(ScheduleError, match="are named 'Design review'"):
+        load_project(spec)
+
+
+def test_remaining_fixed_cost_never_exceeds_the_files_remaining_cost(tmp_path):
+    from cost_core.schedule.jcl import point_estimate
+
+    s = _project(tmp_path, [_task(1, "Buy", dur_days=20, pct=50, cost=100, fixed=80,
+                                  start="2026-01-05T08:00:00",
+                                  actual_start="2026-01-05T08:00:00",
+                                  extra="<FixedCostAccrual>1</FixedCostAccrual>"
+                                        "<RemainingCost>1000</RemainingCost>")])
+    assert point_estimate(s.to_project())[1] == pytest.approx(100.0)
+
+
+def test_an_opportunity_larger_than_the_activity_floors_it_at_zero():
+    from cost_core.schedule.jcl import Activity, Project, Risk, simulate
+
+    p = Project([Activity("A", 2, burn_rate=10),
+                 Activity("B", 4, predecessors=["A"], burn_rate=1)],
+                risks=[Risk("Early", 1.0, ["A"], delay=-3)])
+    r = simulate(p, n_iter=10)
+    assert (r.cost >= 0).all() and r.cost[0] == pytest.approx(4.0)

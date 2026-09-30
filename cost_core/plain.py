@@ -169,7 +169,10 @@ def jcl(result, confidence: float = 0.7, units: str = "") -> List[str]:
     pct = f"{confidence:.0%}"
     cost_p = float(np.quantile(result.cost, confidence))
     fin_p = float(np.quantile(result.finish, confidence))
-    out = [f"The plan ({result.point_finish:.1f} months, {_money(result.point_cost, units)}) "
+    remaining = getattr(result, "measured_from", "start") == "status date"
+    plan = (f"From the status date, the plan ({result.point_finish:.1f} months to go, "
+            if remaining else f"The plan ({result.point_finish:.1f} months, ")
+    out = [f"{plan}{_money(result.point_cost, units)}) "
            f"has {_chance(result.point_jcl)} of being met on both cost and schedule."]
     out.append(f"To be {pct} sure of cost alone takes {_money(cost_p, units)}, and of "
                f"schedule alone {fin_p:.1f} months, but the two together have only "
@@ -185,7 +188,9 @@ def jcl(result, confidence: float = 0.7, units: str = "") -> List[str]:
     top = crit.sort_values("rank_corr_finish", ascending=False).iloc[0]
     if top.rank_corr_finish > 0:
         out.append(f"The activity whose uncertainty moves the finish most is "
-                   f"{top.activity!r} (on the critical path in {top.criticality:.0%} of "
+                   f"{(top['name'] if 'name' in top.index else top['activity'])!r} (on the "
+                   "critical path in "
+                   f"{top.criticality:.0%} of "
                    "simulated projects): reducing its risk buys the most schedule.")
     return out
 
@@ -204,8 +209,15 @@ def dcma(result, schedule) -> List[str]:
         out.append("Fix these first, since they make the dates the schedule produces "
                    "unreliable: " + ", ".join(serious) + ". dcma_tasks.csv lists every task.")
     elif result.failed == 0:
-        out.append("The logic is sound enough to trust the dates it produces, and to run a "
-                   "schedule risk analysis (JCL) on.")
+        # Soundness can only be claimed from the checks that could be made.
+        blind = sorted(set(t.loc[t["passed"].isna(), "check"]) & {1, 5, 6, 7, 12})
+        if blind:
+            out.append("Nothing assessed failed, but the logic checks "
+                       f"{', '.join(map(str, blind))} couldn't be made from this file, so "
+                       "don't take the dates as proven sound yet.")
+        else:
+            out.append("The logic is sound enough to trust the dates it produces, and to "
+                       "run a schedule risk analysis (JCL) on.")
     return out
 
 

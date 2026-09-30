@@ -139,15 +139,47 @@ class MspdiSchedule:
         moved onto the detail tasks under that summary."""
         leaves = self._leaves()
         names = dict(zip(self.tasks["uid"], self.tasks["name"]))
+        starts = dict(zip(self.tasks["uid"], self.tasks["start"]))
         rows = []
         for r in self.links.itertuples(index=False):
-            for p in leaves.get(r.pred_uid, [r.pred_uid]):
+            from_tasks = leaves.get(r.pred_uid, [r.pred_uid])
+            if r.pred_uid in leaves and r.type in ("SS", "SF") and len(from_tasks) > 1:
+                # A summary starts when its first child starts, so a link from
+                # its start comes from the earliest-starting child only; from
+                # every child it would wait for the last of them to start.
+                known = [u for u in from_tasks if pd.notna(starts.get(u))]
+                if len(known) == len(from_tasks):
+                    first = min(starts[u] for u in known)
+                    from_tasks = [u for u in known if starts[u] == first]
+                else:
+                    # No dates to go by: the children nothing inside the
+                    # summary comes before are the ones that start it.
+                    inside = set(from_tasks)
+                    followers = {int(s) for p_, s in zip(self.links["pred_uid"],
+                                                         self.links["succ_uid"])
+                                 if int(p_) in inside and int(s) in inside}
+                    heads = [u for u in from_tasks if u not in followers]
+                    from_tasks = heads or from_tasks
+            for p in from_tasks:
                 for s in leaves.get(r.succ_uid, [r.succ_uid]):
                     if p != s:
                         rows.append({**r._asdict(), "pred_uid": p, "succ_uid": s,
                                      "pred_name": names[p], "succ_name": names[s]})
         out = pd.DataFrame(rows, columns=list(LINK_COLUMNS))
         return out.drop_duplicates(subset=["pred_uid", "succ_uid", "type", "lag_days"])
+
+    def _lag_used(self, pred, link_type: str) -> float:
+        """How much of a link's lag has run out by the status date, in working
+        days: since the predecessor finished (FS, FF) or started (SS, SF)."""
+        finished = float(pred.get("percent_complete") or 0.0) >= 100.0
+        if link_type in ("FS", "FF"):
+            anchor = pred.get("actual_finish") if finished else None
+        else:
+            anchor = pred.get("actual_start")
+        if anchor is None or pd.isna(anchor):
+            return 0.0
+        return _working_days_between(anchor, self.status_date, self.minutes_per_week,
+                                     self.minutes_per_day)
 
     def _leaves(self) -> Dict[int, List[int]]:
         """Each summary task's detail tasks, however deep."""
@@ -205,10 +237,17 @@ class MspdiSchedule:
         per_task = dict(per_task or {})
         month = self.days_per_month
         links = self.detail_links()
+        by_uid = self.tasks.set_index("uid")
         preds: Dict[int, list] = {}
         for r in links.itertuples(index=False):
+            lag = float(r.lag_days)
+            if remaining and self.status_date is not None and lag > 0:
+                # A finished or started predecessor sits at the status date,
+                # so the part of its lag that has already run out in the past
+                # mustn't be counted again from there.
+                lag = max(lag - self._lag_used(by_uid.loc[r.pred_uid], r.type), 0.0)
             preds.setdefault(int(r.succ_uid), []).append(
-                (_act_id(r.pred_uid), r.lag_days / month, r.type))
+                (_act_id(r.pred_uid), lag / month, r.type))
         acts = []
         for t in self.detail.itertuples(index=False):
             days = t.remaining_days if remaining and pd.notna(t.remaining_days) else t.duration_days
@@ -227,7 +266,8 @@ class MspdiSchedule:
                         else cost * (1.0 - done))
                 left = min(max(left, 0.0), cost)
                 sunk = cost - left
-                fixed = fixed * (1.0 - done)
+                # Never more fixed cost left than the file says is left.
+                fixed = min(fixed * (1.0 - done), left)
                 cost = left
             variable = max(cost - fixed, 0.0)
             months = days / month
@@ -241,7 +281,17 @@ class MspdiSchedule:
                                  burn_rate=burn, name=t.name or ""))
         return Project(acts, standing_army=standing_army,
                        duration_correlation=duration_correlation,
-                       cost_correlation=cost_correlation, name=self.name)
+                       cost_correlation=cost_correlation, name=self.name,
+                       measured_from=("status date" if remaining and self.status_date
+                                      is not None else "start"))
+
+
+def _working_days_between(start, end, minutes_per_week: float, minutes_per_day: float) -> float:
+    """Working days from one date to another, at the file's days per week."""
+    if start is None or end is None or pd.isna(start) or pd.isna(end):
+        return 0.0
+    days = (pd.Timestamp(end) - pd.Timestamp(start)).total_seconds() / 86400.0
+    return max(days, 0.0) * (minutes_per_week / minutes_per_day) / 7.0
 
 
 def _act_id(uid) -> str:
