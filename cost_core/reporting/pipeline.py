@@ -155,7 +155,7 @@ def run_full_analysis(
         f"Report (FlexFile), Quantity Data Report, SRDR (DD 2630)\n"
         f"- Written to `artifacts/source_reports/`\n"
         f"- Reporting pathologies: "
-        f"{'none (clean run)' if clean else 'name drift, mixed then-year and base-year dollars, resubmitted and missing periods, mid-program quantity change, rate breaks'}",
+        f"{'none (clean run)' if clean else 'switched on (name drift, mixed then-year and base-year dollars, resubmissions, missing periods, a mid-program quantity change, rate breaks); which of them this seed produced shows in the validation gates below'}",
     ).gao(
         "Comprehensive",
         f"All six CSDR/SRDR report shapes ingested, covering "
@@ -215,9 +215,16 @@ def run_full_analysis(
         ["gate", "passed", "severity", "detail"]
     ]).gao(
         "Accurate",
-        f"All {len(validation)} validation gates passed, including a "
-        f"cross-report reconciliation showing the DD 1921, DD 1921-1 and "
-        f"FlexFile agree on total cost after normalisation.",
+        (f"All {len(validation)} validation gates passed, including a "
+         f"cross-report reconciliation showing the DD 1921, DD 1921-1 and "
+         f"FlexFile agree on total cost after normalisation."
+         if bool(validation["passed"].all()) else
+         f"{int(validation['passed'].sum())} of {len(validation)} validation gates "
+         f"passed. Not passed: "
+         f"{', '.join(validation.loc[~validation['passed'].astype(bool), 'gate'])} "
+         f"(table 2.1 says what each found). The cross-report reconciliation "
+         f"{'agrees' if bool(validation.loc[validation['gate'] == 'cross_report_reconciliation', 'passed'].all()) else 'does not agree'} "
+         f"on total cost after normalisation."),
     ).gao(
         "Well-documented",
         "Every normalised row carries provenance to its source submission, "
@@ -345,6 +352,16 @@ def run_full_analysis(
         cer_prediction = cer.predict(
             {"weight_klb": [subject_weight]}, kind="prediction", level=0.80
         )
+    # The CER is fitted on the portfolio's costs, which are in its own base
+    # year; state the prediction in the run's base year so it compares with
+    # the learning-curve answer beside it.
+    cer_year = int(portfolio.programs[0].truth.base_year)
+    if cer_year != resolved_base_year:
+        to_run_year = inflation.factor(cer_year, resolved_base_year)
+        for col in ("fit", "lower", "upper"):
+            if col in cer_prediction:
+                cer_prediction[col] = cer_prediction[col] * to_run_year
+    cer_prediction["dollar_year"] = resolved_base_year
     extrapolating = bool(cer_prediction["outside_fitting_range"].iloc[0])
     tables["cer_prediction"] = cer_prediction
 
@@ -369,7 +386,7 @@ def run_full_analysis(
         f"- Fitting range for `weight_klb`: {lo:,.1f} to {hi:,.1f}. "
         f"The subject program is {subject_weight:,.1f}, which is "
         f"{range_note}.\n"
-        f"- Predicted first-unit cost "
+        f"- Predicted first-unit cost (FY{resolved_base_year} $) "
         f"${cer_prediction['fit'].iloc[0] / 1e6:,.2f}M, 80% **prediction** "
         f"interval ${cer_prediction['lower'].iloc[0] / 1e6:,.2f}M to "
         f"${cer_prediction['upper'].iloc[0] / 1e6:,.2f}M.\n\n"
@@ -544,11 +561,13 @@ def run_full_analysis(
     log.gao(
         "Comprehensive",
         "Recurring and nonrecurring cost, five functional categories, and "
-        "discrete risks are all modelled; nothing is excluded silently.",
+        "discrete risks are all modelled. Anything the source reports lack, "
+        "such as a lot never reported, is named by the validation gates in "
+        "2.1 and left out rather than filled in.",
     ).gao(
         "Well-documented",
-        f"This log, {len(tables)} data tables and {4} charts are emitted "
-        f"automatically from seed {seed} and are reproducible from it.",
+        f"This log, the data tables in tables/ and the charts in charts/ are "
+        f"emitted automatically from seed {seed} and are reproducible from it.",
     ).gao(
         "Accurate",
         "Estimating methods compared (OLS, MUPE, ZMPE) rather than one being "
