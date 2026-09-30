@@ -118,7 +118,8 @@ def _evm_monthly(data) -> List[str]:
     checks = data_checks(data)
     if len(checks):
         kinds = checks["check"].value_counts()
-        out.append(f"{len(checks)} data check{'s' if len(checks) > 1 else ''} need a question "
+        out.append(f"{len(checks)} data check{'s need' if len(checks) > 1 else ' needs'} a "
+                   "question "
                    f"asked before the numbers are trusted, most often "
                    f"'{kinds.index[0].lower()}'.")
     breaches = variance_breaches(data, **thresholds(data))
@@ -126,7 +127,8 @@ def _evm_monthly(data) -> List[str]:
         names = ", ".join(map(repr, breaches["account"].head(3)))
         more = f" and {len(breaches) - 3} more" if len(breaches) > 3 else ""
         out.append(f"{len(breaches)} account{'s' if len(breaches) > 1 else ''} break"
-                   f"{'' if len(breaches) > 1 else 's'} the variance thresholds and owe a "
+                   f"{'' if len(breaches) > 1 else 's'} the variance thresholds and "
+                   f"{'owe' if len(breaches) > 1 else 'owes'} a "
                    f"variance analysis report: {names}{more}.")
     return out
 

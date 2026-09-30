@@ -50,7 +50,8 @@ def data_checks(data) -> pd.DataFrame:
             if d_ev[k] < -tol:
                 rows.append((name, p, "Earned value went down",
                              f"BCWP fell by {-d_ev[k]:,.2f} this period (cumulative "
-                             f"{ev[k - 1]:,.2f} to {ev[k]:,.2f}). A correction? Ask for the "
+                             f"{(ev[k - 1] if k else 0.0):,.2f} to {ev[k]:,.2f}). A correction? "
+                             "Ask for the "
                              "reason; otherwise work was un-earned."))
             if d_ac[k] < -tol:
                 rows.append((name, p, "Actual cost went down",

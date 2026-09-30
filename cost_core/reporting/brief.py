@@ -350,7 +350,7 @@ def evm_brief(data, fc, out_dir, units: str = "") -> Path:
                  "the detail.")
     if data.accounts:
         rows = sorted(((n, a.metrics().iloc[-1]) for n, a in data.accounts.items()),
-                      key=lambda t: t[1].cpi)
+                      key=lambda t: (not np.isfinite(t[1].cpi), t[1].cpi))  # no CPI last
         b.table("Control accounts, worst CPI first", pd.DataFrame(
             [{"Account": n, "CPI": f"{r.cpi:.2f}", "SPI(t)": f"{r.spi_t:.2f}",
               "Cost variance": _money(r.cv, units), "% complete": f"{r.pct_complete:.0%}"}

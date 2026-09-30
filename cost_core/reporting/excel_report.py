@@ -306,11 +306,12 @@ def evm_workbook(data, fc, path, units: str = "") -> Path:
     rb.table("Variance reports", variance_breaches(data, **limits),
              {"cv": fmt, "sv": fmt, "cv_pct": "0.0", "sv_pct": "0.0", "cpi": RATIO,
               "spi": RATIO},
-             note="Accounts whose cumulative variance breaks the thresholds "
-                  f"({limits or 'the defaults: 10% of BCWP for cost, 10% of BCWS for schedule'}).")
+             note="Accounts whose cumulative variance breaks the thresholds ("
+                  + (_threshold_words(limits) or
+                     "the defaults: 10% of BCWP for cost, 10% of BCWS for schedule") + ").")
     rb.assumptions({"status period": status, "BAC": data.bac, "simulated completions": fc.n_iter,
                     "seed": fc.seed, "units": units,
-                    "variance thresholds": limits or "10% cost, 10% schedule (defaults)"},
+                    "variance thresholds": _threshold_words(limits) or "10% cost, 10% schedule (defaults)"},
                    list(data.notes) + list(fc.notes))
     return rb.save(path)
 
@@ -439,6 +440,18 @@ def dcma_workbook(result, schedule, path) -> Path:
     rb.assumptions({"status date": schedule.status_date, "minutes per day": schedule.minutes_per_day,
                     "days per month": schedule.days_per_month}, schedule.notes)
     return rb.save(path)
+
+
+def _threshold_words(limits: dict) -> str:
+    """Variance thresholds as a phrase: "cost 10% or $50, schedule 10%"."""
+    def one(label, pct, dollars):
+        parts = ([f"{pct:g}%"] if pct is not None else []) + (
+            [f"{dollars:,g}"] if dollars is not None else [])
+        joiner = " and " if len(parts) == 2 else ""
+        return f"{label} {joiner.join(parts)}" if parts else ""
+    words = [one("cost", limits.get("cv_pct"), limits.get("cv_dollars")),
+             one("schedule", limits.get("sv_pct"), limits.get("sv_dollars"))]
+    return ", ".join(w for w in words if w)
 
 
 # --------------------------------------------------------------- cost risk

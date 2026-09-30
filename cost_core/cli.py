@@ -620,8 +620,14 @@ def run_evm(args) -> None:
                   "  For a spreadsheet to fill in: ce-core template evm")
     except (EvmError, OSError, KeyError, ValueError) as e:
         abort(f"EVM failed: {e}")
-    data.variance_thresholds = {"cv_pct": args.cv_pct, "sv_pct": args.sv_pct,
-                                "cv_dollars": args.cv_dollars, "sv_dollars": args.sv_dollars}
+    # A dollar threshold given alone decides alone; the 10% default applies
+    # only where neither kind was given.
+    data.variance_thresholds = {
+        "cv_pct": args.cv_pct if args.cv_pct is not None else
+        (None if args.cv_dollars is not None else 10.0),
+        "sv_pct": args.sv_pct if args.sv_pct is not None else
+        (None if args.sv_dollars is not None else 10.0),
+        "cv_dollars": args.cv_dollars, "sv_dollars": args.sv_dollars}
     try:
         fc = forecast(data, n_iter=args.iters, seed=args.seed)
     except EvmError as e:
@@ -1281,10 +1287,12 @@ def main(argv=None) -> None:
     p_evm.add_argument("--units", default="as entered",
                        help="What the money is in, for labels: dollars, thousands or millions "
                             "(or any text); nothing is converted")
-    p_evm.add_argument("--cv-pct", type=float, default=10.0, metavar="PCT",
-                       help="Cost variance threshold, percent of BCWP (default 10)")
-    p_evm.add_argument("--sv-pct", type=float, default=10.0, metavar="PCT",
-                       help="Schedule variance threshold, percent of BCWS (default 10)")
+    p_evm.add_argument("--cv-pct", type=float, default=None, metavar="PCT",
+                       help="Cost variance threshold, percent of BCWP (default 10, unless "
+                            "--cv-dollars is given alone)")
+    p_evm.add_argument("--sv-pct", type=float, default=None, metavar="PCT",
+                       help="Schedule variance threshold, percent of BCWS (default 10, "
+                            "unless --sv-dollars is given alone)")
     p_evm.add_argument("--cv-dollars", type=float, default=None, metavar="AMOUNT",
                        help="Cost variance threshold in money; with --cv-pct, both must be "
                             "broken")

@@ -411,3 +411,100 @@ def test_an_opportunity_larger_than_the_activity_floors_it_at_zero():
                 risks=[Risk("Early", 1.0, ["A"], delay=-3)])
     r = simulate(p, n_iter=10)
     assert (r.cost >= 0).all() and r.cost[0] == pytest.approx(4.0)
+
+
+# ------------------------------------------------------------------- EVM
+def _evm(rows):
+    from cost_core.evm import EvmData
+    return EvmData.from_frame(pd.DataFrame(rows))
+
+
+@pytest.mark.parametrize("labels", [["Oct-25", "Nov-25", "Dec-25", "Jan-26", "Feb-26", "Mar-26"],
+                                    ["Oct 2025", "Nov 2025", "Dec 2025", "Jan 2026",
+                                     "Feb 2026", "Mar 2026"]])
+def test_month_year_period_labels_sort_in_time_order(labels):
+    d = _evm([{"period": p, "wbs": w, "bcws": 10, "bcwp": 8 if i < 4 else None,
+               "acwp": 10 if i < 4 else None} for w in "AB" for i, p in enumerate(labels)])
+    r = d.metrics().iloc[-1]
+    assert r["period"] == labels[3] and r["spi"] == pytest.approx(0.8)
+    assert r["sv_t"] == pytest.approx(-0.8)
+
+
+def test_numbered_period_labels_sort_as_numbers():
+    d = _evm([{"period": f"Month {i + 1}", "bcws": 10, "bcwp": 8 if i < 4 else None,
+               "acwp": 10 if i < 4 else None} for i in range(10)])
+    assert d.metrics().iloc[-1]["period"] == "Month 4"
+
+
+def test_tcpi_warnings_fire_once_cost_passes_the_budget_or_the_eac():
+    d = _evm({"period": [1, 2, 3, 4], "bcws": [25] * 4, "bcwp": [20, 20, 20, None],
+              "acwp": [40, 40, 40, None], "eac": [None, None, 110, None]})
+    f = d.flags().set_index("flag")
+    assert f.loc["TCPI to BAC above 1.10", "raised"]
+    assert f.loc["TCPI to the EAC exceeds the CPI by more than 0.10", "raised"]
+    assert len(f) == 6
+
+
+def test_a_finished_accounts_eac_still_counts():
+    a = pd.DataFrame({"period": [1, 2], "wbs": "A", "bcws": [10, 10], "bcwp": [10, 10],
+                      "acwp": [12, 12], "eac": [24, 24]})
+    b = pd.DataFrame({"period": [1, 2, 3, 4], "wbs": "B", "bcws": [20] * 4,
+                      "bcwp": [15, 15, 15, None], "acwp": [20, 20, 20, None],
+                      "eac": [None, None, 100, None]})
+    from cost_core.evm import EvmData
+    assert EvmData.from_frame(pd.concat([a, b])).eac[-1] == pytest.approx(124.0)
+
+
+def test_an_account_that_stops_reporting_is_noted():
+    d = _evm({"period": [1, 2, 3, 4] * 2, "wbs": ["A"] * 4 + ["B"] * 4, "bcws": [10] * 8,
+              "bcwp": [10, 10, 10, None, 10, 10, None, None],
+              "acwp": [10, 10, 10, None, 10, 10, None, None]})
+    assert any("Account B reports nothing after 2" in n for n in d.notes)
+
+
+def test_earned_schedule_counts_the_periods_that_planned_nothing():
+    from cost_core.evm import earned_schedule
+    assert earned_schedule([0, 0, 0, 0, 50, 100], 0) == pytest.approx(4.0)
+    assert earned_schedule([10, 30, 60, 100], 0) == pytest.approx(0.0)
+
+
+def test_the_eac_warning_uses_the_same_ieacs_as_the_summary():
+    d = _evm({"period": [1, 2, 3, 4], "bcws": [40, 40, 10, 10], "bcwp": [45, 40, None, None],
+              "acwp": [45, 40, None, None], "eac": [None, 98, None, None]})
+    summary = d.summary().set_index("measure")["value"]
+    flag = d.flags().set_index("flag").loc["Contractor EAC below every independent EAC"]
+    assert (98 < float(summary["independent EACs: lowest"])) == bool(flag["raised"])
+
+
+def test_a_negative_first_period_quotes_zero_as_the_prior_value():
+    from cost_core.evm.checks import data_checks
+    d = _evm({"period": [1, 2, 3, 4], "bcws": [10, 20, 30, 40], "bcwp": [-5, 25, 30, None],
+              "acwp": [4, 20, 28, None]})
+    assert "(cumulative 0.00 to -5.00)" in data_checks(d).iloc[0]["detail"]
+
+
+def test_ipmdar_earned_schedule_is_blank_where_the_baseline_was_invented(tmp_path):
+    from test_ipmdar import cpd_tables, write_folder
+    from cost_core.evm.ipmdar import read_ipmdar
+
+    r = read_ipmdar(write_folder(cpd_tables(status=14, time_phased=False), tmp_path / "c")
+                    ).metrics().iloc[-1]
+    assert np.isnan(r["es"]) and np.isnan(r["spi_t"])
+
+
+def test_ipmdar_bac_is_reconciled_with_the_pmb(tmp_path):
+    from test_ipmdar import cpd_tables, write_folder
+    from cost_core.evm.ipmdar import read_ipmdar
+
+    t = cpd_tables()
+    t["BCWS_ToComplete"] = [x for x in t["BCWS_ToComplete"] if x["ControlAccountID"] != "CA2"]
+    notes = read_ipmdar(write_folder(t, tmp_path / "s")).notes
+    assert any("BAC of" in n and "PMB's" in n for n in notes)
+
+
+def test_a_dollar_variance_threshold_given_alone_decides_alone(tmp_path, capsys):
+    from cost_core.examples import example_path
+    cli.main(["evm", "--data", str(example_path("evm")), "--cv-dollars", "50",
+              "--sv-dollars", "50", "--out", str(tmp_path / "o"), "--iters", "1000"])
+    capsys.readouterr()
+    assert len(pd.read_csv(tmp_path / "o" / "variance_reports.csv")) == 3
