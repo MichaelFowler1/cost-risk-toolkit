@@ -459,7 +459,7 @@ def cost_risk_workbook(result, path) -> Path:
     from cost_core import plain
 
     units = result.units
-    money = money_format(units)
+    money = money_format(plain.units_label(units))
     sim = result.sim
     rb = ReportWorkbook("Cost risk analysis",
                         f"{sim.n_iter:,} simulations; costs in {plain.units_label(units) or 'the units entered'}.")

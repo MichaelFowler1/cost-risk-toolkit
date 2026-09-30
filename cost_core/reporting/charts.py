@@ -93,6 +93,10 @@ def _money(value: float, _pos: float | None = None) -> str:
     return f"${value:,.0f}"
 
 
+#: What one unit is in dollars, for costs entered in thousands and so on.
+_DOLLAR_SCALE = {"$": 1.0, "$K": 1e3, "$M": 1e6, "$B": 1e9}
+
+
 def _money_formatter(values) -> FuncFormatter:
     """A dollar formatter with enough decimals for *this* axis range.
 
@@ -122,6 +126,43 @@ def _money_formatter(values) -> FuncFormatter:
         return f"${value / scale:,.{decimals}f}{suffix}"
 
     return FuncFormatter(fmt)
+
+
+def _cost_labels(units: str | None):
+    """How to label costs in ``units``: a value formatter, an axis formatter
+    maker, and what to add to the axis title.
+
+    ``None`` is dollars as they come. $K, $M and $B (or thousands, millions
+    and billions) are scaled to dollars first, so 2,000 in $M reads $2.00B,
+    not $2K. Anything else, "as entered" or a currency word, is shown as a
+    plain number with the units named on the axis.
+    """
+    if units is None:
+        return _money, _money_formatter, ""
+    from cost_core.plain import units_label
+
+    label = units_label(units).strip()
+    scale = _DOLLAR_SCALE.get(label)
+    if scale is not None:
+        def dollar_axis(values) -> FuncFormatter:
+            inner = _money_formatter(np.asarray(values, dtype=float) * scale)
+            return FuncFormatter(lambda v, pos=None: inner(v * scale, pos))
+
+        return (lambda v: _money(v * scale)), dollar_axis, ""
+    named = label not in ("", "as entered", "file currency")
+
+    def say(v: float) -> str:
+        text = f"{v:,.0f}" if abs(v) >= 1000 else f"{v:,.4g}"
+        return f"{text} {label}" if named else text
+
+    def plain_axis(values) -> FuncFormatter:
+        finite = np.asarray(values, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        span = float(np.ptp(finite)) if finite.size else 0.0
+        decimals = 0 if span >= 8 else (1 if span >= 0.8 else 2)
+        return FuncFormatter(lambda v, pos=None: f"{v:,.{decimals}f}")
+
+    return say, plain_axis, f" ({label if named else 'as entered'})"
 
 
 def _plain(value: float, _pos: float | None = None) -> str:
@@ -180,6 +221,7 @@ def plot_s_curve(
     comparison_label: str = "Independent (no correlation)",
     title: str = "Total cost S-curve",
     subtitle: str | None = None,
+    units: str | None = None,
 ) -> Path:
     """Cumulative distribution of total cost, with the thresholds marked.
 
@@ -194,7 +236,10 @@ def plot_s_curve(
         comparison: Optional second result plotted behind the first --
             typically the same model sampled without correlation, which makes
             the variance understatement visible rather than merely stated.
+        units: What the costs are in ($K, $M, "millions", "as entered"...).
+            Left out, they are taken as dollars.
     """
+    say, axis_money, axis_units = _cost_labels(units)
     with plt.rc_context(_STYLE):
         fig, ax = plt.subplots(figsize=(9.0, 5.6))
 
@@ -224,7 +269,7 @@ def plot_s_curve(
             ax.plot([ordered.min(), value], [level, level], color=colour,
                     linestyle=style, linewidth=1.4, zorder=1)
             ax.annotate(
-                f"P{level}  {_money(value)}",
+                f"P{level}  {say(value)}",
                 xy=(value, level), xytext=(6, -14), textcoords="offset points",
                 color=colour, fontsize=10, fontweight="bold",
             )
@@ -236,7 +281,7 @@ def plot_s_curve(
             linewidth=2.2, zorder=5,
         )
         ax.annotate(
-            f"Point estimate {_money(point)}\nsits at the {ordinal(round(percentile))} "
+            f"Point estimate {say(point)}\nsits at the {ordinal(round(percentile))} "
             "percentile",
             xy=(point, percentile), xytext=(12, 26), textcoords="offset points",
             fontsize=10, color=SECONDARY, fontweight="bold",
@@ -265,11 +310,13 @@ def plot_s_curve(
             high = low + max(abs(low) * 1e-3, 1.0)
         cropped = full_high > high or full_low < low
 
-        ax.set_xlabel("Total cost" + (" (0.5th to 99.5th percentile shown)" if cropped else ""))
+        ax.set_xlabel("Total cost" + axis_units
+                      + (", 0.5th to 99.5th percentile shown" if cropped and axis_units
+                         else " (0.5th to 99.5th percentile shown)" if cropped else ""))
         ax.set_ylabel("Confidence level (%)")
         ax.set_ylim(0, 100)
         ax.set_xlim(low, high)
-        ax.xaxis.set_major_formatter(_money_formatter(np.asarray([low, high])))
+        ax.xaxis.set_major_formatter(axis_money(np.asarray([low, high])))
         ax.grid(axis="both", alpha=0.6)
         _titles(ax, title, subtitle)
         if comparison is not None:

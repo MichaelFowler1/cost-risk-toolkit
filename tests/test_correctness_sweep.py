@@ -508,3 +508,205 @@ def test_a_dollar_variance_threshold_given_alone_decides_alone(tmp_path, capsys)
               "--sv-dollars", "50", "--out", str(tmp_path / "o"), "--iters", "1000"])
     capsys.readouterr()
     assert len(pd.read_csv(tmp_path / "o" / "variance_reports.csv")) == 3
+
+
+# ------------------------------------------------------------- cost risk
+def _risk_workbook(path, elements, risks=(), pairs=(), settings=(("Seed", 1),),
+                   sheet_names=("Elements", "Risks", "Correlation", "Settings"), extra=None):
+    with pd.ExcelWriter(path) as xl:
+        pd.DataFrame(list(elements), columns=["Element", "Point Estimate", "Low",
+                                              "Most Likely", "High"]
+                     ).to_excel(xl, sheet_name=sheet_names[0], index=False)
+        pd.DataFrame(list(risks), columns=["Risk", "Probability", "Low", "Most Likely", "High"]
+                     ).to_excel(xl, sheet_name=sheet_names[1], index=False)
+        pd.DataFrame(list(pairs), columns=["Element A", "Element B", "Correlation"]
+                     ).to_excel(xl, sheet_name=sheet_names[2], index=False)
+        pd.DataFrame(list(settings), columns=["Setting", "Value"]
+                     ).to_excel(xl, sheet_name=sheet_names[3], index=False)
+        if extra:
+            pd.DataFrame({"x": [1]}).to_excel(xl, sheet_name=extra, index=False)
+    return path
+
+
+def test_the_s_curve_labels_costs_in_their_units():
+    from cost_core.reporting.charts import _cost_labels
+
+    assert _cost_labels("millions")[0](2000.0) == "$2.00B"
+    assert _cost_labels("$K")[0](18_500.0) == "$18.5M"
+    assert _cost_labels("")[0](18.5) == "18.5"
+    assert _cost_labels(None)[0](2000.0) == "$2K"
+
+
+def test_a_credit_entered_below_zero_is_simulated_below_zero():
+    from cost_core.monte_carlo import CostElement, DiscreteRisk, RiskModel, simulate_risk_model
+
+    model = RiskModel(elements=[
+        CostElement("Hardware", {"type": "triangular", "left": 90, "mode": 100, "right": 130}),
+        CostElement("Credit", {"type": "triangular", "left": -14, "mode": -10, "right": -6})],
+        risks=[DiscreteRisk("Reuse", 1.0, {"type": "uniform", "low": -12, "high": -4})],
+        correlation=np.eye(2))
+    r = simulate_risk_model(model, n_iter=20_000, seed=1)
+    assert r.element_samples[:, 1].mean() == pytest.approx(-10.0, abs=0.1)
+    assert r.risk_samples[:, 0].mean() == pytest.approx(-8.0, abs=0.1)
+
+
+def test_an_element_with_no_range_is_carried_at_its_point_estimate(tmp_path):
+    from cost_core.costrisk import read_workbook
+
+    p = _risk_workbook(tmp_path / "r.xlsx", [("Hardware", 100, 90, 100, 130),
+                                             ("Fee", 50, None, 40, None),
+                                             ("Spares", 12, 8, 8, 8)])
+    inp = read_workbook(p)
+    fee, spares = inp.model.elements[1], inp.model.elements[2]
+    assert fee.distribution == {"type": "fixed", "value": 50.0}
+    assert spares.distribution == {"type": "fixed", "value": 8.0}
+    assert any("'Spares' has its Low, Most Likely and High all at 8" in n for n in inp.notes)
+    assert any("1 element (Fee) has no range" in n for n in inp.notes)
+
+
+def test_own_p80s_that_add_to_less_than_the_total_are_described_as_such(tmp_path):
+    from cost_core import plain
+    from cost_core.costrisk import analyse, read_workbook
+
+    p = _risk_workbook(tmp_path / "r.xlsx", [("Airframe", 100, 95, 100, 110),
+                                             ("Avionics", 60, 57, 60, 66)],
+                       risks=[(f"Risk {i}", 0.15, 8, 10, 12) for i in range(1, 6)],
+                       settings=[("Units", "millions"), ("Iterations", 20000), ("Seed", 1)])
+    text = " ".join(plain.cost_risk(analyse(read_workbook(p)), "$M"))
+    assert "less than the P80 of the whole" in text and "more than the P80" not in text
+    assert "goes mostly" not in text and "the largest part of" in text
+
+
+def test_near_certainty_is_not_rounded_to_a_hundred_percent():
+    from cost_core import plain
+
+    assert plain._chance(0.996) == "more than a 99% chance"
+    assert plain._pct(0.996) == "over 99%"
+
+
+def test_a_risk_register_sheet_is_read_and_an_unread_sheet_is_named(tmp_path):
+    from cost_core.costrisk import read_workbook
+
+    p = _risk_workbook(tmp_path / "r.xlsx", [("A", 100, 90, 100, 130), ("B", 50, 45, 50, 70)],
+                       risks=[("Slip", 0.5, 5, 10, 20)], pairs=[("A", "B", 0.6)],
+                       sheet_names=("Elements", "Risk Register", "Correlations", "Settings"),
+                       extra="Scratch")
+    inp = read_workbook(p)
+    assert len(inp.model.risks) == 1 and len(inp.pairs) == 1
+    assert any("'Scratch' was not read" in n for n in inp.notes)
+
+
+def test_a_correlation_pair_entered_twice_is_refused(tmp_path):
+    from cost_core.costrisk import CostRiskError, read_workbook
+
+    p = _risk_workbook(tmp_path / "r.xlsx", [("A", 100, 90, 100, 130), ("B", 50, 45, 50, 70)],
+                       pairs=[("A", "B", 0.2), ("B", "A", 0.8)])
+    with pytest.raises(CostRiskError, match="already paired on row 2"):
+        read_workbook(p)
+
+
+def test_a_settings_sheet_with_no_heading_row_keeps_its_first_setting(tmp_path):
+    from cost_core.costrisk import read_workbook
+    from cost_core.xlspec import read_spec
+
+    p = tmp_path / "r.xlsx"
+    with pd.ExcelWriter(p) as xl:
+        pd.DataFrame({"Element": ["A", "B"], "Point Estimate": [100, 50], "Low": [90, 45],
+                      "Most Likely": [100, 50], "High": [140, 70]}
+                     ).to_excel(xl, sheet_name="Elements", index=False)
+        pd.DataFrame([("Default Correlation", 0.6), ("Iterations", 5000)]).to_excel(
+            xl, sheet_name="Settings", index=False, header=False)
+    assert read_workbook(p).model.default_correlation == pytest.approx(0.6)
+
+    q = tmp_path / "aoa.xlsx"
+    with pd.ExcelWriter(q) as xl:
+        pd.DataFrame([("Base Year", 2026), ("Discount Rate", 0.02), ("Inflation Rate", 0.02)]
+                     ).to_excel(xl, sheet_name="Settings", index=False, header=False)
+        pd.DataFrame({"Alternative": ["A"], "Line": ["Dev"], "Phase": ["RDT&E"],
+                      "Total": [600], "Start Year": [2027], "Years": [3]}
+                     ).to_excel(xl, sheet_name="Lines", index=False)
+    assert read_spec(q)["base_year"] == 2026
+
+
+def test_workbook_rows_that_would_be_dropped_are_refused(tmp_path):
+    from cost_core.xlspec import SpecError, read_spec
+
+    b = tmp_path / "b.xlsx"
+    with pd.ExcelWriter(b) as xl:
+        pd.DataFrame({"Candidate": ["A"], "Option": ["Full"], "Value": [10], 2027: [300]}
+                     ).to_excel(xl, sheet_name="Candidates", index=False)
+        pd.DataFrame({"Year": [2027, 2027], "Budget": [400, 300]}
+                     ).to_excel(xl, sheet_name="Budget", index=False)
+    with pytest.raises(SpecError, match="2027 is already on the sheet"):
+        read_spec(b)
+
+    settings = pd.DataFrame({"Setting": ["Base Year", "Discount Rate", "Inflation Rate"],
+                             "Value": [2026, 0.02, 0.02]})
+    both = tmp_path / "both.xlsx"
+    with pd.ExcelWriter(both) as xl:
+        settings.to_excel(xl, sheet_name="Settings", index=False)
+        pd.DataFrame({"Alternative": ["A"], "Line": ["Dev"], "Phase": ["RDT&E"],
+                      "Total": [600], "Start Year": [2027], "Years": [3],
+                      "Annual Amount": [100], "First Year": [2030], "Last Year": [2039]}
+                     ).to_excel(xl, sheet_name="Lines", index=False)
+    with pytest.raises(SpecError, match="a Total and an Annual Amount"):
+        read_spec(both)
+
+    ph = tmp_path / "ph.xlsx"
+    with pd.ExcelWriter(ph) as xl:
+        settings.to_excel(xl, sheet_name="Settings", index=False)
+        pd.DataFrame({"Alternative": ["A"], "Line": ["Disposal"], "Phase": ["Disposal"]}
+                     ).to_excel(xl, sheet_name="Lines", index=False)
+        pd.DataFrame({"Alternative": ["A", "A"], "Line": ["Disposal", "Disposal"],
+                      2040: [40, None], 2041: [None, 40]}
+                     ).to_excel(xl, sheet_name="Phased", index=False)
+    with pytest.raises(SpecError, match="already has row 2"):
+        read_spec(ph)
+
+
+def test_a_jcl_spec_survives_the_workbook_round_trip(tmp_path):
+    from cost_core.xlspec import SpecError, read_spec, write_workbook
+
+    spec = {"name": "t", "units": "$M", "activities": [
+        {"id": "design", "duration": 12},
+        {"id": "fsw", "duration": 9, "predecessors": [["design", 0.333333333, "FF"]]}],
+        "risks": [{"name": "r1", "probability": 0.3, "activities": ["fsw"],
+                   "delay": {"type": "uniform", "low": 1.0, "high": 3.0}}]}
+    back = read_spec(write_workbook(spec, "jcl", tmp_path / "j.xlsx"))
+    assert back["risks"][0]["delay"] == {"type": "uniform", "low": 1.0, "high": 3.0}
+    assert back["activities"][1]["predecessors"][0][1] == pytest.approx(0.333333333, abs=1e-12)
+
+    spec["activities"][0]["duration_uncertainty"] = {"type": "pert", "left": 0.9, "mode": 1.0,
+                                                     "right": 1.5, "lambda_": 6}
+    with pytest.raises(SpecError, match="lambda_ 6 has no workbook form"):
+        write_workbook(spec, "jcl", tmp_path / "k.xlsx")
+
+
+def test_the_cost_risk_assumptions_record_the_seed_used(tmp_path):
+    from cost_core.costrisk import analyse, read_workbook
+
+    p = _risk_workbook(tmp_path / "r.xlsx", [("A", 100, 90, 100, 130), ("B", 50, 45, 50, 70)])
+    assert analyse(read_workbook(p), n_iter=2000, seed=7).assumptions["seed"] == 7
+
+
+def test_the_cost_risk_workbook_formats_money_in_its_units(tmp_path):
+    from openpyxl import load_workbook
+    from cost_core.costrisk import analyse, read_workbook
+    from cost_core.reporting.excel_report import cost_risk_workbook
+
+    p = _risk_workbook(tmp_path / "r.xlsx", [("A", 18.5, 17, 18.5, 25), ("B", 5, 4, 5, 7)],
+                       settings=[("Units", "millions"), ("Seed", 1)])
+    out = cost_risk_workbook(analyse(read_workbook(p), n_iter=2000), tmp_path / "report.xlsx")
+    formats = {c.number_format for row in load_workbook(out)["Summary"].iter_rows()
+               for c in row if isinstance(c.value, float)}
+    assert '"$"#,##0.0"M"' in formats
+
+
+def test_an_ampersand_in_the_marking_prints_as_one(tmp_path):
+    from openpyxl import Workbook
+    from cost_core.reporting.output import configured, mark_workbook
+
+    wb = Workbook()
+    with configured(marking="R&D ONLY"):
+        mark_workbook(wb)
+    assert wb.active.oddHeader.center.text == "R&&D ONLY"

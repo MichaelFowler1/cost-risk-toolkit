@@ -391,7 +391,7 @@ def run_cost_risk(args) -> None:
     try:
         from cost_core.reporting.charts import plot_s_curve, plot_tornado
         plot_s_curve(result.sim, out / "cost_risk_s_curve.png",
-                     comparison=result.impact.independent)
+                     comparison=result.impact.independent, units=result.units)
         plot_tornado(result.sim, out / "cost_risk_drivers.png")
         charts = ["cost_risk_s_curve.png", "cost_risk_drivers.png"]
     except ImportError:

@@ -178,6 +178,10 @@ def _probability(value, row: int) -> float:
 def _three_point(low, mode, high, sheet: str, row: int, label: str,
                  dist: str = "triangular", point: Optional[float] = None) -> Dict:
     """A distribution spec from a low, most likely and high."""
+    if low is None and high is None and point is not None:
+        # No range: carried at the point estimate, as the notes say, and not
+        # at a Most Likely that differs from it.
+        return {"type": "fixed", "value": float(point)}
     if mode is None:
         mode = point
     given = [v is not None for v in (low, mode, high)]
@@ -310,6 +314,7 @@ def _read_pairs(frame: Optional[pd.DataFrame], names: Sequence[str], default: fl
     cols = _columns(frame, PAIR_COLUMNS, "Correlation", ["a", "b", "rho"])
     index = {n: j for j, n in enumerate(names)}
     rows = []
+    seen: Dict[frozenset, int] = {}
     for i, rec in zip(excel_rows(frame), frame.to_dict("records")):
         if any(_blank(rec.get(cols[c])) for c in ("a", "b")):
             raise CostRiskError(f"Correlation sheet, row {i}: name both elements of the "
@@ -324,6 +329,13 @@ def _read_pairs(frame: Optional[pd.DataFrame], names: Sequence[str], default: fl
         rho = _number(rec.get(cols["rho"]), "Correlation", i, "correlation")
         if rho is None:
             continue
+        pair = frozenset((a, b))
+        if pair in seen:
+            # The last one would win without a word, so which correlation was
+            # used would depend on row order.
+            raise CostRiskError(f"Correlation sheet, row {i}: {a!r} and {b!r} are already "
+                                f"paired on row {seen[pair]}. Keep one row per pair.")
+        seen[pair] = i
         if not -1.0 <= rho <= 1.0:
             raise CostRiskError(f"Correlation sheet, row {i}: a correlation of {rho:g} is not "
                                 "between -1 and 1.")
@@ -347,9 +359,27 @@ SETTING_NAMES = {"units": "units", "default_correlation": "default_correlation",
                  "description": None, "notes": None}
 
 
+def headingless(frame: pd.DataFrame, known) -> pd.DataFrame:
+    """A Settings sheet typed without a heading row, its first setting kept.
+
+    pandas takes the first line as the headings, so the first setting would
+    be lost without a word. When the first heading is itself the name of a
+    setting, that line goes back in, numbered as Excel's row 1.
+    """
+    head = list(frame.columns)
+    if len(head) < 2 or _norm(head[0]) not in known:
+        return frame
+    values = [None if isinstance(h, str) and h.startswith("Unnamed:") else h for h in head]
+    first = pd.DataFrame([values], columns=frame.columns, index=[-1], dtype=object)
+    return pd.concat([first, frame.astype(object)])
+
+
 def _read_settings(frame: Optional[pd.DataFrame]) -> Dict:
     out = dict(SETTINGS_DEFAULTS)
-    if frame is None or frame.empty:
+    if frame is None:
+        return out
+    frame = headingless(frame, SETTING_NAMES)
+    if frame.empty:
         return out
     frame = frame.dropna(how="all")
     for row, rec in zip(excel_rows(frame), frame.itertuples(index=False)):
@@ -378,19 +408,39 @@ def _read_settings(frame: Optional[pd.DataFrame]) -> Dict:
     return out
 
 
+#: The other names a sheet goes by, as normalised sheet names.
+SHEET_ALIASES = {"risks": ("risks", "risk", "risk_register", "risk_list"),
+                 "correlation": ("correlation", "correlations", "correlation_pairs"),
+                 "settings": ("settings", "setting")}
+
+
 def read_workbook(path) -> CostRiskInput:
     """Read a cost risk workbook (or a CSV of elements alone)."""
     path = Path(path)
+    unread: List[str] = []
     if path.suffix.lower() == ".csv":
         sheets = {"elements": pd.read_csv(path)}
     else:
         raw = open_workbook(path, CostRiskError, ", or give the elements alone as a .csv")
         sheets = {_norm(k): v for k, v in raw.items()}
+        titles = {_norm(k): str(k) for k in raw}
+        for key, aliases in SHEET_ALIASES.items():
+            found = [a for a in aliases if a in sheets]
+            if len(found) > 1:
+                raise CostRiskError(f"{path.name} has sheets named "
+                                    f"{' and '.join(repr(titles[a]) for a in found)}; keep "
+                                    "one, or the other is ignored.")
+            if found and found[0] != key:
+                sheets[key] = sheets.pop(found[0])
+                titles[key] = titles.pop(found[0])
         if "elements" not in sheets:
             first = next(iter(raw), None)
             if first is None:
                 raise CostRiskError(f"{path.name} has no sheets.")
             sheets["elements"] = raw[first]
+            titles["elements"] = titles.pop(_norm(first))
+        used = ("elements", "risks", "correlation", "settings", "instructions")
+        unread = [t for k, t in titles.items() if k not in used]
     settings = _read_settings(sheets.get("settings"))
     elements, element_rows = _read_elements(sheets["elements"])
     names = [e.name for e in elements]
@@ -403,11 +453,20 @@ def read_workbook(path) -> CostRiskInput:
     for e in elements:
         d = e.distribution
         lo, hi = d.get("left", d.get("low")), d.get("right", d.get("high"))
+        if d["type"] == "fixed" and d["value"] != e.point_estimate:
+            notes.append(f"{e.name!r} has its Low, Most Likely and High all at "
+                         f"{d['value']:,g} but a point estimate of {e.point_estimate:,g}: "
+                         f"it is simulated at {d['value']:,g}. Check which is meant.")
         if lo is not None and not lo <= e.point_estimate <= hi:
             notes.append(f"{e.name!r} has a point estimate of {e.point_estimate:,g}, outside "
                          f"its own range of {lo:,g} to {hi:,g}: check the units, or the "
                          "range.")
-    fixed = [e.name for e in elements if e.distribution["type"] == "fixed"]
+    if unread:
+        notes.append(f"The sheet{'s' if len(unread) > 1 else ''} "
+                     f"{', '.join(map(repr, unread))} {'were' if len(unread) > 1 else 'was'} "
+                     "not read: the sheets read are Elements, Risks, Correlation and Settings.")
+    fixed = [e.name for e in elements if e.distribution["type"] == "fixed"
+             and e.distribution["value"] == e.point_estimate]
     if fixed:
         notes.append(f"{len(fixed)} element{'s' if len(fixed) > 1 else ''} "
                      f"({', '.join(fixed[:4])}{', ...' if len(fixed) > 4 else ''}) "
@@ -432,6 +491,7 @@ class CostRiskResult:
     inputs: CostRiskInput
     impact: CorrelationImpact
     units: str = ""
+    seed: Optional[int] = None
 
     @property
     def sim(self):
@@ -473,9 +533,10 @@ class CostRiskResult:
         """The total's ``level`` confidence cost, shared out across the elements
         and risks, with the reserve each needs over its point estimate.
 
-        Percentiles don't add: each element's own P80 sums to far more than the
-        total's P80, so handing every element its P80 funds the program well
-        above 80%. Instead this takes the simulations whose total lands at the
+        Percentiles don't add: each element's own P80 usually sums to more than
+        the total's P80, so handing every element its P80 funds the program
+        above 80%. (Not always: a risk less likely than 20% has an own P80 of
+        nothing, so a register of unlikely risks can sum to less.) Instead this takes the simulations whose total lands at the
         ``level`` percentile (within ``band`` either side) and asks what each
         element and risk averaged in them. Those shares add up to the total's
         P80 by construction, which is what makes them a budget that can be
@@ -519,7 +580,8 @@ class CostRiskResult:
     @property
     def assumptions(self) -> Dict:
         m = self.inputs.model
-        return {"iterations": self.sim.n_iter, "seed": self.inputs.seed,
+        return {"iterations": self.sim.n_iter,
+                "seed": self.inputs.seed if self.seed is None else self.seed,
                 "method": "Gaussian copula over the element distributions; discrete "
                           "risks drawn independently of the elements and of each other",
                 "elements": len(m.elements), "discrete risks": len(m.risks),
@@ -552,7 +614,7 @@ def analyse(inputs: CostRiskInput, n_iter: Optional[int] = None, seed: Optional[
             "the elements a Low and a High (the Instructions sheet says how), or add the "
             "risks.")
     return CostRiskResult(inputs=inputs, impact=impact,
-                          units=inputs.units if units is None else units)
+                          units=inputs.units if units is None else units, seed=seed)
 
 
 # ------------------------------------------------------------- the template

@@ -444,8 +444,8 @@ def cost_risk_brief(result, out_dir) -> Path:
         "Share of the P80": alloc["allocated_p80"].map(lambda v: _money(v, units)),
         "Reserve": alloc["reserve"].map(lambda v: _money(v, units)),
         "Of the reserve": alloc["share_of_reserve"].map(lambda v: f"{v:.0%}")}),
-        note="Shares add up to the P80 of the total. Each element's own P80 would add up to "
-             "more: percentiles don't add.")
+        note="Shares add up to the P80 of the total. Each element's own P80 would not: "
+             "percentiles don't add.")
     conf = result.confidence_table((50, 70, 80, 90))
     b.table("Cost at each confidence level", pd.DataFrame({
         "Confidence": conf["confidence"].map(lambda v: f"{v:.0%}"),

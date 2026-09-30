@@ -50,7 +50,11 @@ def ordinal(n: int) -> str:
 
 
 def _pct(p: float) -> str:
-    return "under 1%" if 0 < p < 0.01 else f"{p:.0%}"
+    if 0 < p < 0.01:
+        return "under 1%"
+    if 0.995 <= p < 1:
+        return "over 99%"
+    return f"{p:.0%}"
 
 
 def _chance(p: float) -> str:
@@ -61,6 +65,8 @@ def _chance(p: float) -> str:
         return "less than a 1% chance"
     if p >= 1:
         return "near certainty (every simulation)"
+    if p >= 0.995:
+        return "more than a 99% chance"
     pct = f"{p:.0%}"
     article = "an" if pct[0] == "8" or pct.startswith(("11%", "18%")) else "a"
     return f"{article} {pct} chance"
@@ -282,11 +288,23 @@ def cost_risk(result, units: str = "") -> List[str]:
     if reserve > 0:
         top = alloc.iloc[0]
         own = float(alloc["own_p80"].sum())
-        out.append(f"Shared out, the {_money(reserve, units)} of reserve to reach P80 goes "
-                   f"mostly to {top.component!r} ({_money(top.reserve, units)}, "
-                   f"{top.share_of_reserve:.0%}). Funding every element at its own P80 "
-                   f"instead would total {_money(own, units)}, {_money(own - sim.p80, units)} "
-                   "more than the P80 of the whole: percentiles don't add.")
+        most = "most" if top.share_of_reserve >= 0.5 else "the largest part"
+        text = (f"Shared out, {most} of the {_money(reserve, units)} of reserve to reach P80 "
+                f"goes to {top.component!r} ({_money(top.reserve, units)}, "
+                f"{top.share_of_reserve:.0%}).")
+        gap = own - sim.p80
+        if gap > 0.005 * abs(sim.p80):
+            text += (f" Funding every element at its own P80 instead would total "
+                     f"{_money(own, units)}, {_money(gap, units)} more than the P80 of the "
+                     "whole: percentiles don't add.")
+        elif gap < -0.005 * abs(sim.p80):
+            unlikely = any(r.probability < 0.2 for r in result.inputs.model.risks)
+            text += (f" Each element's and risk's own P80 add up to only {_money(own, units)}, "
+                     f"{_money(-gap, units)} less than the P80 of the whole"
+                     + (", because a risk less likely than 20% counts nothing at its own P80"
+                        if unlikely else "")
+                     + ": percentiles don't add.")
+        out.append(text)
     impact = result.impact
     # Only while there is a reserve to lose: with the estimate above the P80
     # the share is undefined.
