@@ -523,7 +523,7 @@ def test_cli_fit_lots(run, tmp_path):
         for side in (golden, new):
             side.pop("sha256")
             side.pop("csv_text")
-    check(golden, new)
+    check(golden, new, new_only_items=GS.MODEL_COMPARISON_ROWS_AFTER_GOLDENS)
 
 
 # --------------------------------------------------------------------------

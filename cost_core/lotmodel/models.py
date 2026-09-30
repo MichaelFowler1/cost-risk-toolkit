@@ -363,22 +363,48 @@ def solve_lot_model(fit_q: np.ndarray, fit_c: np.ndarray, fit_se: list,
     fit_c = np.asarray(fit_c, dtype=float)
     model = "LC+Rate" if use_rate else "LC"
 
+    def fit_at(b_value):
+        """The regression at a given slope, or None where it can't be had."""
+        if not np.isfinite(b_value):
+            return None
+        try:
+            with np.errstate(all="ignore"):
+                X = design(fit_se, fit_q, b_value, use_rate=use_rate)
+                if not np.all(np.isfinite(X)):
+                    return None
+                return ols_via_fitting(model, X, fit_c, cfg["SingularTol"])
+        except (np.linalg.LinAlgError, ValueError, FloatingPointError, OverflowError):
+            return None
+
     b = cfg["SeedB"]
     delta = 1.0
     iteration = 0
 
     while iteration < cfg["MaxIter"] and delta > cfg["Tol"]:
         bp = b
-        X = design(fit_se, fit_q, bp, use_rate=use_rate)
-        fit = ols_via_fitting(model, X, fit_c, cfg["SingularTol"])
+        fit = fit_at(bp)
         if fit is None:
-            return None
+            if iteration == 0:
+                return None
+            break
         b = fit["Beta"][1]
         delta = abs(b - bp)
         iteration += 1
 
-    X = design(fit_se, fit_q, b, use_rate=use_rate)
-    final_fit = ols_via_fitting(model, X, fit_c, cfg["SingularTol"])
+    # A MaxIter set deliberately low (the desktop tool's goldens pin 1 and 2)
+    # is a request to stop there and report the result as not converged, so
+    # the rescue below only runs for a normal iteration budget.
+    if not (np.isfinite(b) and delta <= cfg["Tol"]) and cfg["MaxIter"] >= 20:
+        # Plain iteration can fail to settle: when the lot sizes rise almost
+        # in step with the midpoints, the map from b to the refitted b is
+        # steeper than 1 near its fixed point and every step overshoots. The
+        # fixed point still exists, so look for it directly, as a root of
+        # "refitted b minus b" bracketed on a grid of plausible slopes.
+        root = _bracketed_slope(fit_at, cfg["SeedB"])
+        if root is not None:
+            b = root
+
+    final_fit = fit_at(b)
     if final_fit is None:
         return None
 
@@ -387,6 +413,30 @@ def solve_lot_model(fit_q: np.ndarray, fit_c: np.ndarray, fit_se: list,
     final_fit["Delta"] = resid
     final_fit["Converged"] = resid <= cfg["Tol"]
     return final_fit
+
+
+def _bracketed_slope(fit_at, seed: float):
+    """The slope b at which the refitted slope equals b, by bracketing and
+    Brent's method; the root nearest the seed when there are several."""
+    from scipy.optimize import brentq
+
+    def gap(b_value):
+        fit = fit_at(b_value)
+        return np.nan if fit is None else fit["Beta"][1] - b_value
+
+    # Slopes from about 35% to 123%: anything outside is not a learning curve.
+    grid = np.linspace(-1.5, 0.3, 181)
+    values = np.array([gap(v) for v in grid])
+    roots = []
+    for lo, hi, g_lo, g_hi in zip(grid[:-1], grid[1:], values[:-1], values[1:]):
+        if np.isfinite(g_lo) and np.isfinite(g_hi) and g_lo * g_hi <= 0:
+            try:
+                roots.append(brentq(gap, lo, hi, xtol=1e-12, maxiter=200))
+            except (ValueError, RuntimeError):
+                continue
+    if not roots:
+        return None
+    return min(roots, key=lambda r: abs(r - seed))
 
 
 def solve_rate_model(fit_q: np.ndarray, fit_c: np.ndarray,

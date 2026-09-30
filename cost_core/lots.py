@@ -102,6 +102,12 @@ COST_ALIASES: tuple[str, ...] = (
     "recurring_cost", "cost_dollars", "total", "lot_total",
 )
 
+#: The cost column spellings that say recurring, and those that say total,
+#: for a file that has one of each.
+RECURRING_ALIASES: tuple[str, ...] = ("recurring_cost", "lot_recurring_cost",
+                                      "recurring", "rec_cost")
+TOTAL_ALIASES: tuple[str, ...] = ("total_cost", "lot_total_cost", "total", "lot_total")
+
 #: Optional column naming the lot, carried through to the report only.
 LABEL_ALIASES: tuple[str, ...] = ("lot", "lot_number", "lot_no", "label", "name")
 
@@ -413,6 +419,18 @@ class LotSeries:
                 )
 
         units_col = units_col or _match_column(frame.columns, UNIT_ALIASES)
+        if cost_col is None:
+            # A file with both a recurring and a total cost column: fit the one
+            # the declared cost basis names, and say so, rather than whichever
+            # alias happens to come first.
+            recurring = _match_column(frame.columns, RECURRING_ALIASES)
+            total = _match_column(frame.columns, TOTAL_ALIASES)
+            if recurring is not None and total is not None:
+                basis = kwargs.get("cost_basis", "recurring")
+                cost_col = recurring if basis == "recurring" else total
+                logger.warning("Two cost columns, %r and %r: fitting %r because the cost "
+                               "basis is %s. Name another with --cost-col.",
+                               recurring, total, cost_col, basis)
         cost_col = cost_col or _match_column(frame.columns, COST_ALIASES)
 
         if units_col is None or cost_col is None:
@@ -428,11 +446,31 @@ class LotSeries:
             )
 
         label_col = label_col or _match_column(frame.columns, LABEL_ALIASES)
-        subset = frame[[units_col, cost_col]].dropna()
-        if len(subset) < len(frame):
+        pair = frame[[units_col, cost_col]]
+        blank = pair.isna().all(axis=1)
+        pair = pair[~blank]
+        no_units = pair[units_col].isna()
+        no_cost = pair[cost_col].isna() & ~no_units
+        if no_units.any():
+            rows = ", ".join(str(int(i) + 2) for i in pair.index[no_units][:5])
+            raise LotInputError(
+                f"Row(s) {rows} have a cost but no quantity. Every lot's units decide "
+                "where the lots after it sit on the curve, so fill the quantity in.")
+        costed = pair.index[~no_cost]
+        if no_cost.any() and len(costed):
+            inside = [i for i in pair.index[no_cost] if i < costed.max()]
+            if inside:
+                rows = ", ".join(str(int(i) + 2) for i in inside[:5])
+                raise LotInputError(
+                    f"Row(s) {rows} have a quantity but no cost, with costed lots after "
+                    "them. Leaving them out would renumber the units of every later lot "
+                    "and move the curve, so fill the cost in (a lot whose cost isn't "
+                    "known can't simply be skipped in the middle of a series).")
+        subset = pair.dropna()
+        if len(subset) < len(pair):
             logger.warning(
-                "Dropped %d row(s) with a missing quantity or cost.",
-                len(frame) - len(subset),
+                "Left out %d lot(s) after the last costed lot, which have no cost.",
+                len(pair) - len(subset),
             )
 
         labels: tuple[str, ...] = ()
@@ -758,7 +796,8 @@ class LotModelFit:
         wanted = ["Fitted", "SELECTED", "T1 ($K)", "Learning exponent (b)",
                   "Learning curve slope", "Rate exponent (c)", "Rate slope",
                   "R2 (log)", "Adj R2", "SEE (log)", "CV", "MAPE",
-                  "Mean bias", "AICc", "dAICc", "t (rate coeff)"]
+                  "Mean bias", "AICc", "dAICc", "t (rate coefficient)",
+                  "Selection basis"]
         rows = [r for _, r in self.summary.iterrows() if r["Item"] in wanted]
         return pd.DataFrame(rows)[["Item", "LC", "Rate", "LC+Rate"]].reset_index(
             drop=True)
@@ -892,9 +931,12 @@ class LotFitReport:
         """
         if quantities is None:
             return self.intervals(level=level)
+        cfg = self.fit.ctx.get("cfg", {})
         refit = self.series.fit(
             forecast=quantities,
             complexity=self.fit.complexity if complexity is None else complexity,
+            t_gate=cfg.get("TGate", 2.0), aicc_tie=cfg.get("AiccTie", 2.0),
+            legacy_rate_omission=cfg.get("LegacyRateOmission", False),
             program=self.series.program)
         return projection_intervals(
             refit.ctx, refit.projections, refit.selected_model,

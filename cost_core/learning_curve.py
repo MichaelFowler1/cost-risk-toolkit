@@ -140,7 +140,7 @@ def forecast_costs(
         pd.DataFrame: Contains 'quantity', 'unit_cost', and 'total_cost'.
     """
     q_array = np.sort(np.array(quantities))
-    
+
     unit_costs = np.array([model.predict_unit_cost(q) for q in q_array])
     total_costs = q_array * unit_costs
     
@@ -586,6 +586,15 @@ class CurveFit:
             # A unit-granularity fit predicts unit or cumulative-average cost.
             # Rather than pretend its covariance applies to a lot average,
             # scale the point estimate exactly and widen it by the fitted CV.
+            # That band is the scatter of a new lot about the curve, without the
+            # curve's own uncertainty, so it doesn't widen with extrapolation;
+            # and with no parameter uncertainty there is no confidence band at
+            # all to give.
+            if kind == "confidence":
+                raise FitError(
+                    "A curve fitted to individual units has no confidence interval for a "
+                    "lot average: refit on lot data, or ask for kind='prediction' (the "
+                    "fitted scatter only, which doesn't widen with extrapolation).")
             avg = self.model.lot_average(arr[:, 0], arr[:, 1])
             tcrit = float(stats.t.ppf(1.0 - (1.0 - level) / 2.0, self.result.df))
             spread = tcrit * self.result.sigma
@@ -622,6 +631,11 @@ class CurveFit:
             out.insert(0, "unit", units.astype(int))
             return out
 
+        if kind == "confidence":
+            raise FitError(
+                "A curve fitted to lot averages has no confidence interval for a single "
+                "unit: refit on unit data, or ask for kind='prediction' (the fitted "
+                "scatter only, which doesn't widen with extrapolation).")
         point = self.model.unit_cost(units)
         tcrit = float(stats.t.ppf(1.0 - (1.0 - level) / 2.0, self.result.df))
         spread = tcrit * self.result.sigma

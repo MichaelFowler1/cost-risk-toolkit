@@ -271,6 +271,10 @@ def run_fit_lots(args: argparse.Namespace) -> None:
         print(report.intervals().to_string(na_rep="", index=False))
 
         simulation = None
+        if args.simulate and not forecast:
+            abort("--simulate prices the buy you're forecasting, so it needs --forecast "
+                  "(for example --forecast \"30,40\"). Without it there'd only be the lots "
+                  "already built to simulate.")
         if args.simulate:
             simulation = report.simulate(n_iter=args.simulate, seed=args.seed)
             print()

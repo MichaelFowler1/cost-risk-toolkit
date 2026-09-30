@@ -327,7 +327,22 @@ PROVENANCE_ITEMS = PROVENANCE_ROWS
 #: on both sides and compare it. :func:`compare_with_policy` takes this as an
 #: argument rather than reading it here, so the allowance is visible at the one
 #: call site that needs it.
-LOTS_GOLDEN_PREDATES_ITEMS = ("Rate projection",)
+#: Rows of the models-compared table that every golden predates. The table was
+#: meant to show the rate coefficient's t-statistic and the reason for the
+#: choice all along, but it asked the summary for "t (rate coeff)" while the
+#: summary calls it "t (rate coefficient)", and "Selection basis" was left off,
+#: so neither was ever shown; both were added in the 2026-09-30 correctness
+#: sweep. They are rows the goldens lack, not numbers that moved: every other
+#: row and line is still compared exactly.
+MODEL_COMPARISON_ROWS_AFTER_GOLDENS = ("t (rate coefficient)", "Selection basis")
+
+LOTS_GOLDEN_PREDATES_ITEMS = ("Rate projection",) + MODEL_COMPARISON_ROWS_AFTER_GOLDENS
+
+
+def _without_postdated_rows(lines):
+    """Markdown lines less the models-compared rows the goldens predate."""
+    return [ln for ln in lines
+            if not any(ln.startswith(f"| {item} |") for item in MODEL_COMPARISON_ROWS_AFTER_GOLDENS)]
 
 #: lot_cost_model.EXAMPLE_ANALOGY / EXAMPLE_ESTIMATE, as literals. The capture
 #: script asserts these still equal the tool's own constants; they are repeated
@@ -1285,7 +1300,7 @@ def render_log(log) -> dict:
     Python x.y.z (OS)*' line (assumptions.py:61-65, 95): the timestamp changes
     every run and the interpreter text changes per machine."""
     log.created_at = "<created_at stripped: non-golden>"
-    lines = log.render().splitlines()
+    lines = _without_postdated_rows(log.render().splitlines())
     kept = [ln for ln in lines if not ln.startswith("*Generated ")]
     text = "\n".join(kept)
     return {"text": text, "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
@@ -1463,7 +1478,7 @@ def run_cli_one(name: str, extra: list, workbooks) -> dict:
             csvs[fname] = pd.read_csv(p, float_precision="round_trip")
             texts[fname] = mask_paths(p.read_text(encoding="utf-8"))
         elif fname == "ASSUMPTIONS.md":
-            lines = p.read_text(encoding="utf-8").splitlines()
+            lines = _without_postdated_rows(p.read_text(encoding="utf-8").splitlines())
             kept = [mask_paths(ln) for ln in lines if not ln.startswith("*Generated ")]
             assumptions = {"text_without_generated_line": "\n".join(kept),
                            "n_lines_dropped": len(lines) - len(kept)}

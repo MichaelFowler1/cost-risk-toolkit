@@ -195,11 +195,12 @@ producing the learning curve table an analyst would build by hand:
 ce-core fit-lots --csv my_lots.csv --dollar-year 2026 --price-lots "10,15,20,25,30" --out results/
 ```
 
-The `lot_midpoint` column is the *algebraic* midpoint, meaning the unit whose
-cost equals the lot average. Most tools approximate it, because they only have an
-approximate lot average to work from. Here the lot average is exact, so the
-midpoint gets solved for directly. There's a test asserting the cost at the
-midpoint equals the lot average, which is its definition.
+The `lot_midpoint` column is the lot midpoint the engine fits and prices with,
+the standard approximation to the unit whose cost equals the lot average. For
+lots of a few units it can sit slightly off the exact algebraic midpoint (for
+units 1 to 2 on an 85% curve, 1.344 against 1.395, about 0.9% on the lot cost),
+and the difference fades quickly as lots grow. It's the same approximation the
+fit itself uses, so fit and prices stay consistent.
 
 This is the analogy use case: price a program with no cost history of its own
 using the slope from one that does. **Whether that's valid is a judgement, not a
