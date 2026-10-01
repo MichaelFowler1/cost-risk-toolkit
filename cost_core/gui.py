@@ -409,7 +409,10 @@ def errors(output: str) -> List[str]:
     and with the commands' advice put in terms of the window's buttons."""
     if re.search(r"PermissionError|Permission denied", output):
         file = re.search(r"Permission denied: '([^']+)'", output)
-        return [f"{'%s c' % Path(file.group(1)).name if file else 'A results file c'}ouldn't "
+        # the last part of the path, split by hand: a Windows path on another
+        # system has no separators pathlib knows
+        name = re.split(r"[\\/]+", file.group(1).replace("\\\\", "\\"))[-1] if file else ""
+        return [f"{name or 'A results file'} couldn't "
                 "be saved. It's probably open in Excel or PowerPoint: close it and press "
                 "Run again. If it isn't, the folder may be read-only; move your workbook "
                 "somewhere you can save to."]
