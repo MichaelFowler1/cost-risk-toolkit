@@ -145,7 +145,10 @@ It prints what the point estimate's confidence really is, what it takes to be
 50%, 70%, 80% and 90% sure, and which elements and risks drive the spread, then
 writes `report.xlsx` (S-curve, confidence table, drivers, elements, risks, the
 correlation used and what ignoring it would cost), `brief.pptx` and the tables
-as CSV. Only the Elements sheet is required; a CSV of elements works too. Pairs
+as CSV. Only the Elements sheet is required; a CSV of elements works too.
+Each element's range can be triangular (the default), PERT, uniform or
+lognormal; a lognormal reads Low and High as the ends of an 80% range, which
+is how `ce-core cer` hands over a CER's estimate. Pairs
 of elements you don't list take the default correlation (0.3 unless the
 Settings sheet says otherwise),
 because leaving correlation out makes the P80 too low. The workbook never
@@ -180,6 +183,10 @@ of the fit without deleting it, with a note saying why. `report.xlsx` has the
 estimates, the methods compared, the coefficients with t-statistics and
 p-values, the diagnostics and the data as fitted; `brief.pptx` and the CSVs
 come with it.
+
+Each estimate also comes as a row ready for a cost-risk Elements sheet: a
+lognormal whose Low and High are the prediction interval, so the CER's own
+uncertainty goes into the risk analysis instead of a range typed by hand.
 
 ## Earned value: where the program is heading
 

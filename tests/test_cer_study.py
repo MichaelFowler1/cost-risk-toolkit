@@ -188,3 +188,75 @@ def test_a_text_cell_stops_the_command_with_its_row(tmp_path, capsys, caplog):
         cli.main(["cer", "--data", str(p), "--out", str(tmp_path / "o")])
     assert "Data sheet, row 2: the Cost 'lots' is not a number" in (
         caplog.text + capsys.readouterr().err)
+
+
+# ------------------------------------------------- into cost risk, lognormal
+def risk_workbook(path, elements, settings=(("Iterations", 100000), ("Seed", 3))):
+    from cost_core import costrisk
+
+    return costrisk.write_workbook(
+        path, elements=pd.DataFrame(elements),
+        risks=pd.DataFrame(columns=["Risk", "Probability", "Low", "Most Likely", "High",
+                                    "Element"]),
+        pairs=pd.DataFrame(columns=["Element A", "Element B", "Correlation"]),
+        settings=pd.DataFrame(list(settings), columns=["Setting", "Value"]))
+
+
+@pytest.mark.parametrize("share, setting", [(0.8, None), (0.9, "90%")])
+def test_a_lognormal_element_puts_low_and_high_at_its_range(tmp_path, share, setting):
+    from cost_core import costrisk
+
+    settings = [("Iterations", 100000), ("Seed", 3)] + (
+        [("Lognormal Range", setting)] if setting else [])
+    p = risk_workbook(tmp_path / "r.xlsx", {
+        "Element": ["Radar", "Software"], "Point Estimate": [100.0, 40.0],
+        "Low": [80.0, 35.0], "Most Likely": [None, 40.0], "High": [125.0, 60.0],
+        "Distribution": ["lognormal", ""]}, settings)
+    r = costrisk.analyse(costrisk.read_workbook(p))
+    tail = (1 - share) / 2 * 100
+    got = np.percentile(r.sim.element_samples[:, 0], [tail, 50, 100 - tail])
+    assert got == pytest.approx([80.0, 100.0, 125.0], rel=0.01)
+    assert r.assumptions["lognormal range"] == f"{share:.0%} between Low and High"
+
+
+def test_a_lognormal_needs_a_positive_range(tmp_path):
+    from cost_core import costrisk
+
+    for low, high, message in ((None, 120.0, "needs both a Low and a High"),
+                               (0.0, 120.0, "0 < Low < High")):
+        p = risk_workbook(tmp_path / "r.xlsx", {
+            "Element": ["Radar"], "Point Estimate": [100.0], "Low": [low],
+            "Most Likely": [None], "High": [high], "Distribution": ["lognormal"]})
+        with pytest.raises(costrisk.CostRiskError, match=message):
+            costrisk.read_workbook(p)
+
+
+def test_an_off_centre_point_estimate_is_noted(tmp_path):
+    from cost_core import costrisk
+
+    p = risk_workbook(tmp_path / "r.xlsx", {
+        "Element": ["Radar"], "Point Estimate": [110.0], "Low": [80.0],
+        "Most Likely": [None], "High": [125.0], "Distribution": ["lognormal"]})
+    assert any("centred on 100" in n for n in costrisk.read_workbook(p).notes)
+
+
+def test_cer_estimates_carry_into_cost_risk(tmp_path, capsys):
+    from openpyxl import load_workbook
+    from cost_core import costrisk
+
+    cli.main(["cer", "--data", str(write_workbook(tmp_path / "cer.xlsx")), "--out",
+              str(tmp_path / "o")])
+    capsys.readouterr()
+    rows = pd.read_csv(tmp_path / "o" / "cost_risk_rows.csv")
+    sheet = load_workbook(tmp_path / "o" / "report.xlsx")["For cost risk"]
+    assert "default Lognormal Range" in sheet["A1"].value
+    est = pd.read_csv(tmp_path / "o" / "estimates.csv").iloc[0]
+    r = costrisk.analyse(costrisk.read_workbook(risk_workbook(tmp_path / "r.xlsx",
+                                                              rows.iloc[:1])))
+    got = np.percentile(r.sim.element_samples[:, 0], [10, 50, 90])
+    assert got == pytest.approx([est["lower"], est["estimate"], est["upper"]], rel=0.01)
+    cli.main(["cer", "--data", str(tmp_path / "cer.xlsx"), "--out", str(tmp_path / "p"),
+              "--confidence", "0.9"])
+    capsys.readouterr()
+    note = load_workbook(tmp_path / "p" / "report.xlsx")["For cost risk"]["A1"].value
+    assert "set Lognormal Range to 0.9" in note

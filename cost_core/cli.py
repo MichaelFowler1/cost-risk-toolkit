@@ -470,12 +470,15 @@ def run_cer(args) -> None:
     study.comparison().to_csv(out / "methods.csv", index=False)
     study.coefficients().to_csv(out / "coefficients.csv", index=False)
     study.estimates.to_csv(out / "estimates.csv", index=False)
+    if len(study.estimates):
+        study.cost_risk_rows().to_csv(out / "cost_risk_rows.csv", index=False)
     study.diagnostics().to_csv(out / "diagnostics.csv", index=False)
     study.data_table().to_csv(out / "data.csv", index=False)
     (out / "assumptions.json").write_text(json.dumps(
         {**study.assumptions, "equation": study.cer.equation(), "notes": study.notes},
         indent=1, default=str), encoding="utf-8")
     written = ["report.xlsx", "methods.csv", "coefficients.csv", "estimates.csv",
+               *(["cost_risk_rows.csv"] if len(study.estimates) else []),
                "diagnostics.csv", "data.csv", "assumptions.json"]
     try:
         from cost_core.reporting.charts import plot_cer_diagnostics

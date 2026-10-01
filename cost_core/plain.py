@@ -287,6 +287,10 @@ def cer(study, units: str = "") -> List[str]:
         out.append(line)
     if len(est) > 4:
         out.append(f"{len(est) - 4} more estimates are in the Estimates table.")
+    if len(est):
+        out.append("To carry these into a cost risk analysis, copy the For cost risk rows "
+                   "onto a cost-risk Elements sheet: each comes in as a lognormal with this "
+                   "interval as its range.")
     bias = study.bias()
     if bias is not None and bias.percent_understated >= 0.5:
         if c.method == "ols":

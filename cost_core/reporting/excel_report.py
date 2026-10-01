@@ -605,6 +605,16 @@ def cer_workbook(study, path) -> Path:
                  note=f"{study.inputs.level:.0%} prediction intervals: where one new program "
                       "is expected to land. se_fitting_scale and df are what a cost risk "
                       "model needs to carry this uncertainty.")
+    if len(study.estimates):
+        rb.table("For cost risk", study.cost_risk_rows(),
+                 {"Point Estimate": money, "Low": money, "High": money},
+                 note="Copy these rows onto the Elements sheet of a cost-risk workbook to "
+                      "carry each estimate's uncertainty into the risk analysis. Low and "
+                      f"High are the {study.inputs.level:.0%} prediction interval"
+                      + ("; that's cost-risk's default Lognormal Range." if
+                         abs(study.inputs.level - 0.8) < 1e-9 else
+                         f"; set Lognormal Range to {study.inputs.level:g} on its Settings "
+                         "sheet."))
     rb.table("Methods compared", study.comparison(),
              {"std_error": money, "cv": PCT, "mean_pct_error": PCT, "obs_per_param": NUM,
               "r_squared": NUM},

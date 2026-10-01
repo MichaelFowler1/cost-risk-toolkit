@@ -24,6 +24,13 @@ housekeeping detail here, because someone may have put the old one in a budget.
   out with a note. `report.xlsx`, `brief.pptx`, a four-panel chart and CSVs.
   `ce-core demo cer`, `ce-core template cer` and `ce-core open` know it, and
   `ce-core.toml`'s units apply when the workbook gives none.
+- **A CER's estimate carries into cost risk.** cost-risk elements take a
+  `lognormal` distribution whose Low and High are the ends of an 80% range
+  (a Lognormal Range setting changes it, e.g. 90%), and `ce-core cer` writes
+  each estimate as such a row: a "For cost risk" sheet in `report.xlsx` and
+  `cost_risk_rows.csv`, ready to paste onto the Elements sheet. The simulated
+  10th and 90th percentiles land on the CER's interval. A point estimate off
+  the centre of its lognormal range is noted.
 - The CER chart takes the interval level and the units, and with several
   drivers its first panel plots actual against fitted cost.
 

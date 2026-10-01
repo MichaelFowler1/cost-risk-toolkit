@@ -416,6 +416,18 @@ class CerStudy:
     def diagnostics(self) -> pd.DataFrame:
         return self.cer.diagnostics().to_frame()
 
+    def cost_risk_rows(self) -> pd.DataFrame:
+        """The estimates as rows for a cost-risk Elements sheet.
+
+        A lognormal whose Low and High are the prediction interval's ends:
+        cost-risk reads them as the 80% range by default, so a study at
+        another confidence says so in the setting to use alongside.
+        """
+        est = self.estimates
+        return pd.DataFrame({"Element": est["name"], "Point Estimate": est["estimate"],
+                             "Low": est["lower"], "Most Likely": np.nan,
+                             "High": est["upper"], "Distribution": "lognormal"})
+
     def data_table(self) -> pd.DataFrame:
         """Every row of the Data sheet, fitted value beside the ones used."""
         d = self.inputs.data
