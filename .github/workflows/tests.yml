@@ -18,8 +18,20 @@ on:
   schedule:
     - cron: "17 6 * * 1"
 
+# A newer commit on the same branch makes an older run moot, so cancel it
+# rather than finish it. The event is part of the group so a branch's push
+# run and its pull request's run never cancel each other.
+concurrency:
+  group: tests-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
   test:
+    # Skipped on the pull_request event of a branch in this repository,
+    # whose push already tests the same commit; a fork's pull request runs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     name: python ${{ matrix.python-version }}${{ matrix.label }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
@@ -112,7 +124,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[plots,optimize]'
-          pip install pytest
+          # pytest-xdist runs the suite on every core the runner has (four on
+          # GitHub's): 1,381 tests in 49 s on four workers against 1 min 55 s
+          # on one, measured on the capture machine, with the same results.
+          pip install pytest pytest-xdist
           # An independent check on MUPE (tests/test_cer_study.py); optional,
           # so a Python version it has no wheel for skips the check.
           pip install statsmodels || echo "statsmodels unavailable; its check is skipped"
@@ -161,7 +176,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run tests
-        run: pytest tests/ -q
+        run: pytest tests/ -q -n auto
 
       - name: Smoke-test the end-to-end CLI
         # The full path writes real PNGs and a log; a broken chart or a
@@ -173,6 +188,11 @@ jobs:
           test -s /tmp/ce_run/charts/tornado.png
 
   sbom:
+    # Skipped on the pull_request event of a branch in this repository,
+    # whose push already tests the same commit; a fork's pull request runs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     # A software bill of materials: every package a full install pulls in,
     # with its version and licence, in CycloneDX, the form software approval
     # reviews take. Built from a clean environment with every extra, so it
@@ -223,6 +243,11 @@ jobs:
           retention-days: 30
 
   excel-formulas:
+    # Skipped on the pull_request event of a branch in this repository,
+    # whose push already tests the same commit; a fork's pull request runs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     # The EVM workbook writes its metrics as Excel formulas, so a reviewer
     # can see how each was made. This recalculates the workbook in a real
     # spreadsheet engine (LibreOffice Calc, headless) and checks every
@@ -230,7 +255,7 @@ jobs:
     # no Calc, so without this job that test would only ever skip.
     name: Excel formulas recalculated
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -238,10 +263,35 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install LibreOffice Calc and the package
+      # LibreOffice is about 50 packages from Ubuntu's mirror, and a slow
+      # mirror took this job past its time limit before any test ran, twice
+      # on 2026-10-01. So the downloaded packages are cached, and saved
+      # whatever happens below: a run that times out mid-download still keeps
+      # what it fetched, and the next one fetches only the rest. Each save
+      # gets its run's key; restore takes the newest.
+      - uses: actions/cache/restore@v6
+        with:
+          path: ~/apt-archives
+          key: libreoffice-calc-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: libreoffice-calc-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Download LibreOffice Calc
+        timeout-minutes: 15
         run: |
+          mkdir -p ~/apt-archives/partial
           sudo apt-get update -q
-          sudo apt-get install -y -q --no-install-recommends libreoffice-calc
+          sudo apt-get install -y -q --download-only --no-install-recommends             -o Dir::Cache::Archives="$HOME/apt-archives" libreoffice-calc
+
+      - uses: actions/cache/save@v6
+        if: always()
+        with:
+          path: ~/apt-archives
+          key: libreoffice-calc-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+
+      - name: Install LibreOffice Calc and the package
+        timeout-minutes: 5
+        run: |
+          sudo apt-get install -y -q --no-install-recommends             -o Dir::Cache::Archives="$HOME/apt-archives" libreoffice-calc
           python -m pip install --upgrade pip
           pip install -e '.[plots,optimize]' pytest
 
@@ -249,6 +299,11 @@ jobs:
         run: pytest tests/test_excel_report.py -q -rs
 
   package:
+    # Skipped on the pull_request event of a branch in this repository,
+    # whose push already tests the same commit; a fork's pull request runs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     # The publish workflow builds the distributions in one job and uploads
     # them from another, passing them across with upload-artifact and
     # download-artifact. That path otherwise runs only when a release is cut,
@@ -278,6 +333,11 @@ jobs:
           retention-days: 1
 
   package-install:
+    # Skipped on the pull_request event of a branch in this repository,
+    # whose push already tests the same commit; a fork's pull request runs.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name != github.repository
     name: install the built wheel
     needs: package
     runs-on: ubuntu-latest
