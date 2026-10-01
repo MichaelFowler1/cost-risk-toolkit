@@ -10,6 +10,14 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-09-30
+
+What a team needs on its first day (markings, its own slide master, settings
+it sets once, a command that opens any file, then-year conversion, the monthly
+EVM checks and a reserve that can be shared out), and 74 fixes from a sweep
+that set seven reviewers on getting a wrong answer out of every part of
+cost-core. Some numbers move; Changed says which, and by how much.
+
 ### Added
 - **Markings.** `--marking "TEXT"` on every command that writes a report
   stamps exactly that text at the top and bottom of every slide and in every
@@ -918,7 +926,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.5.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.2...v2.5.0
 [2.4.2]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.0...v2.4.1
