@@ -82,6 +82,9 @@ def mark_workbook(wb) -> None:
     text = marking()
     if not text:
         return
+    # In a header or footer "&" starts a code ("&D" is the date), so "R&D"
+    # would print as "R" and today's date; "&&" prints one "&".
+    text = text.replace("&", "&&")
     for ws in wb.worksheets:
         for hf in (ws.oddHeader, ws.evenHeader, ws.firstHeader):
             hf.center.text = text

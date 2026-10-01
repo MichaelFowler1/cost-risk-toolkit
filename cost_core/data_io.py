@@ -51,6 +51,16 @@ def _validate_cost_schema(df: pd.DataFrame) -> pd.DataFrame:
     df = df[existing_valid].copy()
 
     # 3. Enforce Types
+    for col in existing_valid:
+        # A fractional quantity cast to an integer would be truncated without
+        # a word (10.9 units read as 10).
+        if "int" in str(COLUMN_TYPES[col]).lower():
+            values = pd.to_numeric(df[col], errors="coerce")
+            fractional = values.notna() & (values % 1 != 0)
+            if fractional.any():
+                raise ValidationError(
+                    f"Column {col!r} must hold whole numbers; got "
+                    f"{list(values[fractional].head(3))}.")
     try:
         for col in existing_valid:
             # We use nullable types or standard numpy/pandas types

@@ -398,7 +398,14 @@ def _reconcile(data: EvmData, pmb: dict) -> List[str]:
             out.append(f"Control accounts sum to {key} {value:,.0f} against the PMB's "
                        f"{float(theirs):,.0f} ({gap:+,.0f}); summary-level OH, COM or G&A "
                        "not flagged non-add would account for a shortfall.")
+    their_bac = pmb.get("BAC_Dollars")
+    if their_bac is not None and pd.notna(their_bac):
+        gap = float(data.bac) - float(their_bac)
+        if abs(gap) > 0.005 * max(abs(float(their_bac)), 1.0):
+            out.append(f"Control accounts sum to a BAC of {float(data.bac):,.0f} against the "
+                       f"PMB's {float(their_bac):,.0f} ({gap:+,.0f}): an account's budget to "
+                       "complete may be missing.")
     if not out:
         out.append("Control accounts reconcile with the PMB's cumulative BCWS, BCWP and ACWP "
-                   "within 0.5%.")
+                   "(and its BAC, where given) within 0.5%.")
     return out

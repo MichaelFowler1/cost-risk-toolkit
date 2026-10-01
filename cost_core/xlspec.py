@@ -40,7 +40,8 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from cost_core.costrisk import CostRiskError, _norm, _number, excel_rows, open_workbook
+from cost_core.costrisk import (CostRiskError, _norm, _number, excel_rows, headingless,
+                                open_workbook)
 
 
 class SpecError(ValueError):
@@ -176,6 +177,9 @@ def _trio(spec, scale: float = 1.0) -> Tuple[Any, Any, Any, str]:
     if spec is None:
         return None, None, None, ""
     t = spec.get("type")
+    if t == "pert" and float(spec.get("lambda_", 4.0)) != 4.0:
+        raise SpecError(f"A PERT with lambda_ {spec['lambda_']:g} has no workbook form (the "
+                        "workbook's PERT is the usual lambda of 4); keep this spec as JSON.")
     if t in ("triangular", "pert"):
         return (spec["left"] * scale, spec["mode"] * scale, spec["right"] * scale,
                 "" if t == "triangular" else t)
@@ -222,7 +226,7 @@ def _read_settings(kind: str, frame: Optional[pd.DataFrame]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     if frame is None:
         return out
-    frame = frame.dropna(how="all")
+    frame = headingless(frame, known).dropna(how="all")
     for i, rec in zip(excel_rows(frame), frame.itertuples(index=False)):
         if len(rec) < 2 or _blank(rec[0]) or _blank(rec[1]):
             continue
@@ -279,7 +283,7 @@ def _link_text(p) -> str:
     kind = p[2].upper() if len(p) > 2 else "FS"
     lag = float(p[1]) if len(p) > 1 else 0.0
     out = p[0] + ("" if kind == "FS" else f" {kind}")
-    return out + (f" {lag:+g}" if lag else "")
+    return out + (f" {lag:+.10g}" if lag else "")
 
 
 def _read_jcl(sheets: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
@@ -364,12 +368,12 @@ def _read_jcl(sheets: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
                 if ml:
                     r["delay"] = ml
             else:
-                if ml is None:
+                dd = _get(risks, rec, row, "Delay Distribution", number=False, default="")
+                # A uniform delay has no most likely; the others need one.
+                if ml is None and str(dd or "").strip().lower() != "uniform":
                     raise SpecError(f"{where}: give a Delay Most Likely as well as the Low and "
                                     "High, or a single Delay.")
-                r["delay"] = _dist(lo, ml, hi,
-                                   _get(risks, rec, row, "Delay Distribution", number=False,
-                                        default=""), where)
+                r["delay"] = _dist(lo, ml, hi, dd, where)
             cost = g("Cost")
             if cost:
                 r["cost"] = cost
@@ -441,8 +445,13 @@ def _read_aoa(sheets: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
         if not years:
             raise SpecError("The Phased sheet needs one column per year, headed 2027, "
                             "2028 and so on.")
+        first_row: Dict[Tuple[str, str], int] = {}
         for row, rec in phased.rows():
             key = (_text(rec[pa]), _text(rec[pl]))
+            if key in table:
+                raise SpecError(f"Phased sheet, row {row}: {key[0]} / {key[1]} already has row "
+                                f"{first_row[key]}. Keep one row per line.")
+            first_row[key] = row
             table[key] = {y: v for y, c in years.items()
                           if (v := _num(rec[c], "Phased", row, str(y))) is not None}
     for row, rec in lines.rows():
@@ -457,6 +466,11 @@ def _read_aoa(sheets: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
         d: Dict[str, Any] = {"name": line, "phase": _text(rec[p_col])}
         g = lambda *n: _get(lines, rec, row, *n)  # noqa: E731
         total, amount = g("Total"), g("Annual Amount", "Amount")
+        given = [w for w, v in (("a Total", total), ("an Annual Amount", amount),
+                                ("a row on the Phased sheet", (alt_name, line) in table or None))
+                 if v is not None]
+        if len(given) > 1:
+            raise SpecError(f"{where}: has {' and '.join(given)}. Give the cost one way.")
         if total is not None:
             start, years = g("Start Year", "Start"), g("Years")
             if start is None or years is None:
@@ -546,6 +560,9 @@ def _read_portfolio(sheets: Dict[str, pd.DataFrame]) -> Dict[str, Any]:
         v = _num(rec[b_col], "Budget", row, "budget")
         if y is None or v is None:
             raise SpecError(f"Budget sheet, row {row}: give both the Year and the Budget.")
+        if str(int(y)) in spec["budget"]:
+            raise SpecError(f"Budget sheet, row {row}: {int(y)} is already on the sheet. "
+                            "Keep one row per year.")
         spec["budget"][str(int(y))] = v
     cands = _Sheet("Candidates", sheets.get("candidates"))
     if not cands:
@@ -664,8 +681,8 @@ INSTRUCTIONS = {
          "scale that is the same for all of them. Correlation (default 0.3) is how much its "
          "cost lines overrun together."),
         ("Lines sheet", "One cost line per row, naming its Alternative. Give its cost one of "
-         "three ways: a Total spread over Years from a Start Year (Profile uniform, or "
-         "bell); an Annual Amount from a First Year to a Last Year; or a row on the Phased "
+         "three ways: a Total spread over Years from a Start Year (Profile uniform, "
+         "front, back or bell); an Annual Amount from a First Year to a Last Year; or a row on the Phased "
          "sheet with the amount in each year."),
         ("Uncertainty", "Low, Most Likely and High Factor multiply the line: 0.9, 1.0, 1.4 "
          "means 10% under to 40% over. Leave them blank for a line with no uncertainty."),
@@ -685,8 +702,9 @@ INSTRUCTIONS = {
         ("Exclusive sheet", "Candidates only one of which may be funded, separated by ; on "
          "a row."),
         ("Settings sheet", "Growth Low, Most Likely and High are the cost growth factors "
-         "for the risk analysis (0.92, 1.0, 1.45). Delta is the budget step for the "
-         "trade-off curve."),
+         "for the risk analysis (0.92, 1.0, 1.45). Delta is the extra money to test in "
+         "one year: what it would buy if added to each year in turn. Frontier Scales "
+         "are the budget levels for the trade-off curve (0.9; 1.0; 1.1)."),
     ],
 }
 

@@ -125,6 +125,10 @@ def _missing_message(missing, found) -> str:
             "Run `ce-core template evm` for a spreadsheet laid out the right way.")
 
 
+#: The independent EACs the summary and the warning signs both compare with.
+IEAC_SET = ("ieac_cpi", "ieac_cpi_spi", "ieac_cpi_spi_t", "ieac_cpi_3", "ieac_weighted")
+
+
 def _period_order(labels: pd.Series) -> np.ndarray:
     """Positions that put period labels in time order.
 
@@ -134,11 +138,28 @@ def _period_order(labels: pd.Series) -> np.ndarray:
     num = pd.to_numeric(labels, errors="coerce")
     if num.notna().all():
         return np.argsort(num.to_numpy(), kind="stable")
+    text = labels.astype(str).str.strip()
+    # Month and year, as EVM exports write them ("Oct-25", "Oct 2025",
+    # "10/2025"): tried before the general parser, which reads "Oct-25" as
+    # 25 October of year 1 and loses the year.
+    for fmt in ("%b-%y", "%b %y", "%b-%Y", "%b %Y", "%B %Y", "%B-%Y", "%m/%Y", "%Y-%m",
+                "%b%y", "%Y%m"):
+        dates = pd.to_datetime(text, format=fmt, errors="coerce")
+        if dates.notna().all():
+            return np.argsort(dates.to_numpy(), kind="stable")
+    # "Month 1" ... "Month 10", "P1" ... "P12": one word and a number.
+    parts = text.str.extract(r"^(\D*?)\s*(\d+)$")
+    if parts[1].notna().all() and parts[0].nunique() == 1:
+        return np.argsort(parts[1].astype(int).to_numpy(), kind="stable")
     try:
-        dates = pd.to_datetime(labels.astype(str), errors="raise", format="mixed")
-        return np.argsort(dates.to_numpy(), kind="stable")
+        dates = pd.to_datetime(text, errors="raise", format="mixed")
+        if (dates.dt.year >= 1900).all():
+            return np.argsort(dates.to_numpy(), kind="stable")
     except (ValueError, TypeError):
-        return np.argsort(labels.astype(str).to_numpy(), kind="stable")
+        pass
+    # Nothing recognised: keep the file's own order rather than sort as text,
+    # which would put "Month 10" before "Month 2".
+    return np.arange(len(labels))
 
 
 def earned_schedule(pv_cum: Sequence[float], ev: Union[float, np.ndarray]):
@@ -162,7 +183,9 @@ def earned_schedule(pv_cum: Sequence[float], ev: Union[float, np.ndarray]):
     nxt = np.minimum(c + 1, len(pv) - 1)
     step = pv[nxt] - pv[c]
     frac = np.where(last | (step <= 0), 0.0, (ev - pv[c]) / np.where(step > 0, step, 1.0))
-    out = np.where(ev <= 0, 0.0, c + frac)
+    # Nothing earned still earns the periods that planned nothing (Lipke counts
+    # every period whose cumulative PV is at most EV).
+    out = np.where(ev < 0, 0.0, c + frac)
     return float(out) if out.ndim == 0 else out
 
 
@@ -303,6 +326,7 @@ class EvmData:
                            f"{rows}{', ...' if unnamed.sum() > 5 else ''}). Fill the name in, "
                            "or delete the account column to treat the data as one program.")
         accounts = {}
+        gap_notes: List[str] = []
         for key, part in df.groupby(account, sort=False):
             if part[period].duplicated().any():
                 raise EvmError(f"Account {key}: a period appears twice.")
@@ -319,7 +343,19 @@ class EvmData:
                     v[c] = v[c].fillna(0.0)
             v.loc[~past, ["bcwp", "acwp"]] = np.nan
             if "eac" in v.columns:
+                # An account's last EAC stands until it reports another, so a
+                # finished account still counts in the program's EAC.
+                v["eac"] = v["eac"].ffill()
                 v.loc[~past, "eac"] = np.nan
+            reported = [labels.index(p) for p in part.loc[
+                part["bcwp"].notna() & part["acwp"].notna(), period]]
+            if reported and max(reported) + 1 < status:
+                later = v["bcws"].iloc[max(reported) + 1:status]
+                if (later > 0).any() if not cumulative else (later.diff().fillna(0) > 0).any():
+                    gap_notes.append(
+                        f"Account {key} reports nothing after {labels[max(reported)]}, "
+                        f"though work was planned up to the status period "
+                        f"{labels[status - 1]}; those periods are counted as no progress.")
             frame = v.rename_axis(period).reset_index()
             accounts[str(key)] = cls.from_frame(frame, cumulative=cumulative, name=str(key),
                                                 period=period, account=None)
@@ -332,6 +368,7 @@ class EvmData:
         total = total.reindex(labels)
         out = cls._from_cumulative(labels, total, bac, name)
         out.accounts = accounts
+        out.notes = list(out.notes) + gap_notes
         return out
 
     @classmethod
@@ -422,6 +459,12 @@ class EvmData:
             "ieac_linear": ac + remaining,
             "ieac_t": _div(pd_, spi_t),
         })
+        if self.first_observed > 1:
+            # Before the first delivery the baseline was spread evenly, not
+            # reported; an earned schedule landing there would be measured
+            # against a curve nobody planned, so it's left blank.
+            invented = m["es"] < self.first_observed - 1
+            m.loc[invented, ["es", "sv_t", "spi_t", "tspi", "ieac_cpi_spi_t", "ieac_t"]] = np.nan
         eac = self.eac if self.eac is not None else np.full(n, np.nan)
         m["eac"] = eac
         m["tcpi_eac"] = _div(remaining, eac - ac)
@@ -430,8 +473,7 @@ class EvmData:
     def summary(self) -> pd.DataFrame:
         """The status period's numbers, one per row, for a briefing."""
         r = self.metrics().iloc[-1]
-        ieacs = r[["ieac_cpi", "ieac_cpi_spi", "ieac_cpi_spi_t", "ieac_cpi_3",
-                   "ieac_weighted"]].astype(float)
+        ieacs = r[list(IEAC_SET)].astype(float)
         rows = [
             ("status period", r["period"]),
             ("budget at completion (BAC)", self.bac),
@@ -465,13 +507,19 @@ class EvmData:
         def add(flag, raised, detail):
             out.append({"flag": flag, "raised": bool(raised), "detail": detail})
 
+        work_left = r["bcwp"] < self.bac
         if np.isfinite(r["eac"]):
-            gap = r["tcpi_eac"] - r["cpi"]
-            add("TCPI to the EAC exceeds the CPI by more than 0.10", gap > 0.10,
-                f"TCPI(EAC) {r['tcpi_eac']:.3f} against CPI {r['cpi']:.3f}: to land on the "
-                f"EAC the remaining work has to run at a CPI of {r['tcpi_eac']:.3f}, against "
-                f"{r['cpi']:.3f} so far.")
-            low = min(r["ieac_cpi"], r["ieac_cpi_spi"], r["ieac_cpi_3"], r["ieac_weighted"])
+            if work_left and r["acwp"] >= r["eac"]:
+                add("TCPI to the EAC exceeds the CPI by more than 0.10", True,
+                    f"Actual cost {r['acwp']:,.1f} already exceeds the EAC of "
+                    f"{r['eac']:,.1f} with work still to do, so the EAC can't hold.")
+            else:
+                gap = r["tcpi_eac"] - r["cpi"]
+                add("TCPI to the EAC exceeds the CPI by more than 0.10", gap > 0.10,
+                    f"TCPI(EAC) {r['tcpi_eac']:.3f} against CPI {r['cpi']:.3f}: to land on "
+                    f"the EAC the remaining work has to run at a CPI of {r['tcpi_eac']:.3f}, "
+                    f"against {r['cpi']:.3f} so far.")
+            low = min((float(r[c]) for c in IEAC_SET if np.isfinite(r[c])), default=np.nan)
             add("Contractor EAC below every independent EAC", r["eac"] < low,
                 f"EAC {r['eac']:,.1f} against the lowest independent EAC {low:,.1f}.")
             implied = self.bac / r["eac"]
@@ -488,8 +536,13 @@ class EvmData:
             and r["spi"] - r["spi_t"] > 0.10,
             f"SPI {r['spi']:.3f}, SPI(t) {r['spi_t']:.3f} at {r['pct_complete']:.0%} complete: "
             "late in a program SPI returns towards 1.0 whatever the schedule.")
-        add("TCPI to BAC above 1.10", r["tcpi_bac"] > 1.10,
-            f"Finishing within budget needs a CPI of {r['tcpi_bac']:.3f} from here.")
+        if work_left and r["acwp"] >= self.bac:
+            add("TCPI to BAC above 1.10", True,
+                f"Actual cost {r['acwp']:,.1f} already exceeds the budget of {self.bac:,.1f} "
+                "with work still to do, so finishing within budget is no longer possible.")
+        else:
+            add("TCPI to BAC above 1.10", r["tcpi_bac"] > 1.10,
+                f"Finishing within budget needs a CPI of {r['tcpi_bac']:.3f} from here.")
         # Earned value can't pass the whole budget: more work claimed done
         # than the program holds is a data problem, not a performance one.
         add("Earned value exceeds the budget at completion", r["pct_complete"] > 1.0,

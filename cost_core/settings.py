@@ -111,7 +111,8 @@ def values(cwd: Optional[Path] = None, home: Optional[Path] = None) -> Dict[str,
 
 TEMPLATE = """\
 # ce-core.toml: defaults for every ce-core command run from this folder.
-# A flag on the command line always wins. Delete the # to use a line.
+# A flag on the command line always wins, then a setting in the input workbook
+# or spec, then this file. Delete the # to use a line.
 
 # Text stamped at the top and bottom of every slide and every sheet, exactly as
 # written. cost-core doesn't decide or check markings; your organisation does.

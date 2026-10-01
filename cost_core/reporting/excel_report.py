@@ -244,8 +244,11 @@ def _scatter(title: str, x_title: str, y_title: str) -> ScatterChart:
 
 
 # ---------------------------------------------------------------------- EVM
-def evm_workbook(data, fc, path, units: str = "") -> Path:
-    """EVM status, the metrics as live formulas, the forecast and warnings."""
+def evm_workbook(data, fc, path, units: str = "", why: str = "") -> Path:
+    """EVM status, the metrics as live formulas, the forecast and warnings.
+
+    ``fc`` None is a status without a forecast (early in a program, say),
+    ``why`` saying why there's none."""
     from cost_core import plain
 
     m = data.metrics()
@@ -254,38 +257,45 @@ def evm_workbook(data, fc, path, units: str = "") -> Path:
     rb = ReportWorkbook(f"Earned value: {data.name}",
                         f"Status period {status}. Costs in {units or 'the units of the data'}.")
     last = m.iloc[-1]
-    q = lambda p: float(np.quantile(fc.eac, p))  # noqa: E731
     headline = [
         ("Budget at completion (BAC)", data.bac, fmt),
         ("Percent complete", last.pct_complete, PCT),
         ("CPI", last.cpi, RATIO), ("SPI", last.spi, RATIO), ("SPI(t)", last.spi_t, RATIO),
         ("Schedule variance, periods (SV(t))", last.sv_t, NUM),
-        ("Forecast final cost, P50", q(0.5), fmt), ("Forecast final cost, P80", q(0.8), fmt),
-        ("Forecast finish period, P50", float(np.quantile(fc.finish, 0.5)), NUM),
-        ("Forecast finish period, P80", float(np.quantile(fc.finish, 0.8)), NUM),
-        ("Planned duration, periods", data.planned_duration, "0"),
-        ("Chance BAC is enough", fc.confidence_of_cost(data.bac), PCT),
     ]
-    if fc.contractor_eac is not None and np.isfinite(fc.contractor_eac):
+    if fc is not None:
+        q = lambda p: float(np.quantile(fc.eac, p))  # noqa: E731
+        headline += [
+            ("Forecast final cost, P50", q(0.5), fmt), ("Forecast final cost, P80", q(0.8), fmt),
+            ("Forecast finish period, P50", float(np.quantile(fc.finish, 0.5)), NUM),
+            ("Forecast finish period, P80", float(np.quantile(fc.finish, 0.8)), NUM)]
+    headline.append(("Planned duration, periods", data.planned_duration, "0"))
+    if fc is not None:
+        headline.append(("Chance BAC is enough", fc.confidence_of_cost(data.bac), PCT))
+    if fc is not None and fc.contractor_eac is not None and np.isfinite(fc.contractor_eac):
         headline += [("Contractor EAC", fc.contractor_eac, fmt),
                      ("Chance the contractor EAC holds", fc.confidence_of_cost(fc.contractor_eac),
                       PCT)]
-    rb.summary(plain.evm(data, fc, units, where="on the Warning signs sheet"), headline,
+    meaning = (plain.evm(data, fc, units, where="on the Warning signs sheet") if fc is not None
+               else plain.evm_status(data, why, units, where="on the Warning signs sheet"))
+    rb.summary(meaning, headline,
                note="The Metrics sheet computes CV, SV, CPI, SPI, TCPI and the CPI-based EAC with "
                     "Excel formulas from the BCWS, BCWP and ACWP beside them; click a cell to "
                     "see how it was made.")
     _evm_metrics_sheet(rb.wb, data, m, fmt)
     flags = data.flags()
     rb.table("Warning signs", flags.assign(raised=flags["raised"].map({True: "YES", False: ""})))
-    pct = fc.percentiles((0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9))
-    ws = rb.table("Forecast", pct, {"confidence": "0%", "eac": fmt, "finish": NUM},
-                  note="Simulated from the program's own record; see the Assumptions sheet.")
-    ch = _scatter("Final cost S-curve", "Final cost", "Confidence")
-    s = Series(Reference(ws, min_col=1, min_row=4, max_row=3 + len(pct)),
-               Reference(ws, min_col=2, min_row=4, max_row=3 + len(pct)), title="EAC")
-    ch.series.append(s)
-    ch.y_axis.number_format = "0%"
-    ws.add_chart(ch, "F3")
+    if fc is not None:
+        pct = fc.percentiles((0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9))
+        ws = rb.table("Forecast", pct, {"confidence": "0%", "eac": fmt, "finish": NUM},
+                      note="Simulated from the program's own record; see the Assumptions "
+                           "sheet.")
+        ch = _scatter("Final cost S-curve", "Final cost", "Confidence")
+        s = Series(Reference(ws, min_col=1, min_row=4, max_row=3 + len(pct)),
+                   Reference(ws, min_col=2, min_row=4, max_row=3 + len(pct)), title="EAC")
+        ch.series.append(s)
+        ch.y_axis.number_format = "0%"
+        ws.add_chart(ch, "F3")
     if data.accounts:
         rows = []
         for name, acct in data.accounts.items():
@@ -306,12 +316,14 @@ def evm_workbook(data, fc, path, units: str = "") -> Path:
     rb.table("Variance reports", variance_breaches(data, **limits),
              {"cv": fmt, "sv": fmt, "cv_pct": "0.0", "sv_pct": "0.0", "cpi": RATIO,
               "spi": RATIO},
-             note="Accounts whose cumulative variance breaks the thresholds "
-                  f"({limits or 'the defaults: 10% of BCWP for cost, 10% of BCWS for schedule'}).")
-    rb.assumptions({"status period": status, "BAC": data.bac, "simulated completions": fc.n_iter,
-                    "seed": fc.seed, "units": units,
-                    "variance thresholds": limits or "10% cost, 10% schedule (defaults)"},
-                   list(data.notes) + list(fc.notes))
+             note="Accounts whose cumulative variance breaks the thresholds ("
+                  + (_threshold_words(limits) or
+                     "the defaults: 10% of BCWP for cost, 10% of BCWS for schedule") + ").")
+    run = ({"simulated completions": fc.n_iter, "seed": fc.seed} if fc is not None
+           else {"forecast": f"none yet: {why}"})
+    rb.assumptions({"status period": status, "BAC": data.bac, **run, "units": units,
+                    "variance thresholds": _threshold_words(limits) or "10% cost, 10% schedule (defaults)"},
+                   list(data.notes) + (list(fc.notes) if fc is not None else []))
     return rb.save(path)
 
 
@@ -441,12 +453,24 @@ def dcma_workbook(result, schedule, path) -> Path:
     return rb.save(path)
 
 
+def _threshold_words(limits: dict) -> str:
+    """Variance thresholds as a phrase: "cost 10% or $50, schedule 10%"."""
+    def one(label, pct, dollars):
+        parts = ([f"{pct:g}%"] if pct is not None else []) + (
+            [f"{dollars:,g}"] if dollars is not None else [])
+        joiner = " and " if len(parts) == 2 else ""
+        return f"{label} {joiner.join(parts)}" if parts else ""
+    words = [one("cost", limits.get("cv_pct"), limits.get("cv_dollars")),
+             one("schedule", limits.get("sv_pct"), limits.get("sv_dollars"))]
+    return ", ".join(w for w in words if w)
+
+
 # --------------------------------------------------------------- cost risk
 def cost_risk_workbook(result, path) -> Path:
     from cost_core import plain
 
     units = result.units
-    money = money_format(units)
+    money = money_format(plain.units_label(units))
     sim = result.sim
     rb = ReportWorkbook("Cost risk analysis",
                         f"{sim.n_iter:,} simulations; costs in {plain.units_label(units) or 'the units entered'}.")
@@ -520,7 +544,8 @@ def aoa_workbook(result, path) -> Path:
 
 # ---------------------------------------------------------------- portfolio
 def portfolio_workbook(result, portfolio, path, units: str = "", tables: Optional[Dict[str, pd.DataFrame]] = None,
-                       risk: Optional[pd.DataFrame] = None) -> Path:
+                       risk: Optional[pd.DataFrame] = None,
+                       settings: Optional[dict] = None) -> Path:
     from cost_core import plain
 
     rb = ReportWorkbook("Portfolio: which programs to fund",
@@ -544,5 +569,5 @@ def portfolio_workbook(result, portfolio, path, units: str = "", tables: Optiona
         rb.table(name, df)
     if risk is not None:
         rb.table("Budget risk", risk, {"p_over_budget": PCT})
-    rb.assumptions({"units": units})
+    rb.assumptions({"units": units, **(settings or {})})
     return rb.save(path)

@@ -85,6 +85,10 @@ def _growth(uc: pd.DataFrame) -> pd.DataFrame:
     base_unit = uc["baseline_unit_cost"].where(uc["baseline_unit_cost"] != 0)
     base_qty = uc["baseline_quantity"].where(uc["baseline_quantity"] != 0)
     uc["unit_cost_growth_pct"] = (uc["current_unit_cost"] / base_unit - 1) * 100
+    # Then-year tables mix inflation into the change, so growth is left blank
+    # for them, as the docs say; the base-year rows carry the real growth.
+    if "dollars" in uc:
+        uc.loc[uc["dollars"].astype(str).str.upper().eq("TY"), "unit_cost_growth_pct"] = float("nan")
     uc["quantity_change_pct"] = (uc["current_quantity"] / base_qty - 1) * 100
     return uc
 

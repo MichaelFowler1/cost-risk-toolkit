@@ -271,6 +271,10 @@ def run_fit_lots(args: argparse.Namespace) -> None:
         print(report.intervals().to_string(na_rep="", index=False))
 
         simulation = None
+        if args.simulate and not forecast:
+            abort("--simulate prices the buy you're forecasting, so it needs --forecast "
+                  "(for example --forecast \"30,40\"). Without it there'd only be the lots "
+                  "already built to simulate.")
         if args.simulate:
             simulation = report.simulate(n_iter=args.simulate, seed=args.seed)
             print()
@@ -361,6 +365,24 @@ def run_full(args: argparse.Namespace) -> None:
         abort(f"Full run failed: {e}")
 
 
+def toml_defaults(label_units: bool = True) -> dict:
+    """ce-core.toml's seed, iterations and units, as n_iter, seed and units.
+
+    For the commands whose input file can carry its own: a flag wins, then
+    the file, then these. Units come as the label ($M) unless asked not to."""
+    from cost_core import plain
+    from cost_core import settings as settings_mod
+
+    try:
+        v = settings_mod.values()
+    except settings_mod.SettingsError:
+        return {}
+    out = {"n_iter": v.get("iterations"), "seed": v.get("seed"), "units": v.get("units")}
+    if out["units"] is not None and label_units:
+        out["units"] = plain.units_label(out["units"])
+    return {k: x for k, x in out.items() if x is not None}
+
+
 def run_cost_risk(args) -> None:
     """Simulate an estimate kept in Excel and write its cost risk analysis."""
     from pathlib import Path
@@ -371,7 +393,12 @@ def run_cost_risk(args) -> None:
     need_file(args.data, "the estimate", "cost-risk")
     try:
         inputs = read_workbook(args.data)
-        result = analyse(inputs, n_iter=args.iters, seed=args.seed, units=args.units)
+        toml = toml_defaults(label_units=False)
+        given = {"n_iter": args.iters, "seed": args.seed, "units": args.units}
+        for key, stated in (("n_iter", "iterations"), ("seed", "seed"), ("units", "units")):
+            if given[key] is None and stated not in inputs.stated:
+                given[key] = toml.get(key)
+        result = analyse(inputs, **given)
     except (CostRiskError, OSError) as e:
         abort(f"Cost risk failed: {e}")
     out = Path(args.out)
@@ -387,7 +414,7 @@ def run_cost_risk(args) -> None:
     try:
         from cost_core.reporting.charts import plot_s_curve, plot_tornado
         plot_s_curve(result.sim, out / "cost_risk_s_curve.png",
-                     comparison=result.impact.independent)
+                     comparison=result.impact.independent, units=result.units)
         plot_tornado(result.sim, out / "cost_risk_drivers.png")
         charts = ["cost_risk_s_curve.png", "cost_risk_drivers.png"]
     except ImportError:
@@ -428,7 +455,7 @@ def run_aoa(args) -> None:
 
     need_file(args.spec, "the AoA spec", "aoa")
     try:
-        result = run_spec(args.spec)
+        result = run_spec(args.spec, defaults=toml_defaults())
     except (AoAError, OSError, KeyError, ValueError) as e:
         abort(f"AoA failed: {e}")
     out = Path(args.out)
@@ -463,6 +490,7 @@ def run_aoa(args) -> None:
 
 def run_portfolio(args) -> None:
     """Solve a portfolio spec and write the choice and its analyses."""
+    import json
     from pathlib import Path
 
     try:
@@ -474,6 +502,8 @@ def run_portfolio(args) -> None:
     need_file(args.spec, "the portfolio spec", "portfolio")
     try:
         portfolio, settings = load_portfolio(args.spec)
+        for key, value in toml_defaults().items():
+            settings.setdefault(key, value)
         result = solve(portfolio)
     except ImportError:
         abort("Choosing a portfolio needs a solver, which comes with the optimize extra:\n"
@@ -488,7 +518,7 @@ def run_portfolio(args) -> None:
     result.spend.to_csv(out / "spend.csv", index=False)
     written = ["selected.csv", "spend.csv"]
     print(f"\nValue {result.value:,.2f}, funding {len(result.funded)} of "
-          f"{len(portfolio.candidates)} candidates. Costs in {units}.\n")
+          f"{len(portfolio.candidates)} candidates, {_costs_in(units)}.\n")
     print(result.selected.to_string(na_rep="", index=False, float_format=money))
     print("\nSpend by year:")
     print(result.spend.to_string(na_rep="", index=False, float_format=money))
@@ -520,11 +550,21 @@ def run_portfolio(args) -> None:
     extra = {"Value against budget": fr}
     if delta:
         extra["Marginal value"] = mv
-    portfolio_workbook(result, portfolio, out / "report.xlsx", units, extra, risk)
+    record = {"delta": delta or "not set (no marginal value run)",
+              "frontier scales": ", ".join(f"{s:g}" for s in settings.get(
+                  "frontier_scales", [0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3]))}
+    if "growth" in settings:
+        record.update({"growth": json.dumps(settings["growth"]),
+                       "growth correlation": float(settings.get("growth_correlation", 0.0)),
+                       "iterations": int(settings.get("n_iter", 20000)),
+                       "seed": settings.get("seed", 0)})
+    else:
+        record["growth"] = "not set (no budget risk run)"
+    portfolio_workbook(result, portfolio, out / "report.xlsx", units, extra, risk, record)
     written.insert(0, "report.xlsx")
     from cost_core.reporting.brief import portfolio_brief
-    written[1:1] = [w for w in [write_brief(portfolio_brief, result, portfolio, out, units, risk)]
-                    if w]
+    written[1:1] = [w for w in [write_brief(portfolio_brief, result, portfolio, out, units, risk,
+                                            record)] if w]
     print(f"Wrote {', '.join(written)} to {out}")
 
 
@@ -539,6 +579,8 @@ def run_jcl(args) -> None:
     need_file(args.spec, "the JCL spec", "jcl")
     try:
         project, settings = load_project(args.spec)
+        for key, value in toml_defaults().items():
+            settings.setdefault(key, value)
         result = simulate(project, n_iter=int(settings.get("n_iter", 20000)),
                           seed=settings.get("seed", 0))
     except (ScheduleError, OSError, KeyError, ValueError) as e:
@@ -579,7 +621,7 @@ def run_jcl(args) -> None:
         written.append("jcl.png")
     except ImportError:
         pass
-    print(f"\n{project.name}: {result.n_iter:,} simulated projects, costs in {units}.\n")
+    print(f"\n{project.name}: {result.n_iter:,} simulated projects, {_costs_in(units)}.\n")
     print(summary.to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.3f}"))
     print("\nWhere the schedule risk is:")
     print(result.criticality().to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.2f}"))
@@ -603,27 +645,47 @@ def run_evm(args) -> None:
     args.units = units_label(args.units)
     try:
         if args.ipmdar:
+            import glob
+
             from cost_core.evm.ipmdar import read_ipmdar
+            # Windows passes cpd_*.zip through as typed; a Unix shell has
+            # already expanded it.
+            args.ipmdar = [hit for p in args.ipmdar for hit in
+                           (sorted(glob.glob(p)) if any(c in p for c in "*?[") else [])
+                           or [p]]
             for p in args.ipmdar:
                 need_file(p, "the IPMDAR dataset", "evm")
             data = read_ipmdar(args.ipmdar, bac=args.bac)
         elif args.data:
             need_file(args.data, "the EVM data", "evm")
             data = EvmData.read(args.data, cumulative=args.cumulative, bac=args.bac)
+            if not args.cumulative and _looks_cumulative(data):
+                note = ("Every BCWS, BCWP and ACWP value is at least the one before it, which "
+                        "is what cumulative-to-date figures look like. If they are, rerun with "
+                        "--cumulative: read as per-period values, every total here is far too "
+                        "large.")
+                log.warning(note)
+                data.notes.append(note)
         else:
             abort("Which data? Give --data my_evm.xlsx (a spreadsheet or CSV) or --ipmdar "
                   "delivery.zip.\n  To see it work first: ce-core demo evm\n"
                   "  For a spreadsheet to fill in: ce-core template evm")
     except (EvmError, OSError, KeyError, ValueError) as e:
         abort(f"EVM failed: {e}")
-    data.variance_thresholds = {"cv_pct": args.cv_pct, "sv_pct": args.sv_pct,
-                                "cv_dollars": args.cv_dollars, "sv_dollars": args.sv_dollars}
+    # A dollar threshold given alone decides alone; the 10% default applies
+    # only where neither kind was given.
+    data.variance_thresholds = {
+        "cv_pct": args.cv_pct if args.cv_pct is not None else
+        (None if args.cv_dollars is not None else 10.0),
+        "sv_pct": args.sv_pct if args.sv_pct is not None else
+        (None if args.sv_dollars is not None else 10.0),
+        "cv_dollars": args.cv_dollars, "sv_dollars": args.sv_dollars}
     try:
         fc = forecast(data, n_iter=args.iters, seed=args.seed)
     except EvmError as e:
         # The metrics and the warning signs need only the status; a forecast
         # needs a history. Without one, report what can be reported.
-        _evm_without_forecast(data, Path(args.out), str(e))
+        _evm_without_forecast(data, Path(args.out), str(e), args.units)
         return
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -664,7 +726,7 @@ def run_evm(args) -> None:
         return str(v)
 
     print(f"\n{data.name}: status period {data.periods[data.status - 1]}, "
-          f"costs in {args.units}.\n")
+          f"{_costs_in(args.units)}.\n")
     shown = summary.assign(value=summary["value"].map(fmt))
     print(shown.to_string(na_rep="", index=False, justify="left"))
     raised = data.flags()
@@ -710,12 +772,37 @@ def _print_monthly(data, out) -> None:
             print(f"  - {r.account}: {r.why}")
 
 
-def _evm_without_forecast(data, out, why: str) -> None:
+def _looks_cumulative(data) -> bool:
+    """Whether per-period EVM figures rise every period, as cumulative ones do.
+
+    A spend plan peaks and falls away, so a baseline that only ever rises
+    over six or more periods is almost always cumulative figures read as
+    per-period ones."""
+    import numpy as np
+
+    n = int(data.status)
+    if n < 6:
+        return False
+    # EvmData holds running totals; the figures as the file gave them are
+    # the steps between those.
+    series = [np.diff(np.concatenate([[0.0], np.asarray(x, dtype=float)]))
+              for x in (data.bcws, np.asarray(data.bcwp)[:n], np.asarray(data.acwp)[:n])]
+    return all(np.all(np.diff(s[np.isfinite(s)]) >= 0) and np.nansum(s) > 0 for s in series)
+
+
+def _costs_in(units: str) -> str:
+    """"costs in $K", or "costs as entered" rather than "costs in as entered"."""
+    units = (units or "").strip()
+    return "costs as entered" if units in ("", "as entered") else f"costs in {units}"
+
+
+def _evm_without_forecast(data, out, why: str, units: str = "") -> None:
     out.mkdir(parents=True, exist_ok=True)
     data.metrics().to_csv(out / "metrics.csv", index=False)
     data.flags().to_csv(out / "flags.csv", index=False)
     data.summary().to_csv(out / "summary.csv", index=False)
-    print(f"\n{data.name}: status period {data.periods[data.status - 1]}.\n")
+    print(f"\n{data.name}: status period {data.periods[data.status - 1]}, "
+          f"{_costs_in(units)}.\n")
     print(data.summary().to_string(index=False, na_rep=""))
     raised = data.flags()
     raised = raised[raised["raised"]]
@@ -727,8 +814,14 @@ def _evm_without_forecast(data, out, why: str) -> None:
     for note in data.notes:
         print(f"  note: {note}")
     from cost_core import plain
-    print(plain.show(plain.evm_status(data, why)))
-    print(f"Wrote metrics.csv, flags.csv and summary.csv to {out}")
+    print(plain.show(plain.evm_status(data, why, units)))
+    # The status still goes in a report, carrying any marking; a briefing
+    # waits for the forecast.
+    from cost_core.reporting.excel_report import evm_workbook
+    evm_workbook(data, None, out / "report.xlsx", units, why=why)
+    print("No brief.pptx or forecast yet: they need the history a forecast is made from.")
+    print(f"Wrote report.xlsx, metrics.csv, flags.csv, summary.csv, data_checks.csv and "
+          f"variance_reports.csv to {out}")
 
 
 def run_schedule_check(args) -> None:
@@ -896,10 +989,10 @@ def run_inflate(args) -> None:
             f = float(factors(index, [year], src, dst)[0])
             i_from = index[year] if src.kind == "ty" else index[src.year]
             i_to = index[year] if dst.kind == "ty" else index[dst.year]
-            print(f"\n{args.amount:,.4g} in {src} dollars"
+            print(f"\n{args.amount:,.10g} in {src} dollars"
                   f"{f' spent in FY{year}' if 'ty' in (src.kind, dst.kind) else ''} is "
                   f"{args.amount * f:,.4f} in {dst} dollars.")
-            print(f"  = {args.amount:,.4g} x {i_to:.6g} / {i_from:.6g}   (index {name!r})")
+            print(f"  = {args.amount:,.10g} x {i_to:.10g} / {i_from:.10g}   (index {name!r})")
             return
         if not args.data:
             abort("Give --data (a table of amounts and fiscal years) or --amount.")
@@ -912,8 +1005,9 @@ def run_inflate(args) -> None:
         out_frame = convert(frame, index, src, dst, args.amount_col, args.year_col, start, name)
     except InflateError as e:
         abort(f"Inflate failed: {e}")
-    new_col = out_frame.columns[-2]
-    old_col = [c for c in frame.columns if f"{c}_" in new_col][0]
+    new_col = out_frame.attrs["converted_column"]
+    old_col = out_frame.attrs["amount_column"]
+    year_col = out_frame.attrs["year_column"]
     out = Path(args.out) if args.out else data.parent
     if out.suffix.lower() not in (".csv", ".xlsx"):   # a folder
         out = out / f"{data.stem} {dst}.csv"
@@ -922,7 +1016,7 @@ def run_inflate(args) -> None:
         out_frame.to_excel(out, index=False)
     else:
         out_frame.to_csv(out, index=False)
-    by_year = out_frame.groupby("fiscal_year")[[old_col, new_col]].sum()
+    by_year = out_frame.groupby(year_col)[[old_col, new_col]].sum()
     print(f"\n{len(out_frame)} amounts from {src} to {dst} dollars, index {name!r}:\n")
     print(by_year.to_string(float_format=lambda v: f"{v:,.2f}"))
     total_old, total_new = by_year[old_col].sum(), by_year[new_col].sum()
@@ -956,8 +1050,11 @@ def run_open(args) -> None:
               "XML and JCL, AoA and portfolio specs.")
     failed = []
     for name in args.files:
+        # One file's results go to --out itself; several each get a folder in it.
+        out = args.out if not args.out or len(args.files) == 1 else \
+            Path(args.out) / f"{Path(name).stem} results"
         try:
-            plan = opener.plan(name, args.out if len(args.files) == 1 else None)
+            plan = opener.plan(name, out)
         except opener.OpenError as e:
             log.error(str(e))
             failed.append(name)
@@ -1041,9 +1138,14 @@ def run_template(args) -> None:
     if out.exists() and not args.force:
         abort(f"{out} already exists; choose another name with --out, or add --force "
               "to replace it.")
-    written = templates.write(topic, out)
-    print(f"Wrote {written}.\n")
-    print(templates.NEXT_STEPS[topic].format(path=written))
+    try:
+        written = templates.write(topic, out)
+    except ValueError as e:
+        abort(str(e))
+    extra = templates.write_companion(topic, written)
+    print(f"Wrote {written}{f' and {extra}' if extra else ''}.\n")
+    print(templates.NEXT_STEPS[topic].format(path=written,
+                                             phasing=templates.companion_path(written)))
 
 
 def run_sar_panel(args) -> None:
@@ -1277,10 +1379,12 @@ def main(argv=None) -> None:
     p_evm.add_argument("--units", default="as entered",
                        help="What the money is in, for labels: dollars, thousands or millions "
                             "(or any text); nothing is converted")
-    p_evm.add_argument("--cv-pct", type=float, default=10.0, metavar="PCT",
-                       help="Cost variance threshold, percent of BCWP (default 10)")
-    p_evm.add_argument("--sv-pct", type=float, default=10.0, metavar="PCT",
-                       help="Schedule variance threshold, percent of BCWS (default 10)")
+    p_evm.add_argument("--cv-pct", type=float, default=None, metavar="PCT",
+                       help="Cost variance threshold, percent of BCWP (default 10, unless "
+                            "--cv-dollars is given alone)")
+    p_evm.add_argument("--sv-pct", type=float, default=None, metavar="PCT",
+                       help="Schedule variance threshold, percent of BCWS (default 10, "
+                            "unless --sv-dollars is given alone)")
     p_evm.add_argument("--cv-dollars", type=float, default=None, metavar="AMOUNT",
                        help="Cost variance threshold in money; with --cv-pct, both must be "
                             "broken")

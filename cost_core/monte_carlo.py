@@ -496,6 +496,22 @@ def make_distribution(spec: Dict[str, Any]):
     )
 
 
+def _entered_below_zero(spec: Dict[str, Any]) -> bool:
+    """Whether a bounded distribution was entered reaching below zero.
+
+    Only the bounded types count: a triangular, PERT or uniform whose low end
+    is negative, or a fixed negative value, is somebody's deliberate credit or
+    opportunity. A normal's tail below zero is an artefact of the shape, and
+    stays clamped.
+    """
+    key = {"triangular": "left", "pert": "left", "uniform": "low",
+           "fixed": "value"}.get(str(spec.get("type", "")).lower())
+    try:
+        return key is not None and float(spec.get(key, 0.0)) < 0.0
+    except (TypeError, ValueError):
+        return False
+
+
 # ==========================================================================
 # Model components
 # ==========================================================================
@@ -1104,8 +1120,13 @@ def simulate_risk_model(
     element_samples = sampler(marginals, corr, n_iter, rng)
     # Cost cannot be negative; clamp rather than let a wide normal go through.
     # An empirical marginal is validated non-negative when it is built, so this
-    # is the identity on its column and cannot break the permutation.
-    element_samples = np.maximum(element_samples, 0.0)
+    # is the identity on its column and cannot break the permutation. A range
+    # entered below zero is a credit or an opportunity, though, and is kept:
+    # clamping it would simulate something other than what the tables show.
+    element_floor = np.array(
+        [-np.inf if _entered_below_zero(e.distribution) else 0.0 for e in model.elements]
+    )
+    element_samples = np.maximum(element_samples, element_floor)
 
     if model.risks:
         occurred = np.column_stack(
@@ -1117,7 +1138,10 @@ def simulate_risk_model(
                 for r in model.risks
             ]
         )
-        risk_samples = np.where(occurred, np.maximum(impacts, 0.0), 0.0)
+        risk_floor = np.array(
+            [-np.inf if _entered_below_zero(r.impact) else 0.0 for r in model.risks]
+        )
+        risk_samples = np.where(occurred, np.maximum(impacts, risk_floor), 0.0)
     else:
         risk_samples = np.zeros((n_iter, 0))
 

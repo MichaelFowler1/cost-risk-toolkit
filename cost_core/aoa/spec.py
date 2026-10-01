@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from cost_core.aoa.lcc import AoAError, AoAResult, Alternative, CostLine, annual, evaluate, spread
 from cost_core.ingest.inflation import InflationTable
@@ -92,8 +92,11 @@ def load_spec(path) -> Dict[str, Any]:
     return kwargs
 
 
-def run_spec(path) -> AoAResult:
-    """Load a spec file and evaluate it."""
+def run_spec(path, defaults: Optional[Dict[str, Any]] = None) -> AoAResult:
+    """Load a spec file and evaluate it. ``defaults`` (n_iter, seed, units)
+    fill in what the spec itself doesn't say."""
     kwargs = load_spec(path)
+    for key, value in (defaults or {}).items():
+        kwargs.setdefault(key, value)
     alts = kwargs.pop("alternatives")
     return evaluate(alts, **kwargs)

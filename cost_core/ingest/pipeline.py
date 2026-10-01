@@ -101,6 +101,16 @@ _AUTHORITATIVE_ORDER = ("DD1921-1", "FLEXFILE", "DD1921", "DD1921-2")
 #: of restating every prior lot in every submission.
 _COST_REPORT_TYPES = ("DD1921", "DD1921-1", "DD1921-2", "FLEXFILE")
 
+#: The report type a source key stands for, when the frame has no report_type
+#: column of its own. Without this the key itself ("dd1921") became the type,
+#: which no gate recognises, and the cross-report reconciliation switched off.
+_REPORT_TYPE_OF = {"dd1921": "DD1921", "dd1921_1": "DD1921-1", "dd1921_2": "DD1921-2",
+                   "flexfile": "FLEXFILE", "quantity_report": "QUANTITY", "srdr": "SRDR"}
+
+#: FlexFile unit spellings, compared lower-case and stripped.
+_FLEX_HOURS = {"hours", "hour", "hrs", "hr", "labor hours"}
+_FLEX_DOLLARS = {"dollars", "dollar", "usd", "$", "cost"}
+
 
 class IngestError(ValueError):
     """Raised when a validation gate of error severity fails."""
@@ -203,6 +213,9 @@ class NormalizedDataset:
     inflation: InflationTable
     base_year: int
     index_name: str = DEFAULT_INDEX
+    #: Each progress-curve lot's first and last unit as its source reported
+    #: them, where it did; see learning_curve_input.
+    lot_units: pd.DataFrame | None = None
 
     # ------------------------------------------------------------ provenance
     def trace(self, row_uid: str) -> pd.DataFrame:
@@ -263,12 +276,35 @@ class NormalizedDataset:
                 "No DD1921-2 rows in the normalised data, so there is nothing "
                 "to fit a progress curve to. Check the reporting gaps gate."
             )
+        lots = lots.sort_values(["program", "lot"])
         out = lots[["program", "lot", "period", "quantity", "dollars"]].copy()
         out = out.rename(columns={"dollars": "lot_cost", "quantity": "lot_quantity"})
         out["lot_quantity"] = out["lot_quantity"].astype(int)
-        cum = out["lot_quantity"].cumsum()
-        out["first_unit"] = (cum - out["lot_quantity"] + 1).astype(int)
-        out["last_unit"] = cum.astype(int)
+        # Unit numbers come from the source's own first and last unit where it
+        # gave them, so a lot missing from the data leaves a gap instead of
+        # pulling every later lot down. Otherwise they're counted up per
+        # program, which needs every lot present.
+        if self.lot_units is not None and len(self.lot_units):
+            out = out.merge(self.lot_units, on=["program", "lot"], how="left")
+        else:
+            out["first_unit"] = np.nan
+            out["last_unit"] = np.nan
+        for program, part in out[out["first_unit"].isna()].groupby("program"):
+            numbers = pd.to_numeric(part["lot"], errors="coerce")
+            everything = pd.to_numeric(out.loc[out["program"] == program, "lot"],
+                                       errors="coerce")
+            missing = sorted(set(range(1, int(everything.max()) + 1)) - set(everything.astype(int)))
+            if missing:
+                raise IngestError(
+                    f"{program}: lot(s) {missing} are missing and the source gives no unit "
+                    "numbers, so the units of the later lots can't be counted from the "
+                    "quantities. Supply first_unit and last_unit, or the missing lots.")
+            cum = out.loc[out["program"] == program, "lot_quantity"].cumsum()
+            idx = out.index[out["program"] == program]
+            out.loc[idx, "first_unit"] = (cum - out.loc[idx, "lot_quantity"] + 1).to_numpy()
+            out.loc[idx, "last_unit"] = cum.to_numpy()
+        out["first_unit"] = out["first_unit"].astype(int)
+        out["last_unit"] = out["last_unit"].astype(int)
         out["unit_cost"] = out["lot_cost"] / out["lot_quantity"]
         return out.reset_index(drop=True)
 
@@ -277,11 +313,13 @@ class NormalizedDataset:
         srdr = self.by_report("SRDR")
         if srdr.empty:
             return pd.DataFrame(columns=["program", "equivalent_sloc", "effort_hours"])
-        grouped = srdr.groupby("program").agg(
-            equivalent_sloc=("quantity", "max"),
-            effort_hours=("hours", "sum"),
-        )
-        return grouped.reset_index()
+        # Each build (an element in a period) repeats its size on every
+        # activity row, so the size is taken once per build and then summed
+        # across builds, to pair with the effort of all of them.
+        size = (srdr.groupby(["program", "wbs_element", "period"], dropna=False)["quantity"]
+                .max().groupby("program").sum().rename("equivalent_sloc"))
+        effort = srdr.groupby("program")["hours"].sum().rename("effort_hours")
+        return pd.concat([size, effort], axis=1).reset_index()
 
     def summary(self) -> pd.DataFrame:
         """Row counts and dollar totals by report type, for the run log."""
@@ -314,6 +352,8 @@ _STAGING_COLUMNS = (
     "dollar_year_raw",
     "recurring_flag",
     "report_date",
+    "first_unit",
+    "last_unit",
     "source_report",
     "source_row",
 )
@@ -331,7 +371,8 @@ def _stage(frame: pd.DataFrame, source: str, **overrides: Any) -> pd.DataFrame:
     n = len(frame)
     data: dict[str, Any] = {
         "program": frame.get("program", pd.Series([pd.NA] * n)),
-        "report_type": frame.get("report_type", pd.Series([source] * n)),
+        "report_type": frame.get("report_type",
+                                 pd.Series([_REPORT_TYPE_OF.get(source, source)] * n)),
         "wbs_element_raw": WBS_PROGRAM_LEVEL,
         "functional_category": CATEGORY_ALL,
         "period": frame.get("period_fy", pd.Series([pd.NA] * n)),
@@ -343,6 +384,8 @@ def _stage(frame: pd.DataFrame, source: str, **overrides: Any) -> pd.DataFrame:
         "dollar_year_raw": frame.get("dollar_year", pd.Series([pd.NA] * n)),
         "recurring_flag": frame.get("recurring_flag", pd.Series([True] * n)),
         "report_date": frame.get("report_date", pd.Series([pd.NA] * n)),
+        "first_unit": frame.get("first_unit", pd.Series([np.nan] * n)),
+        "last_unit": frame.get("last_unit", pd.Series([np.nan] * n)),
         "source_report": source,
         "source_row": np.arange(n),
     }
@@ -394,8 +437,15 @@ def extract_flexfile(frame: pd.DataFrame) -> pd.DataFrame:
     value column without looking at the unit adds hours to dollars, which is
     the classic way this format goes wrong.
     """
-    hours = frame["value"].where(frame["unit"] == "hours")
-    dollars = frame["value"].where(frame["unit"] == "dollars")
+    unit = frame["unit"].astype(str).str.strip().str.lower()
+    unknown = sorted(set(unit[~unit.isin(_FLEX_HOURS | _FLEX_DOLLARS)]))
+    if unknown:
+        # An unrecognised unit would otherwise count as neither hours nor
+        # dollars, and the rows would come through as zero.
+        raise IngestError(f"FlexFile rows have unit(s) {unknown}; each must be hours or "
+                          "dollars.")
+    hours = frame["value"].where(unit.isin(_FLEX_HOURS))
+    dollars = frame["value"].where(unit.isin(_FLEX_DOLLARS))
     return _stage(
         frame,
         "flexfile",
@@ -592,6 +642,19 @@ def normalize(
 
     # --- 3. deduplicate resubmissions ------------------------------------
     staged["report_date"] = staged["report_date"].astype("string")
+    # Ordered as dates, not text: "10/15/2024" is later than "3/31/2024". A row
+    # with no date is never taken as superseded; it used to come out as
+    # neither superseded nor retained, and vanished.
+    with pd.option_context("mode.chained_assignment", None):
+        dates = pd.to_datetime(staged["report_date"], errors="coerce", format="mixed")
+    unreadable = staged["report_date"].notna() & dates.isna()
+    if unreadable.any():
+        report_out.add(
+            "report_dates_readable", False, "error",
+            f"{int(unreadable.sum())} report date(s) can't be read as dates, e.g. "
+            f"{list(staged.loc[unreadable, 'report_date'].head(3))}; resubmissions "
+            "can't be ordered without them.")
+    staged["_report_when"] = dates
     key = [
         "program", "report_type", "wbs_element", "functional_category",
         "period", "lot", "recurring_flag", "source_report",
@@ -600,9 +663,17 @@ def normalize(
     staged["_lot_key"] = staged["lot"].astype("string").fillna("~")
     group_key = [c if c != "lot" else "_lot_key" for c in key]
 
-    latest = staged.groupby(group_key, dropna=False)["report_date"].transform("max")
-    staged["superseded"] = staged["report_date"].ne(latest)
+    latest = staged.groupby(group_key, dropna=False)["_report_when"].transform("max")
+    staged["superseded"] = (staged["_report_when"].notna() & latest.notna()
+                            & staged["_report_when"].lt(latest)).astype(bool)
     n_superseded = int(staged["superseded"].sum())
+    kept_per_key = staged[~staged["superseded"]].groupby(group_key, dropna=False).size()
+    undated_dupes = int((kept_per_key > 1).sum())
+    if undated_dupes and staged["_report_when"].isna().any():
+        report_out.add(
+            "undated_resubmissions", False, "warning",
+            f"{undated_dupes} element(s) have more than one submission and no report "
+            "date to tell which is latest, so all are kept and summed. Add report_date.")
 
     live = staged[~staged["superseded"]].copy()
     report_out.add(
@@ -613,7 +684,18 @@ def normalize(
     )
 
     # --- 4. normalise dollars to the base year ---------------------------
-    stated_year = live["dollar_year_raw"].fillna(base_year).astype(int)
+    is_ty = live["basis"].astype(str).str.upper().eq("TY")
+    stated = pd.to_numeric(live["dollar_year_raw"], errors="coerce")
+    stated = stated.where(stated.notna() | ~is_ty, pd.to_numeric(live["period"], errors="coerce"))
+    by_undated = stated.isna() & ~is_ty & live["dollars_raw"].notna()  # rows with dollars
+    if by_undated.any():
+        report_out.add(
+            "dollar_year_stated", False, "warning",
+            f"{int(by_undated.sum())} base-year row(s) give no dollar year; taken as "
+            f"FY{base_year} dollars. State the dollar year so nothing is assumed.")
+    if (stated.isna() & is_ty & live["dollars_raw"].notna()).any():
+        raise IngestError("Then-year rows need a dollar year or a period to deflate from.")
+    stated_year = stated.fillna(base_year).astype(int)
     factors = np.array(
         [
             inflation.factor(int(y), base_year, index_name) if pd.notna(d) else np.nan
@@ -679,14 +761,21 @@ def normalize(
     )[list(PROVENANCE_COLUMNS)]
 
     # --- 6. validation gates ---------------------------------------------
-    _gate_row_accounting(report_out, total_in, len(staged), n_superseded, len(rows_out))
+    _gate_row_accounting(report_out, total_in, len(staged), n_superseded, len(rows_out),
+                         carried=len(live))
     _gate_provenance_complete(report_out, rows_out, provenance)
     _gate_dollar_reconciliation(report_out, live, rows_out)
     _gate_cross_report(report_out, rows_out)
     _gate_reporting_gaps(report_out, rows_out, expected_lots)
     _gate_no_negative_costs(report_out, rows_out)
 
+    spans = live[live["report_type"].eq("DD1921-2")
+                 & live["first_unit"].notna() & live["last_unit"].notna()]
+    lot_units = (spans.groupby(["program", "lot"], dropna=False)
+                 .agg(first_unit=("first_unit", "min"), last_unit=("last_unit", "max"))
+                 .reset_index()) if len(spans) else None
     dataset = NormalizedDataset(
+        lot_units=lot_units,
         rows=rows_out,
         provenance=provenance,
         validation=report_out,
@@ -750,12 +839,13 @@ def _gate_extraction_coverage(
 
 def _gate_row_accounting(
     report: ValidationReport, source_rows: int, staged: int,
-    superseded: int, out_rows: int,
+    superseded: int, out_rows: int, carried: int | None = None,
 ) -> None:
-    """Staged rows must all be either retained or superseded, and the
-    aggregation must not lose any of the retained ones."""
+    """Staged rows must all be either retained or superseded, every retained
+    row must be carried into normalisation, and the aggregation must not lose
+    any of them."""
     retained = staged - superseded
-    ok = retained >= out_rows and superseded >= 0
+    ok = retained >= out_rows and superseded >= 0 and (carried is None or carried == retained)
     report.add(
         "row_count_accounting", ok, "error" if not ok else "info",
         f"{source_rows} source rows -> {staged} staged "

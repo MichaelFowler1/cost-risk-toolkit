@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 
@@ -74,8 +75,10 @@ NEXT_STEPS = {
                  "Correlation rows with yours or none (the Instructions sheet says what goes "
                  "where). Then run:\n  ce-core cost-risk --data {path}",
     "inflate": "It shows the layout with an INVENTED 2% index. Replace the rows with your "
-               "agency's published index (index_name, fiscal_year, index_value), then run:\n"
-               "  ce-core inflate --index {path} --data my_phasing.csv --from by2026 --to ty",
+               "agency's published index (index_name, fiscal_year, index_value). "
+               "{phasing} holds the amounts to convert, one row each with its fiscal_year "
+               "and amount (an example until you replace it). Then run:\n"
+               "  ce-core inflate --index {path} --data {phasing} --from by2026 --to ty",
     "jcl": "It holds a worked example (a small spacecraft). Edit the activities, their "
            "durations, links, costs and risks (the Instructions sheet says what goes "
            "where), then run:\n  ce-core jcl --spec {path}",
@@ -95,9 +98,38 @@ _LOTS = pd.DataFrame({"lot": [f"Lot {i}" for i in range(1, 7)],
                                96_000_000, 111_600_000]})
 
 
+#: The file types each template can be written as.
+SUFFIXES = {"evm": (".xlsx", ".csv"), "cost-risk": (".xlsx",), "inflate": (".csv",),
+            "lots": (".csv",), "jcl": (".xlsx", ".json"), "aoa": (".xlsx", ".json"),
+            "portfolio": (".xlsx", ".json")}
+
+
+def companion_path(index_path) -> Path:
+    """Where the inflate template's example amounts go: beside the index."""
+    return Path(index_path).parent / "my_phasing.csv"
+
+
+def write_companion(topic: str, written) -> Optional[Path]:
+    """The inflate template's example amounts, unless that file is already
+    there (it may be someone's own)."""
+    if topic != "inflate":
+        return None
+    path = companion_path(written)
+    if path.exists():
+        return None
+    pd.read_csv(example_path("inflate")).to_csv(path, index=False)
+    return path
+
+
 def write(topic: str, out) -> Path:
     """Write the template for ``topic`` to ``out``; returns the path."""
     out = Path(out)
+    allowed = SUFFIXES.get(topic)
+    if allowed and out.suffix.lower() not in allowed:
+        # Written anyway, it would be one format under another's name, and the
+        # command it's for would fail to read it.
+        raise ValueError(f"The {topic} template is a {' or '.join(allowed)} file; name it "
+                         f"{out.stem}{allowed[0]}.")
     if out.parent != Path("."):
         out.parent.mkdir(parents=True, exist_ok=True)
     if topic == "evm":

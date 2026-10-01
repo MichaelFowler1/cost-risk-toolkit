@@ -163,10 +163,23 @@ def convert(frame: pd.DataFrame, index: Dict[int, float], src: Basis, dst: Basis
     fy = fiscal_year(frame[y], start_month)
     f = factors(index, fy, src, dst)
     out = frame.copy()
-    out["fiscal_year"] = fy
-    out[f"factor_{str(src)}_to_{str(dst)}".replace("-", "_")] = f
-    out[f"{a}_{str(dst)}".replace("-", "_")] = amounts.to_numpy() * f
-    out["index_used"] = index_name
+
+    def fresh(name: str) -> str:
+        # A table that has been through here before already has these
+        # columns; a second pass adds its own beside them.
+        base, k = name.replace("-", "_"), 2
+        name = base
+        while name in out.columns:
+            name, k = f"{base}_{k}", k + 1
+        return name
+
+    year_out = "fiscal_year" if y == "fiscal_year" else fresh("fiscal_year")
+    out[year_out] = fy
+    out[fresh(f"factor_{str(src)}_to_{str(dst)}")] = f
+    converted = fresh(f"{a}_{str(dst)}")
+    out[converted] = amounts.to_numpy() * f
+    out[fresh("index_used")] = index_name
+    out.attrs.update(amount_column=a, converted_column=converted, year_column=year_out)
     return out
 
 

@@ -155,8 +155,16 @@ def generate_analyst_summary(
     t_gate = cfg["TGate"]
     aicc_tie = cfg["AiccTie"]
 
+    # A fit that never settled has no meaningful coefficients or t-statistic,
+    # so it can't be selected however large that t-statistic looks.
+    # (A MaxIter set deliberately below 20 asks for the desktop tool's legacy
+    # behavior, unconverged fits and all, and gets it unchanged.)
+    lcr_unsettled = (ctx["mdl_lcr"] is not None
+                     and not ctx["mdl_lcr"].get("Converged", True)
+                     and cfg["MaxIter"] >= 20)
     lcr_gate = (
         s_lcr is not None
+        and not lcr_unsettled
         and gs(s_lcr, "T") is not None
         and abs(gs(s_lcr, "T")) >= t_gate
     )
@@ -244,6 +252,10 @@ def generate_analyst_summary(
             base_msg += (
                 f"Rate models gated off ({rate_why_not})."
             )
+        elif lcr_unsettled:
+            base_msg += ("LC+Rate was left out: its fit did not converge, because the lot "
+                         "sizes rise almost in step with the lot midpoints, so the data "
+                         "can't separate learning from rate.")
         elif (
             ctx["mdl_lcr"] is not None and not lcr_gate
         ):

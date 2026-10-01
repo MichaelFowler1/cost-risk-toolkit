@@ -38,7 +38,8 @@ def _money(v: float, units: str = "") -> str:
     if units in ("", "as entered", "file currency"):
         return f"{v:,.0f}"
     if units.startswith("$"):
-        return f"${v:,.0f}{units[1:]}"
+        sign = "-" if round(v) < 0 else ""
+        return f"{sign}${abs(v):,.0f}{units[1:]}"
     return f"{v:,.0f} {units}"
 
 
@@ -50,7 +51,11 @@ def ordinal(n: int) -> str:
 
 
 def _pct(p: float) -> str:
-    return "under 1%" if 0 < p < 0.01 else f"{p:.0%}"
+    if 0 < p < 0.01:
+        return "under 1%"
+    if 0.995 <= p < 1:
+        return "over 99%"
+    return f"{p:.0%}"
 
 
 def _chance(p: float) -> str:
@@ -61,6 +66,8 @@ def _chance(p: float) -> str:
         return "less than a 1% chance"
     if p >= 1:
         return "near certainty (every simulation)"
+    if p >= 0.995:
+        return "more than a 99% chance"
     pct = f"{p:.0%}"
     article = "an" if pct[0] == "8" or pct.startswith(("11%", "18%")) else "a"
     return f"{article} {pct} chance"
@@ -118,7 +125,8 @@ def _evm_monthly(data) -> List[str]:
     checks = data_checks(data)
     if len(checks):
         kinds = checks["check"].value_counts()
-        out.append(f"{len(checks)} data check{'s' if len(checks) > 1 else ''} need a question "
+        out.append(f"{len(checks)} data check{'s need' if len(checks) > 1 else ' needs'} a "
+                   "question "
                    f"asked before the numbers are trusted, most often "
                    f"'{kinds.index[0].lower()}'.")
     breaches = variance_breaches(data, **thresholds(data))
@@ -126,7 +134,8 @@ def _evm_monthly(data) -> List[str]:
         names = ", ".join(map(repr, breaches["account"].head(3)))
         more = f" and {len(breaches) - 3} more" if len(breaches) > 3 else ""
         out.append(f"{len(breaches)} account{'s' if len(breaches) > 1 else ''} break"
-                   f"{'' if len(breaches) > 1 else 's'} the variance thresholds and owe a "
+                   f"{'' if len(breaches) > 1 else 's'} the variance thresholds and "
+                   f"{'owe' if len(breaches) > 1 else 'owes'} a "
                    f"variance analysis report: {names}{more}.")
     return out
 
@@ -147,7 +156,7 @@ def _cpi_sentence(m, units: str = "") -> str:
             "budget.")
 
 
-def evm_status(data, why: str, units: str = "") -> List[str]:
+def evm_status(data, why: str, units: str = "", where: str = "listed above") -> List[str]:
     """An EVM status without a forecast: early in a program, say."""
     m = data.metrics().iloc[-1]
     out = [_cpi_sentence(m, units)]
@@ -159,7 +168,7 @@ def evm_status(data, why: str, units: str = "") -> List[str]:
     n = int(raised["raised"].sum())
     if n:
         out.append(f"There {'is 1 warning sign' if n == 1 else f'are {n} warning signs'}, "
-                   "listed above.")
+                   f"{where}.")
     out.extend(_evm_monthly(data))
     return out
 
@@ -169,7 +178,10 @@ def jcl(result, confidence: float = 0.7, units: str = "") -> List[str]:
     pct = f"{confidence:.0%}"
     cost_p = float(np.quantile(result.cost, confidence))
     fin_p = float(np.quantile(result.finish, confidence))
-    out = [f"The plan ({result.point_finish:.1f} months, {_money(result.point_cost, units)}) "
+    remaining = getattr(result, "measured_from", "start") == "status date"
+    plan = (f"From the status date, the plan ({result.point_finish:.1f} months to go, "
+            if remaining else f"The plan ({result.point_finish:.1f} months, ")
+    out = [f"{plan}{_money(result.point_cost, units)}) "
            f"has {_chance(result.point_jcl)} of being met on both cost and schedule."]
     out.append(f"To be {pct} sure of cost alone takes {_money(cost_p, units)}, and of "
                f"schedule alone {fin_p:.1f} months, but the two together have only "
@@ -185,7 +197,9 @@ def jcl(result, confidence: float = 0.7, units: str = "") -> List[str]:
     top = crit.sort_values("rank_corr_finish", ascending=False).iloc[0]
     if top.rank_corr_finish > 0:
         out.append(f"The activity whose uncertainty moves the finish most is "
-                   f"{top.activity!r} (on the critical path in {top.criticality:.0%} of "
+                   f"{(top['name'] if 'name' in top.index else top['activity'])!r} (on the "
+                   "critical path in "
+                   f"{top.criticality:.0%} of "
                    "simulated projects): reducing its risk buys the most schedule.")
     return out
 
@@ -204,8 +218,15 @@ def dcma(result, schedule) -> List[str]:
         out.append("Fix these first, since they make the dates the schedule produces "
                    "unreliable: " + ", ".join(serious) + ". dcma_tasks.csv lists every task.")
     elif result.failed == 0:
-        out.append("The logic is sound enough to trust the dates it produces, and to run a "
-                   "schedule risk analysis (JCL) on.")
+        # Soundness can only be claimed from the checks that could be made.
+        blind = sorted(set(t.loc[t["passed"].isna(), "check"]) & {1, 5, 6, 7, 12})
+        if blind:
+            out.append("Nothing assessed failed, but the logic checks "
+                       f"{', '.join(map(str, blind))} couldn't be made from this file, so "
+                       "don't take the dates as proven sound yet.")
+        else:
+            out.append("The logic is sound enough to trust the dates it produces, and to "
+                       "run a schedule risk analysis (JCL) on.")
     return out
 
 
@@ -214,16 +235,22 @@ def aoa(result, units: str = "") -> List[str]:
     s = result.summary.sort_values("p50")
     best = s.iloc[0]
     out = [f"{best.alternative!r} is the cheapest in {best.p_cheapest:.0%} of simulations, "
-           f"with a most likely life-cycle cost of {_money(best.p50, units)} "
+           f"with a life-cycle cost of {_money(best.p50, units)} to be 50% sure "
            f"({_money(best.p80, units)} to be 80% sure)."]
     if len(s) > 1:
         second = s.iloc[1]
         out.append(f"Next is {second.alternative!r} at {_money(second.p50, units)}, "
                    f"{second.p50 / best.p50 - 1:.0%} more.")
     dom = s[s["dominated_by"].notna()] if "dominated_by" in s else s.iloc[0:0]
+    by_name = s.set_index("alternative")
     for r in dom.itertuples():
-        out.append(f"{r.alternative!r} costs more than {r.dominated_by!r} and does no more, "
-                   "so it can be set aside.")
+        other = by_name.loc[r.dominated_by]
+        text = (f"{r.alternative!r} costs more on average than {r.dominated_by!r} "
+                f"({_money(r.mean, units)} against {_money(other['mean'], units)}) and does "
+                "no more, so it can be set aside.")
+        if r.p50 < other["p50"]:
+            text += " Its 50% cost is lower, but its range runs higher."
+        out.append(text)
     return out
 
 
@@ -268,11 +295,23 @@ def cost_risk(result, units: str = "") -> List[str]:
     if reserve > 0:
         top = alloc.iloc[0]
         own = float(alloc["own_p80"].sum())
-        out.append(f"Shared out, the {_money(reserve, units)} of reserve to reach P80 goes "
-                   f"mostly to {top.component!r} ({_money(top.reserve, units)}, "
-                   f"{top.share_of_reserve:.0%}). Funding every element at its own P80 "
-                   f"instead would total {_money(own, units)}, {_money(own - sim.p80, units)} "
-                   "more than the P80 of the whole: percentiles don't add.")
+        most = "most" if top.share_of_reserve >= 0.5 else "the largest part"
+        text = (f"Shared out, {most} of the {_money(reserve, units)} of reserve to reach P80 "
+                f"goes to {top.component!r} ({_money(top.reserve, units)}, "
+                f"{top.share_of_reserve:.0%}).")
+        gap = own - sim.p80
+        if gap > 0.005 * abs(sim.p80):
+            text += (f" Funding every element at its own P80 instead would total "
+                     f"{_money(own, units)}, {_money(gap, units)} more than the P80 of the "
+                     "whole: percentiles don't add.")
+        elif gap < -0.005 * abs(sim.p80):
+            unlikely = any(r.probability < 0.2 for r in result.inputs.model.risks)
+            text += (f" Each element's and risk's own P80 add up to only {_money(own, units)}, "
+                     f"{_money(-gap, units)} less than the P80 of the whole"
+                     + (", because a risk less likely than 20% counts nothing at its own P80"
+                        if unlikely else "")
+                     + ": percentiles don't add.")
+        out.append(text)
     impact = result.impact
     # Only while there is a reserve to lose: with the estimate above the P80
     # the share is undefined.
@@ -303,8 +342,9 @@ def portfolio(result, n_candidates: int, risk=None, units: str = "") -> List[str
             worst = risk.sort_values(col).iloc[-1]
             year = worst.get("year", "")
             year = int(year) if isinstance(year, float) and year.is_integer() else year
-            out.append(f"Once costs grow as history says they do, the riskiest year is {year}, "
-                       f"with {_chance(float(worst[col]))} of going over its budget.")
+            out.append(f"With costs growing over the range in the Growth settings, the "
+                       f"riskiest year is {year}, with {_chance(float(worst[col]))} of going "
+                       "over its budget.")
     return out
 
 

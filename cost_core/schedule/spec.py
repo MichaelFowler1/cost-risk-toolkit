@@ -112,7 +112,9 @@ def _load_mspdi(path: Path, spec) -> Tuple[Project, Dict[str, Any]]:
     sched = read_mspdi(xml)
     detail = sched.detail
     by_name: Dict[str, str] = {}
+    shared: Dict[str, List[int]] = {}
     for uid, name in zip(detail["uid"], detail["name"]):
+        shared.setdefault(name, []).append(int(uid))
         by_name.setdefault(name, f"T{uid}")
     by_uid = {str(uid): f"T{uid}" for uid in detail["uid"]}
 
@@ -120,6 +122,10 @@ def _load_mspdi(path: Path, spec) -> Tuple[Project, Dict[str, Any]]:
         ref = str(ref)
         if ref in by_uid:
             return by_uid[ref]
+        if len(shared.get(ref, [])) > 1:
+            raise ScheduleError(f"{path.name}: {len(shared[ref])} tasks in {spec['mspdi']} "
+                                f"are named {ref!r} (UIDs {shared[ref]}); name the one "
+                                "meant by its UID.")
         if ref in by_name:
             return by_name[ref]
         raise ScheduleError(f"{path.name}: no detail task named or numbered {ref!r} in "
@@ -132,6 +138,7 @@ def _load_mspdi(path: Path, spec) -> Tuple[Project, Dict[str, Any]]:
                   r.get("delay", 0.0), float(r.get("cost", 0.0)))
              for r in spec.get("risks", [])]
     project = Project(base.activities, risks, name=spec.get("name", sched.name),
+                      measured_from=base.measured_from,
                       **_project_kwargs(spec))
     settings = _settings(spec)
     settings["notes"] = list(sched.notes)

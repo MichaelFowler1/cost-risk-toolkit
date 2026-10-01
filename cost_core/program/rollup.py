@@ -278,6 +278,11 @@ class Program:
     def validate(self):
         if not self.fiscal_years:
             raise ProgramError("The programme needs at least one lot.")
+        years = [int(y) for y in self.fiscal_years]
+        if any(later < earlier for earlier, later in zip(years, years[1:])):
+            # The engine prices lots in fiscal-year order, so lots listed out of
+            # order would get each other's costs.
+            raise ProgramError(f"List the lots in fiscal-year order; got {years}.")
         if not self.elements:
             raise ProgramError("The programme needs at least one element.")
         seen = set()

@@ -40,6 +40,20 @@ def _years(d: Dict[str, Any]) -> Dict[int, float]:
     return {int(y): float(v) for y, v in d.items()}
 
 
+def _flag(value, where: str) -> bool:
+    """true/false, yes/no, 1/0 or x; anything else is refused, not guessed."""
+    if isinstance(value, bool) or value is None:
+        return bool(value)
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in ("true", "yes", "y", "1", "x"):
+        return True
+    if text in ("false", "no", "n", "0", ""):
+        return False
+    raise PortfolioError(f"{where}: mandatory is true or false, not {value!r}.")
+
+
 def load_portfolio(path) -> "tuple[Portfolio, Dict[str, Any]]":
     """Read a spec file: the Portfolio, and the analysis settings beside it."""
     path = Path(path)
@@ -53,7 +67,8 @@ def load_portfolio(path) -> "tuple[Portfolio, Dict[str, Any]]":
     for c in spec["candidates"]:
         opts = [Option(o["name"], _years(o["cost_by_year"]), float(o["value"]))
                 for o in c.get("options", [])]
-        cands.append(Candidate(c["name"], opts, bool(c.get("mandatory", False)),
+        cands.append(Candidate(c["name"], opts,
+                               _flag(c.get("mandatory"), f"{path.name}: {c['name']}"),
                                tuple(c.get("requires", ())), c.get("category")))
     portfolio = Portfolio(cands, _years(spec["budget"]),
                           [list(g) for g in spec.get("exclusive", [])])
