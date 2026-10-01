@@ -538,7 +538,24 @@ def aoa_workbook(result, path) -> Path:
                                 Reference(ws, min_col=j, min_row=2, max_row=1 + n),
                                 title=str(sc.columns[j - 1])))
     ws.add_chart(ch, f"{get_column_letter(len(sc.columns) + 2)}2")
-    rb.assumptions(result.assumptions)
+    econ = result.economic()
+    if econ is not None:
+        rb.table("Economic analysis", econ.summary,
+                 {c: MONEY0 for c in ("pv_life_cycle", "uniform_annual_cost", "investment_pv",
+                                      "savings_pv", "net_savings_pv")}
+                 | {"sir": NUM, "irr": PCT, "chance_cheaper": PCT},
+                 note=f"Each alternative against the status quo, {econ.status_quo!r}: "
+                      "investment is the extra RDT&E, procurement and MILCON, savings the "
+                      f"O&S and disposal avoided, both in present value at "
+                      f"{econ.discount_rate:.1%}. SIR above 1 means the savings repay the "
+                      "investment.")
+        rb.table("Savings by year", econ.by_year,
+                 {c: MONEY0 for c in ("status_quo_cost", "alternative_cost", "saving",
+                                      "saving_pv", "cumulative_saving_pv")}
+                 | {"discount_factor": "0.0000"},
+                 note="Base-year dollars. The year the cumulative present value turns "
+                      "positive is the payback year.")
+    rb.assumptions(result.assumptions, econ.notes if econ is not None else ())
     return rb.save(path)
 
 

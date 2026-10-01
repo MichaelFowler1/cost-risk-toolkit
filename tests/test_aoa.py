@@ -222,9 +222,10 @@ def test_example_spec_loads_and_runs():
 
     kw = load_spec(EXAMPLE)
     assert [a.name for a in kw["alternatives"]] == [
-        "Upgrade in place", "New development", "Buy commercial"]
+        "Keep current system", "Upgrade in place", "New development", "Buy commercial"]
     assert kw["discount_rate"] == 0.02 and kw["units"] == "BY2026 $M"
-    dev = kw["alternatives"][1].lines[0]
+    assert kw["status_quo"] == "Keep current system"
+    dev = kw["alternatives"][2].lines[1]
     assert sum(dev.by_year.values()) == pytest.approx(2400)
     r = run_spec(EXAMPLE)
     s = r.summary.set_index("alternative")

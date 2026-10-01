@@ -578,6 +578,14 @@ def run_aoa(args) -> None:
     need_file(args.spec, "the AoA spec", "aoa")
     try:
         result = run_spec(args.spec, defaults=toml_defaults())
+        if args.status_quo:
+            names = [a.name for a in result.alternatives]
+            if args.status_quo not in names:
+                raise AoAError(f"--status-quo {args.status_quo!r} isn't one of the "
+                               f"alternatives ({', '.join(names)}).")
+            result.status_quo = args.status_quo
+            result.assumptions["status_quo"] = args.status_quo
+        econ = result.economic()
     except (AoAError, OSError, KeyError, ValueError) as e:
         abort(f"AoA failed: {e}")
     out = Path(args.out)
@@ -585,6 +593,9 @@ def run_aoa(args) -> None:
     result.summary.to_csv(out / "summary.csv", index=False)
     result.lines.to_csv(out / "lines.csv", index=False)
     result.s_curves().to_csv(out / "s_curves.csv")
+    if econ is not None:
+        econ.summary.to_csv(out / "economic.csv", index=False)
+        econ.by_year.to_csv(out / "savings_by_year.csv", index=False)
     (out / "assumptions.json").write_text(json.dumps(result.assumptions, indent=1, default=str),
                                           encoding="utf-8")
     try:
@@ -601,13 +612,28 @@ def run_aoa(args) -> None:
                         "effectiveness", "cost_per_effectiveness", "dominated_by")
             if c in result.summary]
     print(result.summary[cols].to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.2f}"))
+    if econ is not None:
+        print(f"\nAgainst the status quo, {econ.status_quo!r} (present value at "
+              f"{econ.discount_rate:.1%}, base-year dollars):\n")
+        shown = econ.summary[[c for c in ("alternative", "investment_pv", "savings_pv",
+                                          "net_savings_pv", "sir", "payback_year", "irr",
+                                          "uniform_annual_cost") if c in econ.summary]].copy()
+        if "irr" in shown:
+            shown["irr"] = [f"{v:.1%}" if v is not None and v == v else ""
+                            for v in shown["irr"]]
+        if "payback_year" in shown:
+            shown["payback_year"] = [f"FY{v}" if v is not pd.NA and v == v else ""
+                                     for v in shown["payback_year"]]
+        print(shown.to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.2f}"))
+        for note in econ.notes:
+            print(f"  note: {note}")
     from cost_core import plain
     print(plain.show(plain.aoa(result, str(result.assumptions.get("units") or ""))))
     from cost_core.reporting.brief import aoa_brief
     brief = write_brief(aoa_brief, result, out)
     print(f"Wrote report.xlsx, {brief + ', ' if brief else ''}summary.csv, lines.csv, "
-          f"s_curves.csv, assumptions.json"
-          f"{', ' + chart if chart else ''} to {out}")
+          f"s_curves.csv, {'economic.csv, savings_by_year.csv, ' if econ is not None else ''}"
+          f"assumptions.json{', ' + chart if chart else ''} to {out}")
 
 
 def run_portfolio(args) -> None:
@@ -1509,6 +1535,9 @@ def main(argv=None) -> None:
                             "(ce-core template aoa writes one)")
     p_aoa.add_argument("--out", default="aoa",
                        help="Directory for the tables, assumptions and chart")
+    p_aoa.add_argument("--status-quo", default=None, metavar="NAME",
+                       help="The alternative the others are measured against: investment, "
+                            "savings, SIR, payback and IRR (default: the spec's Status Quo)")
 
     # Subcommand: portfolio
     p_port = sub.add_parser(

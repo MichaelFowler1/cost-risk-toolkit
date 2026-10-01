@@ -208,6 +208,7 @@ SETTINGS: Dict[str, List[Tuple[str, str, Callable]]] = {
             ("Inflation Rate", "inflation_rate", float),
             ("Inflation CSV", "inflation_csv", str), ("Units", "units", str),
             ("Basis", "basis", str), ("PV Year", "pv_year", int),
+            ("Status Quo", "status_quo", str),
             ("Iterations", "n_iter", int), ("Seed", "seed", int)],
     "portfolio": [("Units", "units", str), ("Delta", "delta", float),
                   ("Growth Low", "growth_low", float),
@@ -688,7 +689,9 @@ INSTRUCTIONS = {
          "means 10% under to 40% over. Leave them blank for a line with no uncertainty."),
         ("Settings sheet", "Base Year is the constant-dollar year. Discount Rate and "
          "Inflation Rate are annual (0.02 for 2%). Basis is by, ty or pv: which dollars to "
-         "compare on."),
+         "compare on. Status Quo names the alternative the others are measured against in "
+         "the economic analysis: what each costs up front, what it saves, whether it pays "
+         "back and when."),
     ],
     "portfolio": [
         ("What this is", "Candidate programs, their funding options and the budget, for "

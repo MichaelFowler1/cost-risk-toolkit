@@ -302,10 +302,11 @@ ce-core aoa --spec my_aoa.xlsx --out aoa/
 ```
 
 ```
-     alternative        by        ty       pv      p50       p80  p_cheapest  effectiveness  cost_per_effectiveness     dominated_by
-Upgrade in place  6,260.00  7,597.89 5,262.48 5,737.37  6,181.63        0.95           0.62                9,335.40
- New development 10,770.00 14,304.08 8,486.81 9,470.01 10,268.04        0.00           0.90               10,611.67
-  Buy commercial  7,730.00  9,648.51 6,381.08 6,680.31  7,041.37        0.05           0.55               12,224.04 Upgrade in place
+        alternative        by        ty        pv       p50       p80  p_cheapest  effectiveness  cost_per_effectiveness     dominated_by
+Keep current system  8,500.00 10,405.17  7,095.12  8,061.26  8,961.80        0.12           0.40               20,470.60 Upgrade in place
+   Upgrade in place  7,460.00  8,849.00  6,416.03  7,062.21  7,556.72        0.83           0.62               11,472.89
+    New development 13,570.00 17,349.43 11,075.61 12,430.58 13,413.85        0.00           0.90               13,916.31
+     Buy commercial  8,930.00 10,899.62  7,534.64  8,017.60  8,415.43        0.06           0.55               14,637.96 Upgrade in place
 ```
 
 Each alternative is a set of cost lines (development, procurement, operating
@@ -328,6 +329,16 @@ carrying an uncertainty factor. Three things the module is careful about:
   cost per unit of effectiveness and names any alternative that another beats
   on both counts. In the example, buying commercial costs more than upgrading
   in place and does less, so it's off the frontier.
+- **Does the change pay for itself?** Name the status quo (Status Quo on the
+  Settings sheet, or `--status-quo`) and each alternative is measured against
+  it, the way OMB A-94 and DoD's economic analysis guidance set out: the extra
+  investment (RDT&E, procurement, MILCON) and the operating cost it saves (O&S,
+  disposal) in present value, net savings, the savings-to-investment ratio,
+  the discounted payback year, the undiscounted break-even year and the real
+  IRR of the extra investment. Alternatives with different service lives are
+  also compared on uniform annual cost, with a note saying so. In the example,
+  upgrading in place repays its investment 1.6 times over by FY2039; new
+  development doesn't pay back.
 
 The spread on a line can come from history instead of judgement:
 `historical_growth` takes the SAR panel above and returns each program's

@@ -340,6 +340,51 @@ def phase(result, units: str = "") -> List[str]:
     return out
 
 
+def _blank_number(v) -> bool:
+    return v is None or (isinstance(v, float) and np.isnan(v))
+
+
+def economic(econ, units: str = "") -> List[str]:
+    """Each alternative against the status quo, best net savings first."""
+    s = econ.summary[econ.summary["status_quo"] != "yes"]
+    if s.empty:
+        return []
+    out = []
+    rate = econ.discount_rate
+    for r in s.sort_values("net_savings_pv", ascending=False).head(3).itertuples():
+        if r.investment_pv > 1e-9:
+            line = (f"{r.alternative!r} costs {_money3(r.investment_pv, units)} more up front "
+                    f"than the status quo and saves {_money3(r.savings_pv, units)} in "
+                    f"operating cost (present values at {rate:.1%}): ")
+            if r.sir >= 1.0:
+                line += (f"it pays for itself {r.sir:.2f} times over, net savings "
+                         f"{_money3(r.net_savings_pv, units)}")
+                if not _blank_number(r.payback_year):
+                    line += f", paid back by FY{int(r.payback_year)}"
+            else:
+                line += (f"a savings-to-investment ratio of {r.sir:.2f}, so it doesn't pay "
+                         f"for itself (a net cost of {_money3(-r.net_savings_pv, units)})")
+            if not _blank_number(r.irr):
+                line += (f"; the real return on the extra investment is {r.irr:.1%}, "
+                         f"{'above' if r.irr > rate else 'below'} the {rate:.1%} discount rate")
+            out.append(line + ".")
+        elif r.net_savings_pv > 0:
+            out.append(f"{r.alternative!r} needs no more investment than the status quo and "
+                       f"saves {_money3(r.net_savings_pv, units)} in present value.")
+        else:
+            out.append(f"{r.alternative!r} needs no more investment than the status quo but "
+                       f"costs {_money3(-r.net_savings_pv, units)} more to run.")
+    whole = econ.summary
+    if whole["last_year"].nunique() > 1:
+        cheapest = whole.sort_values("uniform_annual_cost").iloc[0]
+        out.append(f"The service lives differ (they end between FY{whole['last_year'].min()} "
+                   f"and FY{whole['last_year'].max()}), which the totals above don't allow "
+                   f"for. Spread over its own years, {cheapest.alternative!r} is cheapest at "
+                   f"{_money3(cheapest.uniform_annual_cost, units)} a year in present-value "
+                   "terms.")
+    return out
+
+
 def aoa(result, units: str = "") -> List[str]:
     """An analysis of alternatives."""
     s = result.summary.sort_values("p50")
@@ -351,6 +396,9 @@ def aoa(result, units: str = "") -> List[str]:
         second = s.iloc[1]
         out.append(f"Next is {second.alternative!r} at {_money(second.p50, units)}, "
                    f"{second.p50 / best.p50 - 1:.0%} more.")
+    econ = result.economic() if hasattr(result, "economic") else None
+    if econ is not None:
+        out.extend(economic(econ, units))
     dom = s[s["dominated_by"].notna()] if "dominated_by" in s else s.iloc[0:0]
     by_name = s.set_index("alternative")
     for r in dom.itertuples():

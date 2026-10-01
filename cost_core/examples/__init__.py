@@ -41,7 +41,9 @@ EXAMPLES = {
     "jcl": ("jcl_example.json",
             "A small science spacecraft from design to launch, in months and $M."),
     "aoa": ("aoa_example.json",
-            "Three alternatives for a capability, their costs phased by year."),
+            "Three ways to replace an ageing sensor and the status quo of keeping it, "
+            "their costs phased by year, with the economic analysis against the status "
+            "quo."),
     "portfolio": ("portfolio_example.json",
                   "Candidate programs with funding options and a budget by year."),
 }

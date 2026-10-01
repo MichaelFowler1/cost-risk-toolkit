@@ -86,7 +86,7 @@ def load_spec(path) -> Dict[str, Any]:
         raise AoAError(f"{path.name}: pv_year {spec['pv_year']} is more than a century from "
                        f"the base year {base_year}; is it a typo?")
     for key, cast in (("basis", str), ("pv_year", int), ("n_iter", int), ("seed", int),
-                      ("units", str)):
+                      ("units", str), ("status_quo", str)):
         if key in spec:
             kwargs[key] = cast(spec[key])
     return kwargs

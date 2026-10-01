@@ -10,6 +10,13 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Changed
+- The AoA example gains a status quo, "Keep current system", and each
+  replacement now pays to keep the current system running until it arrives,
+  as an AoA should. Its numbers move accordingly: Upgrade in place's present
+  value is 6,416 rather than 5,262 (BY2026 $M), and it's the cheapest in 83%
+  of simulations rather than 95%.
+
 ### Added
 - **`ce-core cer`: a CER from your own data.** A workbook with a Data sheet
   (one row per past program: its cost and its drivers), an optional Estimate
@@ -42,6 +49,17 @@ housekeeping detail here, because someone may have put the old one in a budget.
   inflation adds and the peak year, in `report.xlsx`, `brief.pptx`, a stacked
   bar chart and CSVs. The template's index is an invented 2% and is labelled
   so; the summary says to replace it.
+- **Economic analysis on the AoA.** Name a status quo (Status Quo in the
+  spec or workbook, or `ce-core aoa --status-quo`) and every alternative is
+  measured against it in present value at the AoA's real rate: extra
+  investment (RDT&E, procurement, MILCON), operating savings (O&S, disposal),
+  net savings, savings-to-investment ratio, discounted payback year,
+  undiscounted break-even year, the real IRR of the extra investment (when the
+  yearly differences change sign once, so it's unique), uniform annual cost
+  for alternatives with different service lives, and the chance each costs
+  less than the status quo in the simulation. An "Economic analysis" and a
+  "Savings by year" sheet in `report.xlsx`, a slide, `economic.csv` and
+  `savings_by_year.csv`. `AoAResult.economic()` from Python.
 - The CER chart takes the interval level and the units, and with several
   drivers its first panel plots actual against fitted cost.
 

@@ -474,7 +474,24 @@ def aoa_brief(result, out_dir) -> Path:
         shown[c] = shown[c].map(lambda v: _money(v, units))
     shown["Chance cheapest"] = shown["Chance cheapest"].map(lambda v: f"{v:.0%}")
     b.table("The alternatives", shown.fillna(""))
-    b.assumptions([f"{k}: {v}" for k, v in result.assumptions.items()])
+    econ = result.economic()
+    if econ is not None:
+        e = econ.summary[econ.summary["status_quo"] != "yes"]
+
+        def year(v):
+            return "" if v is None or pd.isna(v) else f"FY{int(v)}"
+
+        b.table(f"Against the status quo ({econ.status_quo})", pd.DataFrame({
+            "Alternative": e["alternative"],
+            "Investment": e["investment_pv"].map(lambda v: _money(v, units)),
+            "Savings": e["savings_pv"].map(lambda v: _money(v, units)),
+            "Net": e["net_savings_pv"].map(lambda v: _money(v, units)),
+            "SIR": e["sir"].map(lambda v: "" if pd.isna(v) else f"{v:.2f}"),
+            "Payback": e["payback_year"].map(year),
+            "IRR": e["irr"].map(lambda v: "" if v is None or pd.isna(v) else f"{v:.1%}")}),
+            note=f"Present values at {econ.discount_rate:.1%}, base-year dollars.")
+    b.assumptions([f"{k}: {v}" for k, v in result.assumptions.items()]
+                  + (list(econ.notes) if econ is not None else []))
     return b.save(Path(out_dir) / "brief.pptx")
 
 
