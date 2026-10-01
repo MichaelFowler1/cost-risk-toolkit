@@ -307,6 +307,39 @@ def cer(study, units: str = "") -> List[str]:
     return out
 
 
+def phase(result, units: str = "") -> List[str]:
+    """An estimate phased into fiscal years."""
+    i = result.inputs
+    tot = result.totals()
+    first, last = int(result.long["fiscal_year"].min()), int(result.long["fiscal_year"].max())
+    if result.has_then_year:
+        extra = tot["then_year"] - tot["base_year"]
+        out = [f"The {_money3(tot['base_year'], units)} estimate in BY{i.base_year} dollars "
+               f"is {_money3(tot['then_year'], units)} in then-year dollars, spent from "
+               f"FY{first} to FY{last}: inflation adds {_money3(extra, units)} "
+               f"({extra / tot['base_year']:.1%})."]
+    else:
+        out = [f"The {_money3(tot['base_year'], units)} estimate is spread from FY{first} to "
+               f"FY{last}, in BY{i.base_year} dollars only: no inflation index was given."]
+    year, amount = result.peak()
+    out.append(f"Spending peaks in FY{year} at {_money3(amount, units)}.")
+    col = "then_year" if result.has_then_year else "base_year"
+    groups = result.long.groupby("appropriation", sort=False)
+    if groups.ngroups > 1:
+        out.append("By appropriation: " + "; ".join(
+            f"{name} {_money3(g[col].sum(), units)} (FY{g['fiscal_year'].min()} to "
+            f"FY{g['fiscal_year'].max()})" for name, g in groups) + ".")
+    names = sorted({ln.index for ln in i.lines if ln.index})
+    if any("illustrative" in n.lower() for n in names):
+        out.append("The index is the invented illustrative one from the template: replace "
+                   "it with the published index before these numbers go anywhere.")
+    elif names:
+        out.append(f"Then-year dollars use {', '.join(map(repr, names))} from "
+                   f"{i.index_source}; check each is the published index for its "
+                   "appropriation.")
+    return out
+
+
 def aoa(result, units: str = "") -> List[str]:
     """An analysis of alternatives."""
     s = result.summary.sort_values("p50")
@@ -445,6 +478,8 @@ def menu() -> str:
               ce-core cost-risk --data my_estimate.xlsx
           Fit a CER from past programs and price new ones
               ce-core cer --data my_cer.xlsx
+          Phase an estimate into a then-year budget by fiscal year
+              ce-core phase --data my_phase.xlsx
           Compare alternatives on life-cycle cost (AoA)
               ce-core aoa --spec my_aoa.xlsx
           Choose which programs to fund within a budget

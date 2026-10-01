@@ -535,3 +535,31 @@ def cer_brief(study, out_dir) -> Path:
     b.assumptions([f"{k}: {v}" for k, v in study.assumptions.items()]
                   + ["The full tables are in report.xlsx beside this briefing."])
     return b.save(out_dir / "brief.pptx")
+
+
+def phase_brief(result, out_dir) -> Path:
+    from cost_core import plain
+
+    units = plain.units_label(result.units)
+    out_dir = Path(out_dir)
+    tot = result.totals()
+    b = Brief("Budget phasing", f"BY{result.inputs.base_year} estimate by fiscal year")
+    numbers = [(f"BY{result.inputs.base_year} total", plain._money3(tot["base_year"], units))]
+    if result.has_then_year:
+        numbers.append(("then-year total", plain._money3(tot["then_year"], units)))
+    year, amount = result.peak()
+    numbers.append((f"peak, FY{year}", plain._money3(amount, units)))
+    b.bottom_line(plain.phase(result, units), numbers)
+    b.image("Spend by fiscal year", out_dir / "phasing.png")
+    col = "then_year" if result.has_then_year else "base_year"
+    by_app = result.long.pivot_table(index="appropriation", columns="fiscal_year", values=col,
+                                     aggfunc="sum", fill_value=0.0, sort=False)
+    by_app = by_app.reindex(sorted(by_app.columns), axis=1)
+    by_app["Total"] = by_app.sum(axis=1)
+    shown = by_app.apply(lambda s: s.map(lambda v: plain._money3(v, units) if v else ""))
+    shown.columns = [c if c == "Total" else f"FY{int(c) % 100:02d}" for c in shown.columns]
+    b.table("By appropriation" + (" (then-year)" if result.has_then_year else ""),
+            shown.reset_index().rename(columns={"appropriation": "Appropriation"}))
+    b.assumptions([f"{k}: {v}" for k, v in result.assumptions.items()]
+                  + ["The full tables are in report.xlsx beside this briefing."])
+    return b.save(out_dir / "brief.pptx")

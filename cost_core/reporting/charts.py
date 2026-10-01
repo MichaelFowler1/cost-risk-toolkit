@@ -885,3 +885,50 @@ def plot_evm(
                        f"against {data.planned_duration} planned.")
         _titles(ax, title, subtitle or default_sub)
         return _finish(fig, path)
+
+
+# ==========================================================================
+# Phasing: spend by fiscal year and appropriation
+# ==========================================================================
+def plot_phasing(result, path: str | Path, *, units: str | None = None,
+                 title: str = "Spend by fiscal year") -> Path:
+    """Stacked bars of each year's spend by appropriation, in then-year
+    dollars when there is an index, with the base-year total beside them so
+    the gap inflation opens is visible.
+
+    Args:
+        result: A :class:`~cost_core.phasing.PhaseResult`.
+    """
+    say, axis_money, axis_units = _cost_labels(units)
+    col = "then_year" if result.has_then_year else "base_year"
+    table = result.long.pivot_table(index="fiscal_year", columns="appropriation",
+                                    values=col, aggfunc="sum", fill_value=0.0, sort=False)
+    table = table.sort_index()
+    years = table.index.to_numpy()
+    colours = [PRIMARY, SECONDARY, ACCENT, "#5b8c5a", "#7a5195", INK, MUTED]
+    with plt.rc_context(_STYLE):
+        fig, ax = plt.subplots(figsize=(9.5, 5.6))
+        bottom = np.zeros(len(years))
+        for j, name in enumerate(table.columns):
+            ax.bar(years, table[name].to_numpy(), bottom=bottom, width=0.72,
+                   color=colours[j % len(colours)], label=str(name), zorder=2)
+            bottom += table[name].to_numpy()
+        if result.has_then_year:
+            by = result.long.groupby("fiscal_year")["base_year"].sum().reindex(years)
+            ax.plot(years, by.to_numpy(), color=INK, linestyle="--", marker="o",
+                    markersize=4, linewidth=1.4, label="Base-year total", zorder=3)
+        ax.set_xticks(years)
+        ax.set_xticklabels([f"FY{y % 100:02d}" for y in years])
+        ax.yaxis.set_major_formatter(axis_money(np.r_[0.0, bottom]))
+        basis = "then-year" if result.has_then_year else f"BY{result.inputs.base_year}"
+        ax.set_ylabel(f"Spend, {basis}{axis_units}")
+        ax.grid(axis="y", alpha=0.6, zorder=0)
+        ax.legend(frameon=False, loc="upper left", fontsize=9.5)
+        tot = result.totals()
+        sub = (f"{say(tot['base_year'])} in BY{result.inputs.base_year} dollars is "
+               f"{say(tot['then_year'])} then-year" if result.has_then_year else
+               f"{say(tot['base_year'])} in BY{result.inputs.base_year} dollars, no index")
+        # Two dollar signs in one string would be read as mathtext.
+        _titles(ax, title, sub.replace("$", r"\$"))
+        fig.tight_layout()
+        return _finish(fig, path)

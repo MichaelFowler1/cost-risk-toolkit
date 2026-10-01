@@ -639,3 +639,52 @@ def cer_workbook(study, path) -> Path:
                       "the median program.")
     rb.assumptions(study.assumptions, study.notes)
     return rb.save(path)
+
+
+# ------------------------------------------------------------------ phasing
+def phase_workbook(result, path) -> Path:
+    """An estimate phased by fiscal year: then-year and base-year tables, by
+    appropriation, every line-year with its factor, and the index used."""
+    from cost_core import plain
+
+    units = plain.units_label(result.units)
+    money = money_format(units)
+    i = result.inputs
+    tot = result.totals()
+    year, amount = result.peak()
+    rb = ReportWorkbook("Budget phasing",
+                        f"BY{i.base_year} estimate by fiscal year; costs in "
+                        f"{units or 'the units entered'}.")
+    headline = [(f"Total, BY{i.base_year} dollars", tot["base_year"], money)]
+    if result.has_then_year:
+        headline += [("Total, then-year dollars", tot["then_year"], money),
+                     ("What inflation adds", tot["then_year"] - tot["base_year"], money)]
+    headline += [("Peak year", f"FY{year}", ""), ("Spend in the peak year", amount, money),
+                 ("Lines", len(i.lines), "0")]
+    rb.summary(plain.phase(result, units), headline)
+
+    def wide_formats(df):
+        return {c: money for c in df.columns if str(c).startswith("FY") or c == "Total"}
+
+    if result.has_then_year:
+        ty = result.wide("ty")
+        rb.table("Then-year by FY", ty, wide_formats(ty),
+                 note="Each line's spend in the dollars of the year it's spent.")
+    byw = result.wide("by")
+    rb.table("Base-year by FY", byw, wide_formats(byw),
+             note=f"Each line's spend in BY{i.base_year} dollars.")
+    rb.table("By appropriation", result.by_appropriation(),
+             {"base_year": money, "then_year": money})
+    rb.table("Every line-year", result.long,
+             {"base_year": money, "then_year": money, "factor": "0.0000"},
+             note="factor = the index in the year spent over the index in the base year.")
+    if result.has_then_year:
+        lo, hi = int(result.long["fiscal_year"].min()), int(result.long["fiscal_year"].max())
+        used = sorted({ln.index for ln in i.lines if ln.index})
+        idx = pd.DataFrame([{"index_name": n, "fiscal_year": y, "index_value": v}
+                            for n in used for y, v in sorted(i.indices[n].items())
+                            if lo <= y <= hi or y == i.base_year])
+        rb.table("Index used", idx, {"index_value": "0.0000"},
+                 note=f"From {i.index_source}.")
+    rb.assumptions(result.assumptions, i.notes)
+    return rb.save(path)

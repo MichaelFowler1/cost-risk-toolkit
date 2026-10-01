@@ -67,6 +67,7 @@ walks through each task from "what do I need" to "what does this tell me".
 | Forecast a program's final cost and finish from EVM | `ce-core demo evm` | `ce-core evm --data my_evm.xlsx` or `--ipmdar delivery.zip` |
 | How sure is my estimate, and what drives it (cost risk) | `ce-core demo cost-risk` | `ce-core cost-risk --data my_estimate.xlsx` |
 | Fit a CER from past programs and price a new one | `ce-core demo cer` | `ce-core cer --data my_cer.xlsx` |
+| Phase an estimate into a then-year budget by fiscal year | `ce-core demo phase` | `ce-core phase --data my_phase.xlsx` |
 | Check a schedule's logic (DCMA 14-point) | `ce-core demo schedule` | `ce-core schedule-check --mspdi my_schedule.xml` |
 | Know the chance of meeting a budget *and* a date (JCL) | `ce-core demo jcl` | `ce-core jcl --spec my_jcl.xlsx` |
 | Compare alternatives on life-cycle cost (AoA) | `ce-core demo aoa` | `ce-core aoa --spec my_aoa.xlsx` |
@@ -187,6 +188,27 @@ come with it.
 Each estimate also comes as a row ready for a cost-risk Elements sheet: a
 lognormal whose Low and High are the prediction interval, so the CER's own
 uncertainty goes into the risk analysis instead of a range typed by hand.
+
+## From an estimate to a budget: phasing by fiscal year
+
+Each line of the estimate gets an amount in base-year dollars, a start year, a
+number of years and a profile for how the money goes out:
+
+```bash
+ce-core demo phase                                       # five invented lines
+ce-core template phase                                   # my_phase.xlsx to fill in
+ce-core phase --data my_phase.xlsx --out phase/
+```
+
+The profiles are uniform, front or back loaded, a bell, a Rayleigh curve (the
+usual shape of development spending, with its peak where you put it), or your
+office's own percentages, one per year (`10;30;40;20`). Each line is inflated
+to then-year dollars with the index on the Index sheet, or the one it names,
+since RDT&E, procurement and O&M money each have their own. Out come the spend
+by fiscal year in then-year and base-year dollars, by appropriation, what
+inflation adds and the peak year, in `report.xlsx`, `brief.pptx`, a chart and
+CSVs. The template's index is an invented 2% and says so; put your agency's
+published indices in its place.
 
 ## Earned value: where the program is heading
 

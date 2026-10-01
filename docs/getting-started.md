@@ -161,6 +161,21 @@ means in cost, each new program's estimate with a prediction interval, and a
 plain warning for a weak driver, an influential program, thin data or a new
 program outside the data.
 
+### Phase an estimate into a then-year budget
+
+```bash
+ce-core demo phase
+ce-core template phase                # writes my_phase.xlsx
+ce-core phase --data my_phase.xlsx
+```
+
+**What you need:** each estimate line's total in base-year dollars, its start
+year and number of years, how it's spent (a profile), and the inflation
+indices that apply.
+
+**What you get:** the spend by fiscal year and appropriation in then-year and
+base-year dollars, what inflation adds, and the peak year.
+
 ### Fit a learning curve to production lots
 
 ```bash

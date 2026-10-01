@@ -31,6 +31,17 @@ housekeeping detail here, because someone may have put the old one in a budget.
   `cost_risk_rows.csv`, ready to paste onto the Elements sheet. The simulated
   10th and 90th percentiles land on the CER's interval. A point estimate off
   the centre of its lognormal range is noted.
+- **`ce-core phase`: an estimate spread into a then-year budget.** A Phasing
+  sheet (one row per line: amount in base-year dollars, start year, years or
+  end year, profile, appropriation), a Settings sheet (base year, units,
+  default index) and an Index sheet in the layout `ce-core inflate` reads (or
+  `--index`, or a constant Inflation Rate). Profiles: uniform, front, back,
+  bell, Rayleigh (peak placed by a Peak column, 0.38 of the duration by
+  default) or one percentage per year. Each line can name its own index.
+  Then-year and base-year spend by fiscal year and by appropriation, what
+  inflation adds and the peak year, in `report.xlsx`, `brief.pptx`, a stacked
+  bar chart and CSVs. The template's index is an invented 2% and is labelled
+  so; the summary says to replace it.
 - The CER chart takes the interval level and the units, and with several
   drivers its first panel plots actual against fitted cost.
 

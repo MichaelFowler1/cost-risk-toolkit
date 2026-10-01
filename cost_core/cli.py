@@ -514,6 +514,59 @@ def run_cer(args) -> None:
     print(f"Wrote {', '.join(written)} to {out}")
 
 
+def run_phase(args) -> None:
+    """Spread an estimate over fiscal years and inflate it to then-year dollars."""
+    import json
+    from pathlib import Path
+
+    from cost_core import plain
+    from cost_core.phasing import PhaseError, phase, read_workbook
+
+    need_file(args.data, "the phasing workbook", "phase")
+    try:
+        inputs = read_workbook(args.data, index_path=args.index, index_name=args.index_name,
+                               base_year=args.base_year)
+        units = args.units
+        if units is None and "units" not in inputs.stated:
+            units = toml_defaults(label_units=False).get("units")
+        result = phase(inputs, units=units)
+    except (PhaseError, OSError) as e:
+        abort(f"Phasing failed: {e}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    result.long.to_csv(out / "phasing_long.csv", index=False)
+    result.wide("by").to_csv(out / "base_year.csv", index=False)
+    written = ["report.xlsx", "phasing_long.csv", "base_year.csv"]
+    if result.has_then_year:
+        result.wide("ty").to_csv(out / "then_year.csv", index=False)
+        written.append("then_year.csv")
+    result.by_appropriation().to_csv(out / "by_appropriation.csv", index=False)
+    (out / "assumptions.json").write_text(json.dumps(
+        {**result.assumptions, "notes": inputs.notes}, indent=1, default=str),
+        encoding="utf-8")
+    written += ["by_appropriation.csv", "assumptions.json"]
+    try:
+        from cost_core.reporting.charts import plot_phasing
+        plot_phasing(result, out / "phasing.png", units=result.units)
+        written.append("phasing.png")
+    except ImportError:
+        pass
+    from cost_core.reporting.excel_report import phase_workbook
+    phase_workbook(result, out / "report.xlsx")
+    label = plain.units_label(result.units)
+    basis = "then-year" if result.has_then_year else f"BY{inputs.base_year}"
+    print(f"\n{len(inputs.lines)} lines in BY{inputs.base_year} dollars, phased; {basis}, "
+          f"{_costs_in(label)}:\n")
+    shown = result.wide("ty" if result.has_then_year else "by")
+    print(shown.to_string(index=False, float_format=lambda v: f"{v:,.1f}"))
+    for note in inputs.notes:
+        print(f"  note: {note}")
+    print(plain.show(plain.phase(result, label)))
+    from cost_core.reporting.brief import phase_brief
+    written[1:1] = [w for w in [write_brief(phase_brief, result, out)] if w]
+    print(f"Wrote {', '.join(written)} to {out}")
+
+
 def run_aoa(args) -> None:
     """Evaluate an AoA spec file and write the comparison."""
     import json
@@ -943,6 +996,7 @@ DEMOS = {
     "evm": ["evm", "--data", "{path}", "--units", "thousands", "--out", "{out}"],
     "cost-risk": ["cost-risk", "--data", "{path}", "--out", "{out}"],
     "cer": ["cer", "--data", "{path}", "--out", "{out}"],
+    "phase": ["phase", "--data", "{path}", "--out", "{out}"],
     "schedule": ["schedule-check", "--mspdi", "{path}", "--out", "{out}"],
     "inflate": ["inflate", "--index", "{index}", "--data", "{path}",
                 "--from", "by2026", "--to", "ty", "--out", "{out}"],
@@ -954,7 +1008,7 @@ DEMOS = {
 
 #: The commands that write report.xlsx and brief.pptx, and so take
 #: --marking and --template.
-REPORT_COMMANDS = ("cost-risk", "cer", "evm", "schedule-check", "jcl", "aoa", "portfolio", "demo",
+REPORT_COMMANDS = ("cost-risk", "cer", "phase", "evm", "schedule-check", "jcl", "aoa", "portfolio", "demo",
                    "open")
 
 #: ce-core.toml settings and the option each fills in.
@@ -1174,6 +1228,7 @@ def run_demo(args) -> None:
     mine = {"evm": "ce-core evm --data my_evm.xlsx",
             "cost-risk": "ce-core cost-risk --data my_estimate.xlsx",
             "cer": "ce-core cer --data my_cer.xlsx",
+            "phase": "ce-core phase --data my_phase.xlsx",
             "inflate": "ce-core inflate --index my_index.csv --data my_phasing.csv "
                        "--from by2026 --to ty",
             "schedule": "ce-core schedule-check --mspdi my_schedule.xml",
@@ -1190,7 +1245,7 @@ def _quote(arg: str) -> str:
 
 
 TEMPLATE_FILES = {"evm": "my_evm.xlsx", "cost-risk": "my_estimate.xlsx",
-                  "cer": "my_cer.xlsx",
+                  "cer": "my_cer.xlsx", "phase": "my_phase.xlsx",
                   "inflate": "my_index.csv",
                   "jcl": "my_jcl.xlsx", "aoa": "my_aoa.xlsx",
                   "portfolio": "my_portfolio.xlsx", "lots": "my_lots.csv"}
@@ -1423,6 +1478,27 @@ def main(argv=None) -> None:
                        help="Money label: dollars, thousands, millions or any word "
                             "(default: the workbook's Settings)")
 
+    # Subcommand: phase
+    p_ph = sub.add_parser(
+        "phase",
+        help="Spread an estimate over fiscal years, in then-year dollars, by appropriation",
+    )
+    p_ph.add_argument("--data", required=True,
+                      help="Excel workbook with a Phasing sheet (and optionally Settings and "
+                           "Index); ce-core template phase writes one")
+    p_ph.add_argument("--out", default="phase",
+                      help="Directory for the tables, chart, report.xlsx and brief.pptx")
+    p_ph.add_argument("--index", default=None, metavar="FILE",
+                      help="Inflation index table (CSV or Excel: index_name, fiscal_year, "
+                           "index_value) in place of the workbook's Index sheet")
+    p_ph.add_argument("--index-name", default=None, metavar="NAME",
+                      help="The index to use for lines that don't name one")
+    p_ph.add_argument("--base-year", default=None, type=int,
+                      help="The dollar year of the amounts (default: the Settings sheet)")
+    p_ph.add_argument("--units", default=None,
+                      help="Money label: dollars, thousands, millions or any word "
+                           "(default: the workbook's Settings)")
+
     # Subcommand: aoa
     p_aoa = sub.add_parser(
         "aoa",
@@ -1536,8 +1612,8 @@ def main(argv=None) -> None:
     p_tmpl = sub.add_parser(
         "template", help="Write a file to fill in with your own data")
     p_tmpl.add_argument("topic", choices=sorted(list(TEMPLATE_FILES) + ["schedule"]),
-                        help="Which one: cost-risk, cer, evm, jcl, aoa, portfolio, inflate, "
-                             "lots or schedule")
+                        help="Which one: cost-risk, cer, phase, evm, jcl, aoa, portfolio, "
+                             "inflate, lots or schedule")
     p_tmpl.add_argument("--out", default=None,
                         help="File to write (default: my_<topic> in this folder)")
     p_tmpl.add_argument("--force", action="store_true", help="Replace the file if it exists")
@@ -1623,6 +1699,7 @@ def main(argv=None) -> None:
         "aoa": run_aoa,
         "cost-risk": run_cost_risk,
         "cer": run_cer,
+        "phase": run_phase,
         "portfolio": run_portfolio,
         "jcl": run_jcl,
         "demo": run_demo,
