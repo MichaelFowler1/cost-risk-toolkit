@@ -116,7 +116,16 @@ def _percentages(text: str) -> Optional[List[float]]:
         values = [float(s) for s in parts]
     except ValueError:
         return None
-    return values if len(values) > 1 else None
+    return values or None
+
+
+def _fy(value):
+    """FY2027 or 2027 as 2027; anything else as given, for _number to judge."""
+    if isinstance(value, str):
+        text = value.strip().upper()
+        if text.startswith("FY"):
+            return text[2:].strip()
+    return value
 
 
 def spread(total: float, start: int, weights: np.ndarray) -> Dict[int, float]:
@@ -298,14 +307,20 @@ def read_workbook(path, index_path=None, index_name: Optional[str] = None,
         name = str(get("line")).strip() if not _blank(get("line")) else f"row {i}"
         where = f"Phasing sheet, row {i} ({name})"
         amount = _number(get("amount"), "Phasing", i, "amount")
-        start = _number(get("start"), "Phasing", i, "start year")
+        start = _number(_fy(get("start")), "Phasing", i, "start year")
         if amount is None or start is None:
             raise PhaseError(f"{where}: give the amount and the start year.")
         if start != int(start):
             raise PhaseError(f"{where}: the start year {start:g} isn't a whole year.")
         years = _number(get("years"), "Phasing", i, "years")
-        end = _number(get("end"), "Phasing", i, "end year")
+        end = _number(_fy(get("end")), "Phasing", i, "end year")
+        if end is not None and end < start:
+            raise PhaseError(f"{where}: it ends in FY{int(end)}, before it starts in "
+                             f"FY{int(start)}.")
         text = "" if _blank(get("profile")) else str(get("profile")).strip()
+        if text and _percentages(text) and len(_percentages(text)) == 1 and years not in (None, 1):
+            raise PhaseError(f"{where}: one percentage for {int(years)} years; give one per "
+                             "year, or a named profile.")
         shares = _percentages(text) if text else None
         if years is None and end is not None:
             years = end - start + 1
@@ -323,8 +338,11 @@ def read_workbook(path, index_path=None, index_name: Optional[str] = None,
             if len(shares) != years:
                 raise PhaseError(f"{where}: {len(shares)} percentages for {years} years; "
                                  "give one per year.")
-            if any(s < 0 for s in shares) or sum(shares) <= 0:
+            if any(s < 0 for s in shares):
                 raise PhaseError(f"{where}: the percentages can't be negative.")
+            if sum(shares) <= 0:
+                raise PhaseError(f"{where}: the percentages are all zero, so nothing is "
+                                 "spent in any year.")
             total = sum(shares)
             if abs(total - 100.0) > 0.5 and abs(total - 1.0) > 0.005:
                 notes.append(f"{name}'s percentages add up to {total:g}, not 100; they were "

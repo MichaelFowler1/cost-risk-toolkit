@@ -454,6 +454,58 @@ class CerStudy:
                 "dollar year": i.dollar_year or "not stated"}
 
 
+#: A variance inflation factor above this is called out: the driver's effect
+#: is hard to tell apart from the others'.
+VIF_FLAG = 10.0
+
+
+def _check_drivers(used: pd.DataFrame, predictors: Sequence[str], form: Form) -> List[str]:
+    """Refuse drivers a CER can't learn from; note ones it can barely learn from.
+
+    A driver with one value across the programs is indistinguishable from the
+    intercept, and drivers that move in lockstep (on the log scale, for a
+    log-log CER) can't be told apart: either way the fit would still print
+    coefficients and t-statistics, which mean nothing.
+    """
+    scale = np.log if form is Form.LOG_LOG else (lambda v: v)
+    cols = {p: scale(used[p].to_numpy(dtype=float)) for p in predictors}
+    words = " on the log scale" if form is Form.LOG_LOG else ""
+    flat = [p for p, v in cols.items() if np.ptp(v) == 0]
+    if flat:
+        raise CerError(f"{', '.join(map(repr, flat))} {'has' if len(flat) == 1 else 'have'} "
+                       f"the same value for every program used, so the CER can't learn "
+                       f"{'its' if len(flat) == 1 else 'their'} effect. Drop "
+                       f"{'it' if len(flat) == 1 else 'them'} or add programs where "
+                       f"{'it differs' if len(flat) == 1 else 'they differ'}.")
+    if len(predictors) < 2:
+        return []
+    names = list(cols)
+    X = np.column_stack([cols[p] for p in names])
+    design = np.column_stack([np.ones(len(X)), X])
+    if np.linalg.matrix_rank(design) < design.shape[1]:
+        pairs = [(a, b) for i, a in enumerate(names) for b in names[i + 1:]
+                 if abs(np.corrcoef(cols[a], cols[b])[0, 1]) > 1 - 1e-9]
+        which = ("; ".join(f"{a!r} and {b!r}" for a, b in pairs) if pairs
+                 else ", ".join(map(repr, names)))
+        raise CerError(f"The drivers {which} move in lockstep{words}: one is a fixed "
+                       "multiple or combination of the others, so the CER can't separate "
+                       "their effects. Keep one.")
+    notes = []
+    for j, p in enumerate(names):
+        others = np.column_stack([np.ones(len(X)), np.delete(X, j, axis=1)])
+        beta, *_ = np.linalg.lstsq(others, X[:, j], rcond=None)
+        resid = X[:, j] - others @ beta
+        ss = float(np.sum((X[:, j] - X[:, j].mean()) ** 2))
+        r2 = 1.0 - float(np.sum(resid ** 2)) / ss if ss > 0 else 1.0
+        vif = 1.0 / max(1.0 - r2, 1e-12)
+        if vif > VIF_FLAG:
+            notes.append(f"{p!r} is largely explained by the other drivers{words} (variance "
+                         f"inflation factor {vif:,.0f}, above {VIF_FLAG:g}): its coefficient "
+                         "and theirs trade off against each other, so read them together, "
+                         "not one at a time.")
+    return notes
+
+
 def analyse(inputs: CerInput, form: Optional[str] = None, method: Optional[str] = None,
             level: Optional[float] = None, units: Optional[str] = None) -> CerStudy:
     """Fit the CER by OLS, MUPE and ZMPE and price the Estimate sheet.
@@ -474,7 +526,7 @@ def analyse(inputs: CerInput, form: Optional[str] = None, method: Optional[str] 
                        "more programs than parameters, and three per parameter to be "
                        "worth defending. Add programs or drop a driver.")
     frame = used[[inputs.response, *inputs.predictors, "_name"]]
-    notes = list(inputs.notes)
+    notes = list(inputs.notes) + _check_drivers(used, inputs.predictors, inputs.form)
     fits = {}
     # The engine logs each fit at INFO; the report says it all once.
     logs = [logging.getLogger(n) for n in ("cost_core.cer.model", "cost_core.fitting")]

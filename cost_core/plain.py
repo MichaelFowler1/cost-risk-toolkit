@@ -250,6 +250,11 @@ def _money3(v: float, units: str = "") -> str:
 def cer(study, units: str = "") -> List[str]:
     """A cost estimating relationship and what it prices."""
     c, i = study.cer, study.inputs
+    if c.cv < 1e-9:
+        return [f"{c.equation()} fits all {c.result.n_obs} programs exactly. Real cost data "
+                "never do: check the cost column isn't computed from the drivers (a "
+                "formula in the workbook, say). The intervals are zero-width and the "
+                "t-statistics are rounding error."]
     out = [f"{c.equation()} fits {c.result.n_obs} programs by {c.method.upper()}, with a "
            f"typical miss of {c.cv:.0%} (a standard error of "
            f"{_money3(c.standard_error, units)})."]
@@ -314,15 +319,22 @@ def phase(result, units: str = "") -> List[str]:
     first, last = int(result.long["fiscal_year"].min()), int(result.long["fiscal_year"].max())
     if result.has_then_year:
         extra = tot["then_year"] - tot["base_year"]
+        share = f" ({extra / tot['base_year']:.1%})" if tot["base_year"] else ""
         out = [f"The {_money3(tot['base_year'], units)} estimate in BY{i.base_year} dollars "
                f"is {_money3(tot['then_year'], units)} in then-year dollars, spent from "
-               f"FY{first} to FY{last}: inflation adds {_money3(extra, units)} "
-               f"({extra / tot['base_year']:.1%})."]
+               f"FY{first} to FY{last}: inflation adds {_money3(extra, units)}{share}."]
     else:
         out = [f"The {_money3(tot['base_year'], units)} estimate is spread from FY{first} to "
                f"FY{last}, in BY{i.base_year} dollars only: no inflation index was given."]
     year, amount = result.peak()
-    out.append(f"Spending peaks in FY{year} at {_money3(amount, units)}.")
+    per = result.long.groupby("fiscal_year")[
+        "then_year" if result.has_then_year else "base_year"].sum()
+    if amount == 0:
+        pass
+    elif len(per) > 1 and per.max() - per.min() <= 1e-9 * max(abs(per.max()), 1.0):
+        out.append(f"Spending is level at {_money3(amount, units)} a year.")
+    elif amount > 0:
+        out.append(f"Spending peaks in FY{year} at {_money3(amount, units)}.")
     col = "then_year" if result.has_then_year else "base_year"
     groups = result.long.groupby("appropriation", sort=False)
     if groups.ngroups > 1:

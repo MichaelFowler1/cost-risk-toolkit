@@ -305,8 +305,8 @@ def _read_elements(frame: pd.DataFrame, lognormal_range: float = LOGNORMAL_RANGE
     return elements, pd.DataFrame(rows)
 
 
-def _read_risks(frame: Optional[pd.DataFrame], names: Sequence[str]
-                ) -> Tuple[List[DiscreteRisk], pd.DataFrame]:
+def _read_risks(frame: Optional[pd.DataFrame], names: Sequence[str],
+                notes: Optional[List[str]] = None) -> Tuple[List[DiscreteRisk], pd.DataFrame]:
     empty = pd.DataFrame(columns=["risk", "probability", "low", "most_likely", "high", "element"])
     if frame is None:
         return [], empty
@@ -314,6 +314,10 @@ def _read_risks(frame: Optional[pd.DataFrame], names: Sequence[str]
     if frame.empty:
         return [], empty
     cols = _columns(frame, RISK_COLUMNS, "Risks", ["risk", "probability"])
+    if notes is not None and any(_norm(c) in ELEMENT_COLUMNS["distribution"]
+                                 for c in frame.columns):
+        notes.append("The Risks sheet's Distribution column isn't read: a risk's cost if it "
+                     "happens is always triangular on its Low, Most Likely and High.")
     risks, rows = [], []
     for i, rec in zip(excel_rows(frame), frame.to_dict("records")):
         name = str(rec.get(cols["risk"]) or "").strip()
@@ -494,12 +498,14 @@ def read_workbook(path) -> CostRiskInput:
     settings = _read_settings(sheets.get("settings"))
     elements, element_rows = _read_elements(sheets["elements"], settings["lognormal_range"])
     names = [e.name for e in elements]
-    risks, risk_rows = _read_risks(sheets.get("risks"), names)
+    risk_notes: List[str] = []
+    risks, risk_rows = _read_risks(sheets.get("risks"), names, risk_notes)
     default = settings["default_correlation"]
     if not -1.0 < default < 1.0:
         raise CostRiskError(f"Settings sheet: a default correlation of {default:g} is not "
                             "between -1 and 1.")
     matrix, pairs, notes = _read_pairs(sheets.get("correlation"), names, default)
+    notes = risk_notes + notes
     for e in elements:
         d = e.distribution
         lo, hi = d.get("left", d.get("low")), d.get("right", d.get("high"))

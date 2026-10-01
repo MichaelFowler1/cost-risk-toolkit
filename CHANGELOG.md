@@ -91,6 +91,15 @@ input moves.
 - MUPE is checked against an independent implementation: its estimating
   equations are a Gamma GLM's, and a test holds cost-core's coefficients,
   standard errors and spread to statsmodels' (CI installs statsmodels for it).
+- Checked before release with 73 awkward inputs through the new commands.
+  `ce-core cer` refuses a driver with one value across the programs and
+  drivers that move in lockstep (both had printed confident coefficients that
+  meant nothing), notes drivers that are nearly so (variance inflation above
+  10), and says when a fit is exact. `ce-core phase` no longer crashes on a
+  zero total, says when spending is level instead of naming a peak, reads
+  FY2027 as a year, and says what's wrong with all-zero percentages or an end
+  before the start. cost-risk says that a Distribution column on the Risks
+  sheet isn't read.
 - The CER chart takes the interval level and the units, and with several
   drivers its first panel plots actual against fitted cost.
 

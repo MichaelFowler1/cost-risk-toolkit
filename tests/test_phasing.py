@@ -167,3 +167,43 @@ def test_demo_template_and_open_know_the_command(tmp_path, capsys):
     from cost_core import opener
 
     assert opener.plan(tmp_path / "mine.xlsx").argv[0] == "phase"
+
+
+# ------------------------------------------------- 2.7.0 pre-release sweep
+def test_a_zero_or_level_or_negative_phasing_reads_sensibly(tmp_path):
+    from cost_core import plain
+
+    idx = index_frame({"I": 0.0})
+    zero = phase(read_workbook(workbook(tmp_path / "z.xlsx", one(Amount=0.0), index=idx,
+                                        settings=[("Base Year", 2026), ("Index", "I")])))
+    text = " ".join(plain.phase(zero, ""))
+    assert "peaks" not in text and "level" not in text
+    level = phase(read_workbook(workbook(tmp_path / "l.xlsx", one(Years=3))))
+    assert "Spending is level at 33.3 a year." in plain.phase(level, "")
+    neg = phase(read_workbook(workbook(tmp_path / "n.xlsx", one(Amount=-50.0))))
+    assert "peaks" not in " ".join(plain.phase(neg, ""))
+
+
+@pytest.mark.parametrize("change, message", [
+    (dict(Profile="0;0"), "all zero, so nothing is spent"),
+    (dict(Profile="100", Years=3), "one percentage for 3 years"),
+])
+def test_percentage_mistakes_say_what_is_wrong(tmp_path, change, message):
+    with pytest.raises(PhaseError, match=message):
+        read_workbook(workbook(tmp_path / "p.xlsx", one(**change)))
+
+
+def test_fiscal_year_spelling_and_a_backward_end(tmp_path):
+    inp = read_workbook(workbook(tmp_path / "a.xlsx", one(Start="FY2027", Profile="100",
+                                                           Years=None)))
+    assert inp.lines[0].start == 2027 and inp.lines[0].years == 1
+    lines = one(Years=None)
+    lines[0]["End"] = "FY2025"
+    frame = pd.DataFrame(lines)
+    p = tmp_path / "b.xlsx"
+    with pd.ExcelWriter(p) as xl:
+        frame.to_excel(xl, sheet_name="Phasing", index=False)
+        pd.DataFrame([("Base Year", 2026)], columns=["Setting", "Value"]).to_excel(
+            xl, sheet_name="Settings", index=False)
+    with pytest.raises(PhaseError, match="ends in FY2025, before it starts in FY2027"):
+        read_workbook(p)

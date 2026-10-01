@@ -281,3 +281,43 @@ def test_mupe_matches_a_statsmodels_gamma_glm(form):
     assert cer.result.theta == pytest.approx(glm.params.to_numpy(), rel=1e-6, abs=1e-6)
     assert np.sqrt(np.diag(cer.result.cov)) == pytest.approx(glm.bse.to_numpy(), rel=1e-5)
     assert cer.result.sigma == pytest.approx(np.sqrt(glm.scale), rel=1e-6)
+
+
+# ------------------------------------------------- 2.7.0 pre-release sweep
+def test_a_driver_with_one_value_is_refused(tmp_path):
+    data = {**line_data(), "Weight": [200.0] * 10}
+    with pytest.raises(CerError, match="same value for every program"):
+        analyse(read_workbook(workbook(tmp_path / "d.xlsx", data)))
+
+
+def test_drivers_in_lockstep_are_refused_and_near_lockstep_is_noted(tmp_path):
+    data = line_data()
+    with pytest.raises(CerError, match="'Weight' and 'Double' move in lockstep on the log"):
+        analyse(read_workbook(workbook(tmp_path / "a.xlsx",
+                                       {**data, "Double": [2 * w for w in data["Weight"]]})))
+    rng = np.random.default_rng(4)
+    near = [w * (1 + rng.normal(0, 0.01)) for w in data["Weight"]]
+    s = analyse(read_workbook(workbook(tmp_path / "b.xlsx", {**data, "Near": near})))
+    assert any("variance inflation factor" in n for n in s.notes)
+
+
+def test_a_perfect_fit_is_called_out(tmp_path):
+    from cost_core import plain
+
+    data = {**line_data(), "Cost": [w * 0.1 for w in line_data()["Weight"]]}
+    s = analyse(read_workbook(workbook(tmp_path / "d.xlsx", data)))
+    assert "Real cost data never do" in plain.cer(s, "")[0]
+
+
+def test_risk_distributions_are_said_to_be_triangular(tmp_path):
+    from cost_core import costrisk
+
+    p = tmp_path / "r.xlsx"
+    with pd.ExcelWriter(p) as xl:
+        pd.DataFrame({"Element": ["A"], "Point Estimate": [100.0], "Low": [90.0],
+                      "Most Likely": [100.0], "High": [130.0]}).to_excel(
+            xl, sheet_name="Elements", index=False)
+        pd.DataFrame({"Risk": ["R"], "Probability": [0.5], "Low": [1], "Most Likely": [2],
+                      "High": [3], "Distribution": ["lognormal"]}).to_excel(
+            xl, sheet_name="Risks", index=False)
+    assert any("Distribution column isn't read" in n for n in costrisk.read_workbook(p).notes)
