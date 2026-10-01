@@ -260,3 +260,24 @@ def test_cer_estimates_carry_into_cost_risk(tmp_path, capsys):
     capsys.readouterr()
     note = load_workbook(tmp_path / "p" / "report.xlsx")["For cost risk"]["A1"].value
     assert "set Lognormal Range to 0.9" in note
+
+
+@pytest.mark.parametrize("form", ["log_log", "linear"])
+def test_mupe_matches_a_statsmodels_gamma_glm(form):
+    """MUPE solves the same estimating equations as a Gamma GLM with Pearson
+    scale, so statsmodels is an independent check on the numbers."""
+    sm = pytest.importorskip("statsmodels.api")
+    from cost_core.cer import fit_cer
+    from cost_core.cer.study import EXAMPLE_DATA
+
+    d = EXAMPLE_DATA.rename(columns={"Weight (lb)": "W", "Power (kW)": "P"})
+    cer = fit_cer(d, "Cost", ["W", "P"], form=form, method="mupe")
+    if form == "log_log":
+        X, link = np.column_stack([np.ones(len(d)), np.log(d.W), np.log(d.P)]), \
+            sm.families.links.Log()
+    else:
+        X, link = np.column_stack([np.ones(len(d)), d.W, d.P]), sm.families.links.Identity()
+    glm = sm.GLM(d["Cost"], X, family=sm.families.Gamma(link=link)).fit(scale="X2")
+    assert cer.result.theta == pytest.approx(glm.params.to_numpy(), rel=1e-6, abs=1e-6)
+    assert np.sqrt(np.diag(cer.result.cov)) == pytest.approx(glm.bse.to_numpy(), rel=1e-5)
+    assert cer.result.sigma == pytest.approx(np.sqrt(glm.scale), rel=1e-6)

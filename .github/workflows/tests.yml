@@ -117,6 +117,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e '.[plots,optimize]'
           pip install pytest
+          # An independent check on MUPE (tests/test_cer_study.py); optional,
+          # so a Python version it has no wheel for skips the check.
+          pip install statsmodels || echo "statsmodels unavailable; its check is skipped"
 
       - name: Check a real install exposes every subpackage
         # An editable install resolves against the source tree, so it cannot

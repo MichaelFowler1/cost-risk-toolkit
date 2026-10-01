@@ -10,6 +10,16 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-01
+
+Four things an estimator does every week that cost-core couldn't: fit a CER
+from your own data and price new programs with it, carry that CER's
+uncertainty into the cost risk analysis, phase an estimate into a then-year
+budget by fiscal year and appropriation, and ask whether an AoA alternative
+pays for itself against the status quo. The AoA example's numbers move,
+because it now pays to keep the current system running until each
+replacement arrives; nothing else from a valid input does.
+
 ### Changed
 - The AoA example gains a status quo, "Keep current system", and each
   replacement now pays to keep the current system running until it arrives,
@@ -60,6 +70,9 @@ housekeeping detail here, because someone may have put the old one in a budget.
   less than the status quo in the simulation. An "Economic analysis" and a
   "Savings by year" sheet in `report.xlsx`, a slide, `economic.csv` and
   `savings_by_year.csv`. `AoAResult.economic()` from Python.
+- MUPE is checked against an independent implementation: its estimating
+  equations are a Gamma GLM's, and a test holds cost-core's coefficients,
+  standard errors and spread to statsmodels' (CI installs statsmodels for it).
 - The CER chart takes the interval level and the units, and with several
   drivers its first panel plots actual against fitted cost.
 
@@ -979,7 +992,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.2...v2.5.0
 [2.4.2]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.1...v2.4.2
