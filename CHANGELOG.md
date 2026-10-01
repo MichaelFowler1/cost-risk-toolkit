@@ -10,6 +10,99 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-01
+
+Four things an estimator does every week that cost-core couldn't: fit a CER
+from your own data and price new programs with it, carry that CER's
+uncertainty into the cost risk analysis, phase an estimate into a then-year
+budget by fiscal year and appropriation, and ask whether an AoA alternative
+pays for itself against the status quo. And numpy and scipy are no longer
+capped, so cost-core installs beside current releases instead of downgrading
+them. The AoA example's numbers move, because it now pays to keep the current
+system running until each replacement arrives, and on scipy 1.18 or later a
+seeded simulation draws slightly different numbers; nothing else from a valid
+input moves.
+
+### Changed
+- **numpy and scipy are no longer capped.** cost-core required `numpy<2.5` and
+  `scipy<1.18`, so installing it beside current releases downgraded both, or
+  failed when another package needed the newer ones. The caps only kept the
+  reference results reproducing to 1e-9, so that job moves to the test
+  environment: `requirements.txt` pins the capture stack, now numpy 2.5.3 and
+  scipy 1.18.1, exact comparison needs that stack on the capture machine, and
+  every other stack takes the measured allowance. Rebaselined on the new stack:
+  71 leaves of `lots_cost_core`, all in the MUPE and ZMPE refits of the
+  learning-curve method comparison plus two Mean bias cells printed as zero,
+  the largest move in an estimate 5.6e-7 relative (a ZMPE slope exponent of
+  -0.012); no other golden moved. On scipy 1.18 or later a seeded simulation
+  draws slightly different random numbers than on earlier scipy, so seeded
+  results agree to sampling noise rather than to the last digit; the
+  percentiles the tests hold did not move. Every test passes on both the old
+  and the new stack.
+- The AoA example gains a status quo, "Keep current system", and each
+  replacement now pays to keep the current system running until it arrives,
+  as an AoA should. Its numbers move accordingly: Upgrade in place's present
+  value is 6,416 rather than 5,262 (BY2026 $M), and it's the cheapest in 83%
+  of simulations rather than 95%.
+
+### Added
+- **`ce-core cer`: a CER from your own data.** A workbook with a Data sheet
+  (one row per past program: its cost and its drivers), an optional Estimate
+  sheet (the new programs to price) and an optional Settings sheet. The CER is
+  fitted by OLS, MUPE and ZMPE side by side, log-log by default or linear, and
+  each new program is priced with a prediction interval. The summary says
+  what each coefficient means in cost, and names a driver that can't be told
+  apart from zero (p above 0.10), a program that pulls the fit (Cook's
+  distance above 4/n), too few programs for the drivers, a new program outside
+  the data, and how far an OLS fit in log space sits below the mean. A Use
+  column leaves a row out with its reason; a blank cost or driver leaves it
+  out with a note. `report.xlsx`, `brief.pptx`, a four-panel chart and CSVs.
+  `ce-core demo cer`, `ce-core template cer` and `ce-core open` know it, and
+  `ce-core.toml`'s units apply when the workbook gives none.
+- **A CER's estimate carries into cost risk.** cost-risk elements take a
+  `lognormal` distribution whose Low and High are the ends of an 80% range
+  (a Lognormal Range setting changes it, e.g. 90%), and `ce-core cer` writes
+  each estimate as such a row: a "For cost risk" sheet in `report.xlsx` and
+  `cost_risk_rows.csv`, ready to paste onto the Elements sheet. The simulated
+  10th and 90th percentiles land on the CER's interval. A point estimate off
+  the centre of its lognormal range is noted.
+- **`ce-core phase`: an estimate spread into a then-year budget.** A Phasing
+  sheet (one row per line: amount in base-year dollars, start year, years or
+  end year, profile, appropriation), a Settings sheet (base year, units,
+  default index) and an Index sheet in the layout `ce-core inflate` reads (or
+  `--index`, or a constant Inflation Rate). Profiles: uniform, front, back,
+  bell, Rayleigh (peak placed by a Peak column, 0.38 of the duration by
+  default) or one percentage per year. Each line can name its own index.
+  Then-year and base-year spend by fiscal year and by appropriation, what
+  inflation adds and the peak year, in `report.xlsx`, `brief.pptx`, a stacked
+  bar chart and CSVs. The template's index is an invented 2% and is labelled
+  so; the summary says to replace it.
+- **Economic analysis on the AoA.** Name a status quo (Status Quo in the
+  spec or workbook, or `ce-core aoa --status-quo`) and every alternative is
+  measured against it in present value at the AoA's real rate: extra
+  investment (RDT&E, procurement, MILCON), operating savings (O&S, disposal),
+  net savings, savings-to-investment ratio, discounted payback year,
+  undiscounted break-even year, the real IRR of the extra investment (when the
+  yearly differences change sign once, so it's unique), uniform annual cost
+  for alternatives with different service lives, and the chance each costs
+  less than the status quo in the simulation. An "Economic analysis" and a
+  "Savings by year" sheet in `report.xlsx`, a slide, `economic.csv` and
+  `savings_by_year.csv`. `AoAResult.economic()` from Python.
+- MUPE is checked against an independent implementation: its estimating
+  equations are a Gamma GLM's, and a test holds cost-core's coefficients,
+  standard errors and spread to statsmodels' (CI installs statsmodels for it).
+- Checked before release with 73 awkward inputs through the new commands.
+  `ce-core cer` refuses a driver with one value across the programs and
+  drivers that move in lockstep (both had printed confident coefficients that
+  meant nothing), notes drivers that are nearly so (variance inflation above
+  10), and says when a fit is exact. `ce-core phase` no longer crashes on a
+  zero total, says when spending is level instead of naming a peak, reads
+  FY2027 as a year, and says what's wrong with all-zero percentages or an end
+  before the start. cost-risk says that a Distribution column on the Risks
+  sheet isn't read.
+- The CER chart takes the interval level and the units, and with several
+  drivers its first panel plots actual against fitted cost.
+
 ## [2.6.0] - 2026-09-30
 
 What a team needs on its first day (markings, its own slide master, settings
@@ -926,7 +1019,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.6.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.2...v2.5.0
 [2.4.2]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.1...v2.4.2

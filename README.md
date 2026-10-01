@@ -66,6 +66,8 @@ walks through each task from "what do I need" to "what does this tell me".
 | --- | --- | --- |
 | Forecast a program's final cost and finish from EVM | `ce-core demo evm` | `ce-core evm --data my_evm.xlsx` or `--ipmdar delivery.zip` |
 | How sure is my estimate, and what drives it (cost risk) | `ce-core demo cost-risk` | `ce-core cost-risk --data my_estimate.xlsx` |
+| Fit a CER from past programs and price a new one | `ce-core demo cer` | `ce-core cer --data my_cer.xlsx` |
+| Phase an estimate into a then-year budget by fiscal year | `ce-core demo phase` | `ce-core phase --data my_phase.xlsx` |
 | Check a schedule's logic (DCMA 14-point) | `ce-core demo schedule` | `ce-core schedule-check --mspdi my_schedule.xml` |
 | Know the chance of meeting a budget *and* a date (JCL) | `ce-core demo jcl` | `ce-core jcl --spec my_jcl.xlsx` |
 | Compare alternatives on life-cycle cost (AoA) | `ce-core demo aoa` | `ce-core aoa --spec my_aoa.xlsx` |
@@ -144,7 +146,10 @@ It prints what the point estimate's confidence really is, what it takes to be
 50%, 70%, 80% and 90% sure, and which elements and risks drive the spread, then
 writes `report.xlsx` (S-curve, confidence table, drivers, elements, risks, the
 correlation used and what ignoring it would cost), `brief.pptx` and the tables
-as CSV. Only the Elements sheet is required; a CSV of elements works too. Pairs
+as CSV. Only the Elements sheet is required; a CSV of elements works too.
+Each element's range can be triangular (the default), PERT, uniform or
+lognormal; a lognormal reads Low and High as the ends of an 80% range, which
+is how `ce-core cer` hands over a CER's estimate. Pairs
 of elements you don't list take the default correlation (0.3 unless the
 Settings sheet says otherwise),
 because leaving correlation out makes the P80 too low. The workbook never
@@ -154,6 +159,56 @@ It also shares the P80 out: how much of the reserve each element and risk
 needs, taken from the simulations whose total lands at the P80, so the shares
 add up to the P80 of the whole. Funding every element at its own P80 instead
 would overfund it, since percentiles don't add; the report shows by how much.
+
+## A CER from past programs
+
+Put the programs you have data for on a Data sheet, one row each with its cost
+and its technical drivers (weight, power, lines of code), and the new programs
+on an Estimate sheet:
+
+```bash
+ce-core demo cer                                         # twelve invented radars
+ce-core template cer                                     # my_cer.xlsx to fill in
+ce-core cer --data my_cer.xlsx --out cer/
+```
+
+It fits the CER by OLS, MUPE and ZMPE side by side (log-log by default, or
+linear), says what each coefficient means in cost ("doubling weight multiplies
+the cost by 1.51"), and prices each new program with a prediction interval:
+where one new program is expected to land, not the narrower interval on the
+line itself. It names a driver whose effect can't be told apart from zero, a
+program that pulls the fit more than the others, too few programs for the
+drivers, and a new program outside the data, including one whose drivers are
+each in range but whose combination isn't. A Use column leaves a program out
+of the fit without deleting it, with a note saying why. `report.xlsx` has the
+estimates, the methods compared, the coefficients with t-statistics and
+p-values, the diagnostics and the data as fitted; `brief.pptx` and the CSVs
+come with it.
+
+Each estimate also comes as a row ready for a cost-risk Elements sheet: a
+lognormal whose Low and High are the prediction interval, so the CER's own
+uncertainty goes into the risk analysis instead of a range typed by hand.
+
+## From an estimate to a budget: phasing by fiscal year
+
+Each line of the estimate gets an amount in base-year dollars, a start year, a
+number of years and a profile for how the money goes out:
+
+```bash
+ce-core demo phase                                       # five invented lines
+ce-core template phase                                   # my_phase.xlsx to fill in
+ce-core phase --data my_phase.xlsx --out phase/
+```
+
+The profiles are uniform, front or back loaded, a bell, a Rayleigh curve (the
+usual shape of development spending, with its peak where you put it), or your
+office's own percentages, one per year (`10;30;40;20`). Each line is inflated
+to then-year dollars with the index on the Index sheet, or the one it names,
+since RDT&E, procurement and O&M money each have their own. Out come the spend
+by fiscal year in then-year and base-year dollars, by appropriation, what
+inflation adds and the peak year, in `report.xlsx`, `brief.pptx`, a chart and
+CSVs. The template's index is an invented 2% and says so; put your agency's
+published indices in its place.
 
 ## Earned value: where the program is heading
 
@@ -247,10 +302,11 @@ ce-core aoa --spec my_aoa.xlsx --out aoa/
 ```
 
 ```
-     alternative        by        ty       pv      p50       p80  p_cheapest  effectiveness  cost_per_effectiveness     dominated_by
-Upgrade in place  6,260.00  7,597.89 5,262.48 5,737.37  6,181.63        0.95           0.62                9,335.40
- New development 10,770.00 14,304.08 8,486.81 9,470.01 10,268.04        0.00           0.90               10,611.67
-  Buy commercial  7,730.00  9,648.51 6,381.08 6,680.31  7,041.37        0.05           0.55               12,224.04 Upgrade in place
+        alternative        by        ty        pv       p50       p80  p_cheapest  effectiveness  cost_per_effectiveness     dominated_by
+Keep current system  8,500.00 10,405.17  7,095.12  8,061.26  8,961.80        0.12           0.40               20,470.60 Upgrade in place
+   Upgrade in place  7,460.00  8,849.00  6,416.03  7,062.21  7,556.72        0.83           0.62               11,472.89
+    New development 13,570.00 17,349.43 11,075.61 12,430.58 13,413.85        0.00           0.90               13,916.31
+     Buy commercial  8,930.00 10,899.62  7,534.64  8,017.60  8,415.43        0.06           0.55               14,637.96 Upgrade in place
 ```
 
 Each alternative is a set of cost lines (development, procurement, operating
@@ -273,6 +329,16 @@ carrying an uncertainty factor. Three things the module is careful about:
   cost per unit of effectiveness and names any alternative that another beats
   on both counts. In the example, buying commercial costs more than upgrading
   in place and does less, so it's off the frontier.
+- **Does the change pay for itself?** Name the status quo (Status Quo on the
+  Settings sheet, or `--status-quo`) and each alternative is measured against
+  it, the way OMB A-94 and DoD's economic analysis guidance set out: the extra
+  investment (RDT&E, procurement, MILCON) and the operating cost it saves (O&S,
+  disposal) in present value, net savings, the savings-to-investment ratio,
+  the discounted payback year, the undiscounted break-even year and the real
+  IRR of the extra investment. Alternatives with different service lives are
+  also compared on uniform annual cost, with a note saying so. In the example,
+  upgrading in place repays its investment 1.6 times over by FY2039; new
+  development doesn't pay back.
 
 The spread on a line can come from history instead of judgement:
 `historical_growth` takes the SAR panel above and returns each program's

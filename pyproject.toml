@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 # normalises "cost-core" and "cost_core" to the same artefact names, so the
 # hyphen is only what people type after `pip install`.
 name = "cost-core"
-version = "2.6.0"
+version = "2.7.0"
 description = "Cost risk, EVM forecasts, DCMA schedule checks, JCL, AoA and portfolio choice for defense and space programs, in one Python package: Excel in, report and briefing out."
 readme = "README.md"
 # 3.9 is the floor because nothing here needs more. Every PEP 604 union in the
@@ -21,22 +21,17 @@ readme = "README.md"
 # claim stays true.
 requires-python = ">=3.9"
 dependencies = [
-    # The two upper bounds are reproducibility bounds, not compatibility ones:
-    # the library imports and runs fine above them, but it stops reproducing the
-    # numbers this release pins. numpy 2.5 and scipy 1.18 each land the unbiased
-    # MUPE and ZMPE refits in a slightly different place, which moves golden
-    # leaves by up to 8e-9 and 4.5e-8 relative against a 1e-9 tolerance, and
-    # scipy 1.18 also changes the draws the risk model produces, so the
-    # frozen-draw hashes in tests/test_monte_carlo.py fail too. Both are seen on
-    # Windows, where the goldens were captured; elsewhere those leaves carry a
-    # measured allowance and the hashes are skipped, so a bound is measured on
-    # Windows. Neither is a bug in either library. The figures and the
-    # measurement are in CHANGELOG.md under 1.0.0; lifting a bound means
-    # rebaselining the goldens and the frozen draws under the new stack and
-    # recording what moved, not widening a tolerance until the failure stops.
-    "numpy>=1.26.0,<2.5",
+    # No upper bounds. Until 2.7.0 numpy and scipy were capped to keep the
+    # goldens reproducing to 1e-9, which forced a downgrade on anyone with a
+    # current stack. Exactness is now a property of the test environment
+    # instead: requirements.txt pins the stack the goldens were captured under
+    # (COMPARE_POLICY.captured_under), the capture machine on that stack holds
+    # every leaf at 1e-9, and any other stack or machine takes the measured
+    # allowance. Moving the capture stack means rebaselining the goldens and
+    # the frozen draws and recording what moved (CHANGELOG.md, 2.7.0).
+    "numpy>=1.26.0",
     "pandas>=2.1.0",
-    "scipy>=1.11.0,<1.18",
+    "scipy>=1.11.0",
     # The desktop lot cost model writes an Excel workbook as its deliverable,
     # and the lot reader accepts .xlsx, so this is core rather than optional.
     "openpyxl>=3.1.0",

@@ -140,6 +140,12 @@ def plan(path, out=None) -> Plan:
         if "elements" in names:
             return Plan("a cost estimate with ranges (an Elements sheet)",
                         ["cost-risk", "--data", str(path)] + o)
+        if "phasing" in names:
+            return Plan("an estimate to phase by fiscal year (a Phasing sheet)",
+                        ["phase", "--data", str(path)] + o)
+        if "data" in names and names & {"estimate", "estimates"}:
+            return Plan("data for a cost estimating relationship (Data and Estimate sheets)",
+                        ["cer", "--data", str(path)] + o)
         for sheet, kind, what in (("activities", "jcl", "a JCL network (an Activities sheet)"),
                                   ("lines", "aoa", "an analysis of alternatives (a Lines sheet)"),
                                   ("candidates", "portfolio",

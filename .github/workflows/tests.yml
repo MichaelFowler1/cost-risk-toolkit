@@ -102,21 +102,20 @@ jobs:
         # an optional extra as of 1.0.0, and the chart tests and the CLI smoke
         # test need it.
         #
-        # What makes a resolved install safe to run the goldens against is the
-        # upper bound on numpy and scipy in pyproject.toml. numpy 2.5.3 and
-        # scipy 1.18.1 both declare Requires-Python >=3.12, so the 3.12, 3.13
-        # and 3.14 lanes are all new enough to be offered them, and this step
-        # runs before the pinning step below on every lane including 3.14.
-        # Without the bound those three would resolve both, and on the two whose
-        # tests then run unpinned -- 3.12 and 3.13 -- five tests failed, on
-        # numbers rather than on behaviour. That was measured on 3.12; 3.13
-        # resolves the same two. Inside the bound a lane can still pick up a new
-        # patch release, so a resolved lane is not a frozen lane; the pinned lane
-        # below is the one that holds the stack completely still.
+        # Since 2.7.0 numpy and scipy have no upper bound, so a resolved lane
+        # gets whatever is current. That is safe to run the goldens against
+        # because a CI runner never compares them exactly: off the capture
+        # machine and stack every lane takes COMPARE_POLICY's measured
+        # allowance, and the frozen-draw hashes are chosen by scipy version.
+        # A resolved lane is not a frozen lane; the pinned lane below is the
+        # one that holds the stack completely still.
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[plots,optimize]'
           pip install pytest
+          # An independent check on MUPE (tests/test_cer_study.py); optional,
+          # so a Python version it has no wheel for skips the check.
+          pip install statsmodels || echo "statsmodels unavailable; its check is skipped"
 
       - name: Check a real install exposes every subpackage
         # An editable install resolves against the source tree, so it cannot

@@ -22,7 +22,11 @@ to exactly zero:
 
 **MUPE** (minimum unbiased percentage error) minimizes `Σ (y - f)² / f_prev²` by
 iteratively reweighted least squares. At its fixed point, the normal equation for
-a multiplicative scale parameter collapses to `Σ (y - f)/f = 0`.
+a multiplicative scale parameter collapses to `Σ (y - f)/f = 0`. Its estimating
+equations are those of a generalised linear model with a Gamma family and
+Pearson scale, so MUPE can be checked independently: cost-core's MUPE matches
+statsmodels' `GLM(..., family=Gamma(link)).fit(scale="X2")` in coefficients,
+standard errors and spread, and a test holds it there.
 
 **ZMPE** (zero percentage bias minimum percentage error) minimizes
 `Σ ((y - f)/f)²` *subject to* `Σ (y - f)/f = 0`. Same zero bias property, but

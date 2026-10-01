@@ -26,6 +26,12 @@ EXAMPLES = {
     "cost-risk": ("cost_risk_example.xlsx",
                   "A ground station upgrade estimated in $M: eight WBS elements with "
                   "ranges, three risks and the correlations between elements."),
+    "cer": ("cer_example.xlsx",
+            "Twelve invented radar programs, cost in BY2026 $M against weight and power, "
+            "and two new radars to price (one outside the data)."),
+    "phase": ("phase_example.xlsx",
+              "An invented BY2026 estimate in $M, five lines across RDT&E, procurement "
+              "and O&M, spread by fiscal year with an illustrative 2% index."),
     "inflate": ("inflate_example.csv",
                 "An invented estimate in BY2026 $M, phased by fiscal year, converted to "
                 "then-year dollars with an illustrative 2% index (inflate_index.csv)."),
@@ -35,7 +41,9 @@ EXAMPLES = {
     "jcl": ("jcl_example.json",
             "A small science spacecraft from design to launch, in months and $M."),
     "aoa": ("aoa_example.json",
-            "Three alternatives for a capability, their costs phased by year."),
+            "Three ways to replace an ageing sensor and the status quo of keeping it, "
+            "their costs phased by year, with the economic analysis against the status "
+            "quo."),
     "portfolio": ("portfolio_example.json",
                   "Candidate programs with funding options and a budget by year."),
 }

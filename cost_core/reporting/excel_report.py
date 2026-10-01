@@ -538,7 +538,24 @@ def aoa_workbook(result, path) -> Path:
                                 Reference(ws, min_col=j, min_row=2, max_row=1 + n),
                                 title=str(sc.columns[j - 1])))
     ws.add_chart(ch, f"{get_column_letter(len(sc.columns) + 2)}2")
-    rb.assumptions(result.assumptions)
+    econ = result.economic()
+    if econ is not None:
+        rb.table("Economic analysis", econ.summary,
+                 {c: MONEY0 for c in ("pv_life_cycle", "uniform_annual_cost", "investment_pv",
+                                      "savings_pv", "net_savings_pv")}
+                 | {"sir": NUM, "irr": PCT, "chance_cheaper": PCT},
+                 note=f"Each alternative against the status quo, {econ.status_quo!r}: "
+                      "investment is the extra RDT&E, procurement and MILCON, savings the "
+                      f"O&S and disposal avoided, both in present value at "
+                      f"{econ.discount_rate:.1%}. SIR above 1 means the savings repay the "
+                      "investment.")
+        rb.table("Savings by year", econ.by_year,
+                 {c: MONEY0 for c in ("status_quo_cost", "alternative_cost", "saving",
+                                      "saving_pv", "cumulative_saving_pv")}
+                 | {"discount_factor": "0.0000"},
+                 note="Base-year dollars. The year the cumulative present value turns "
+                      "positive is the payback year.")
+    rb.assumptions(result.assumptions, econ.notes if econ is not None else ())
     return rb.save(path)
 
 
@@ -570,4 +587,121 @@ def portfolio_workbook(result, portfolio, path, units: str = "", tables: Optiona
     if risk is not None:
         rb.table("Budget risk", risk, {"p_over_budget": PCT})
     rb.assumptions({"units": units, **(settings or {})})
+    return rb.save(path)
+
+
+# ---------------------------------------------------------------------- CER
+def cer_workbook(study, path) -> Path:
+    """A CER study: the estimates, the three methods compared, the
+    coefficients, the diagnostics and the data as fitted."""
+    from cost_core import plain
+
+    units = plain.units_label(study.units)
+    money = money_format(units)
+    c = study.cer
+    rb = ReportWorkbook("Cost estimating relationship",
+                        f"{c.result.n_obs} programs, {c.method.upper()}; costs in "
+                        f"{units or 'the units entered'}.")
+    f, f_p = study.overall_f()
+    rb.summary(plain.cer(study, units), [
+        ("Equation", c.equation(), ""),
+        ("Form and method", f"{c.form.value.replace('_', '-')}, {c.method.upper()}", ""),
+        ("Programs used", c.result.n_obs, "0"),
+        ("Standard error", c.standard_error, money),
+        ("Coefficient of variation (typical miss)", c.cv, PCT),
+        ("R-squared, on the fitting scale", c.r_squared, NUM),
+        ("Degrees of freedom", c.df, "0"),
+        ("Observations per parameter", c.obs_per_param, NUM),
+        ("Overall F test p-value (OLS fit)", f_p, "0.0000")],
+        note="The standard error and CV lead, not R-squared: R-squared on a log-log fit "
+             "describes how well the logs line up and is near 1 for almost any cost data.")
+    if len(study.estimates):
+        rb.table("Estimates", study.estimates,
+                 {"estimate": money, "lower": money, "upper": money, "level": "0%",
+                  "se_fitting_scale": RATIO},
+                 note=f"{study.inputs.level:.0%} prediction intervals: where one new program "
+                      "is expected to land. se_fitting_scale and df are what a cost risk "
+                      "model needs to carry this uncertainty.")
+    if len(study.estimates):
+        rb.table("For cost risk", study.cost_risk_rows(),
+                 {"Point Estimate": money, "Low": money, "High": money},
+                 note="Copy these rows onto the Elements sheet of a cost-risk workbook to "
+                      "carry each estimate's uncertainty into the risk analysis. Low and "
+                      f"High are the {study.inputs.level:.0%} prediction interval"
+                      + ("; that's cost-risk's default Lognormal Range." if
+                         abs(study.inputs.level - 0.8) < 1e-9 else
+                         f"; set Lognormal Range to {study.inputs.level:g} on its Settings "
+                         "sheet."))
+    rb.table("Methods compared", study.comparison(),
+             {"std_error": money, "cv": PCT, "mean_pct_error": PCT, "obs_per_param": NUM,
+              "r_squared": NUM},
+             note="The same data fitted three ways. MUPE and ZMPE fit percentage errors "
+                  "with a mean of zero; OLS on a log-log form fits the median.")
+    rb.table("Coefficients", study.coefficients(),
+             {"estimate": RATIO, "std_error": RATIO, "t_stat": NUM, "p_value": "0.0000"},
+             note=f"The {c.method.upper()} fit. A p-value above {plain.P_FLAG_TEXT:.2f} means "
+                  "the driver's effect can't be told apart from zero.")
+    rb.table("Diagnostics", study.diagnostics(),
+             {"residual": RATIO, "std_residual": NUM, "leverage": RATIO,
+              "cooks_distance": RATIO, "dffits": RATIO},
+             note="Leverage above 2p/n marks an unusual combination of drivers; Cook's "
+                  "distance above 4/n marks a program that moves the fit.")
+    rb.table("Data", study.data_table(),
+             {study.inputs.response: money, "fitted": money, "percent_error": PCT},
+             note="Every row of the Data sheet, with the ones left out and why.")
+    bias = study.bias()
+    if bias is not None:
+        rb.table("Log-space bias", bias.to_frame(), {"value": RATIO},
+                 note="How far an OLS fit in log space sits below the mean: it estimates "
+                      "the median program.")
+    rb.assumptions(study.assumptions, study.notes)
+    return rb.save(path)
+
+
+# ------------------------------------------------------------------ phasing
+def phase_workbook(result, path) -> Path:
+    """An estimate phased by fiscal year: then-year and base-year tables, by
+    appropriation, every line-year with its factor, and the index used."""
+    from cost_core import plain
+
+    units = plain.units_label(result.units)
+    money = money_format(units)
+    i = result.inputs
+    tot = result.totals()
+    year, amount = result.peak()
+    rb = ReportWorkbook("Budget phasing",
+                        f"BY{i.base_year} estimate by fiscal year; costs in "
+                        f"{units or 'the units entered'}.")
+    headline = [(f"Total, BY{i.base_year} dollars", tot["base_year"], money)]
+    if result.has_then_year:
+        headline += [("Total, then-year dollars", tot["then_year"], money),
+                     ("What inflation adds", tot["then_year"] - tot["base_year"], money)]
+    headline += [("Peak year", f"FY{year}", ""), ("Spend in the peak year", amount, money),
+                 ("Lines", len(i.lines), "0")]
+    rb.summary(plain.phase(result, units), headline)
+
+    def wide_formats(df):
+        return {c: money for c in df.columns if str(c).startswith("FY") or c == "Total"}
+
+    if result.has_then_year:
+        ty = result.wide("ty")
+        rb.table("Then-year by FY", ty, wide_formats(ty),
+                 note="Each line's spend in the dollars of the year it's spent.")
+    byw = result.wide("by")
+    rb.table("Base-year by FY", byw, wide_formats(byw),
+             note=f"Each line's spend in BY{i.base_year} dollars.")
+    rb.table("By appropriation", result.by_appropriation(),
+             {"base_year": money, "then_year": money})
+    rb.table("Every line-year", result.long,
+             {"base_year": money, "then_year": money, "factor": "0.0000"},
+             note="factor = the index in the year spent over the index in the base year.")
+    if result.has_then_year:
+        lo, hi = int(result.long["fiscal_year"].min()), int(result.long["fiscal_year"].max())
+        used = sorted({ln.index for ln in i.lines if ln.index})
+        idx = pd.DataFrame([{"index_name": n, "fiscal_year": y, "index_value": v}
+                            for n in used for y, v in sorted(i.indices[n].items())
+                            if lo <= y <= hi or y == i.base_year])
+        rb.table("Index used", idx, {"index_value": "0.0000"},
+                 note=f"From {i.index_source}.")
+    rb.assumptions(result.assumptions, i.notes)
     return rb.save(path)

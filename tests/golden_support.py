@@ -2190,7 +2190,20 @@ def _on_capture(entry, platform=None) -> bool:
     """
     if platform is not None:
         return platform == entry["captured_on_platform"]
-    return sys.platform == entry["captured_on_platform"] and not _in_ci()
+    return (sys.platform == entry["captured_on_platform"] and not _in_ci()
+            and _on_capture_stack())
+
+
+def _on_capture_stack(path=None) -> bool:
+    """Whether numpy and scipy are the versions the goldens were captured
+    under. Since 2.7.0 the package installs with any numpy and scipy, and the
+    last digits of the refits move between versions as they do between
+    machines, so the capture machine on another stack takes the same measured
+    allowance as any other machine."""
+    import scipy
+
+    under = json.loads(Path(path or POLICY_PATH).read_text(encoding="utf-8"))["captured_under"]
+    return np.__version__ == under["numpy"] and scipy.__version__ == under["scipy"]
 
 
 def _build_platform_overrides(path=None, *, platform=None) -> dict:

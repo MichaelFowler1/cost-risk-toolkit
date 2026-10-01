@@ -15,15 +15,18 @@ The workbook has up to four sheets, and only the first is required:
 
 ``Elements``
     Element, Point Estimate, Low, Most Likely, High, and optionally
-    Distribution (triangular, the default, pert or uniform). An element
-    with no range is carried at its point estimate with no uncertainty.
+    Distribution (triangular, the default, pert, uniform or lognormal). An
+    element with no range is carried at its point estimate with no
+    uncertainty. A lognormal takes Low and High as the ends of an 80% range
+    (the Lognormal Range setting changes that), which is how a CER's
+    prediction interval comes out of ``ce-core cer``.
 ``Risks``
     Risk, Probability, Low, Most Likely, High (the cost if it happens), and
     optionally Element (which element it belongs to, for the report).
 ``Correlation``
     Element A, Element B, Correlation. Pairs not listed take the default.
 ``Settings``
-    Units, Default Correlation, Iterations, Seed.
+    Units, Default Correlation, Iterations, Seed, Lognormal Range.
 
 ``ce-core template cost-risk`` writes one to fill in, and ``ce-core demo
 cost-risk`` runs the invented example that ships with the package.
@@ -40,6 +43,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 from cost_core.monte_carlo import (
     CorrelationImpact,
@@ -81,7 +85,12 @@ PAIR_COLUMNS: Dict[str, Tuple[str, ...]] = {
     "rho": ("correlation", "rho", "r", "value"),
 }
 
-DISTRIBUTIONS = ("triangular", "pert", "uniform")
+DISTRIBUTIONS = ("triangular", "pert", "uniform", "lognormal")
+
+#: The share of a lognormal element's cost between its Low and High, unless
+#: the Settings sheet says otherwise: an 80% range, from the 10th to the 90th
+#: percentile, which is what ``ce-core cer`` gives by default.
+LOGNORMAL_RANGE = 0.8
 
 #: The correlation between any two elements the workbook doesn't pair. 0.3 is
 #: the usual default in cost risk practice when nothing better is known; the
@@ -90,7 +99,7 @@ DEFAULT_CORRELATION = 0.3
 
 #: What the settings sheet may hold, with the defaults when it does not.
 SETTINGS_DEFAULTS = {"units": "", "default_correlation": DEFAULT_CORRELATION,
-                     "iterations": 20_000, "seed": 0}
+                     "iterations": 20_000, "seed": 0, "lognormal_range": LOGNORMAL_RANGE}
 
 #: Confidence levels the table reports, as percentiles.
 CONFIDENCE_LEVELS = tuple(range(5, 100, 5))
@@ -176,7 +185,8 @@ def _probability(value, row: int) -> float:
 
 
 def _three_point(low, mode, high, sheet: str, row: int, label: str,
-                 dist: str = "triangular", point: Optional[float] = None) -> Dict:
+                 dist: str = "triangular", point: Optional[float] = None,
+                 lognormal_range: float = LOGNORMAL_RANGE) -> Dict:
     """A distribution spec from a low, most likely and high."""
     if low is None and high is None and point is not None:
         # No range: carried at the point estimate, as the notes say, and not
@@ -197,6 +207,8 @@ def _three_point(low, mode, high, sheet: str, row: int, label: str,
             raise CostRiskError(f"{sheet} sheet, row {row} ({label}): the High ({high:,g}) "
                                 f"is below the Low ({low:,g}).")
         return {"type": "uniform", "low": float(low), "high": float(high)}
+    if dist == "lognormal":
+        return _lognormal(low, high, sheet, row, label, lognormal_range)
     if not all(given):
         blank = [n for n, g in zip(("Low", "Most Likely", "High"), given) if not g]
         raise CostRiskError(f"{sheet} sheet, row {row} ({label}): the {' and '.join(blank)} "
@@ -207,6 +219,26 @@ def _three_point(low, mode, high, sheet: str, row: int, label: str,
                             f"Low <= Most Likely <= High, and they are {low:,g}, {mode:,g}, "
                             f"{high:,g}.")
     return {"type": dist, "left": float(low), "mode": float(mode), "right": float(high)}
+
+
+def _lognormal(low, high, sheet: str, row: int, label: str, share: float) -> Dict:
+    """The lognormal whose ``share`` central range runs from Low to High.
+
+    Two numbers fix a lognormal, so the Most Likely isn't used: the median is
+    the geometric mean of Low and High, and the spread is what puts them at
+    the right percentiles. A CER's prediction interval is symmetric on the
+    log scale in just this way, so its estimate, lower and upper carry over
+    exactly at the ends of the range.
+    """
+    if low is None or high is None:
+        raise CostRiskError(f"{sheet} sheet, row {row} ({label}): a lognormal needs both a "
+                            f"Low and a High, the ends of its {share:.0%} range.")
+    if not 0 < low < high:
+        raise CostRiskError(f"{sheet} sheet, row {row} ({label}): a lognormal needs "
+                            f"0 < Low < High, and they are {low:,g} and {high:,g}.")
+    z = float(stats.norm.ppf(0.5 + share / 2.0))
+    return {"type": "lognormal", "mean": (np.log(low) + np.log(high)) / 2.0,
+            "sigma": (np.log(high) - np.log(low)) / (2.0 * z)}
 
 
 @dataclass
@@ -224,9 +256,11 @@ class CostRiskInput:
     #: The settings the workbook itself gave, so a ce-core.toml default only
     #: fills in the ones it left out.
     stated: frozenset = frozenset()
+    lognormal_range: float = LOGNORMAL_RANGE
 
 
-def _read_elements(frame: pd.DataFrame) -> Tuple[List[CostElement], pd.DataFrame]:
+def _read_elements(frame: pd.DataFrame, lognormal_range: float = LOGNORMAL_RANGE
+                   ) -> Tuple[List[CostElement], pd.DataFrame]:
     frame = frame.dropna(how="all")
     cols = _columns(frame, ELEMENT_COLUMNS, "Elements", ["element"])
     if not ({"point", "mode"} & set(cols)):
@@ -249,7 +283,7 @@ def _read_elements(frame: pd.DataFrame) -> Tuple[List[CostElement], pd.DataFrame
                                 f"is not one of {', '.join(DISTRIBUTIONS)}.")
         point = get.get("point")
         spec = _three_point(get.get("low"), get.get("mode"), get.get("high"), "Elements", i,
-                            name, dist, point)
+                            name, dist, point, lognormal_range)
         if point is None:
             point = get.get("mode")
         if point is None:
@@ -271,8 +305,8 @@ def _read_elements(frame: pd.DataFrame) -> Tuple[List[CostElement], pd.DataFrame
     return elements, pd.DataFrame(rows)
 
 
-def _read_risks(frame: Optional[pd.DataFrame], names: Sequence[str]
-                ) -> Tuple[List[DiscreteRisk], pd.DataFrame]:
+def _read_risks(frame: Optional[pd.DataFrame], names: Sequence[str],
+                notes: Optional[List[str]] = None) -> Tuple[List[DiscreteRisk], pd.DataFrame]:
     empty = pd.DataFrame(columns=["risk", "probability", "low", "most_likely", "high", "element"])
     if frame is None:
         return [], empty
@@ -280,6 +314,10 @@ def _read_risks(frame: Optional[pd.DataFrame], names: Sequence[str]
     if frame.empty:
         return [], empty
     cols = _columns(frame, RISK_COLUMNS, "Risks", ["risk", "probability"])
+    if notes is not None and any(_norm(c) in ELEMENT_COLUMNS["distribution"]
+                                 for c in frame.columns):
+        notes.append("The Risks sheet's Distribution column isn't read: a risk's cost if it "
+                     "happens is always triangular on its Low, Most Likely and High.")
     risks, rows = [], []
     for i, rec in zip(excel_rows(frame), frame.to_dict("records")):
         name = str(rec.get(cols["risk"]) or "").strip()
@@ -359,7 +397,7 @@ def _read_pairs(frame: Optional[pd.DataFrame], names: Sequence[str], default: fl
 SETTING_NAMES = {"units": "units", "default_correlation": "default_correlation",
                  "iterations": "iterations", "iters": "iterations", "draws": "iterations",
                  "simulations": "iterations", "seed": "seed", "random_seed": "seed",
-                 "description": None, "notes": None}
+                 "lognormal_range": "lognormal_range", "description": None, "notes": None}
 
 
 def headingless(frame: pd.DataFrame, known) -> pd.DataFrame:
@@ -394,13 +432,25 @@ def _read_settings(frame: Optional[pd.DataFrame]) -> Dict:
             # the default used in its place.
             raise CostRiskError(
                 f"Settings sheet, row {row}: {str(rec[0]).strip()!r} is not a setting. The "
-                "settings are Units, Default Correlation, Iterations and Seed.")
+                "settings are Units, Default Correlation, Iterations, Seed and Lognormal "
+                "Range.")
         key, value = SETTING_NAMES[label], rec[1]
         if key is None or _blank(value):
             continue
         out.setdefault("_stated", set()).add(key)
         if key == "units":
             out[key] = str(value).strip()
+            continue
+        if key == "lognormal_range":
+            text = str(value).strip()
+            v = _number(text[:-1] if text.endswith("%") else value, "Settings", row,
+                        "Lognormal Range")
+            v = v / 100.0 if text.endswith("%") or v > 1.0 else v
+            if not 0.5 <= v < 1.0:
+                raise CostRiskError(f"Settings sheet, row {row}: a Lognormal Range of {v:g} "
+                                    "isn't usable; it's the share between Low and High, "
+                                    "0.8 for 80%.")
+            out[key] = v
             continue
         v = _number(value, "Settings", row, str(rec[0]).strip())
         if key in ("iterations", "seed"):
@@ -446,17 +496,25 @@ def read_workbook(path) -> CostRiskInput:
         used = ("elements", "risks", "correlation", "settings", "instructions")
         unread = [t for k, t in titles.items() if k not in used]
     settings = _read_settings(sheets.get("settings"))
-    elements, element_rows = _read_elements(sheets["elements"])
+    elements, element_rows = _read_elements(sheets["elements"], settings["lognormal_range"])
     names = [e.name for e in elements]
-    risks, risk_rows = _read_risks(sheets.get("risks"), names)
+    risk_notes: List[str] = []
+    risks, risk_rows = _read_risks(sheets.get("risks"), names, risk_notes)
     default = settings["default_correlation"]
     if not -1.0 < default < 1.0:
         raise CostRiskError(f"Settings sheet: a default correlation of {default:g} is not "
                             "between -1 and 1.")
     matrix, pairs, notes = _read_pairs(sheets.get("correlation"), names, default)
+    notes = risk_notes + notes
     for e in elements:
         d = e.distribution
         lo, hi = d.get("left", d.get("low")), d.get("right", d.get("high"))
+        if d["type"] == "lognormal":
+            centre = float(np.exp(d["mean"]))
+            if abs(e.point_estimate / centre - 1.0) > 0.01:
+                notes.append(f"{e.name!r} has a point estimate of {e.point_estimate:,g}, but "
+                             f"its lognormal range is centred on {centre:,g} (the geometric "
+                             "mean of Low and High), which is where it is simulated.")
         if d["type"] == "fixed" and d["value"] != e.point_estimate:
             notes.append(f"{e.name!r} has its Low, Most Likely and High all at "
                          f"{d['value']:,g} but a point estimate of {e.point_estimate:,g}: "
@@ -485,7 +543,8 @@ def read_workbook(path) -> CostRiskInput:
     return CostRiskInput(model=model, elements=element_rows, risks=risk_rows, pairs=pairs,
                          units=settings["units"], n_iter=settings["iterations"],
                          seed=settings["seed"], notes=notes,
-                         stated=frozenset(settings.get("_stated", ())))
+                         stated=frozenset(settings.get("_stated", ())),
+                         lognormal_range=settings["lognormal_range"])
 
 
 @dataclass
@@ -594,6 +653,9 @@ class CostRiskResult:
                 "correlation pairs entered": len(self.inputs.pairs),
                 "point estimate": "sum of the element point estimates (risks excluded)",
                 "units": self.units or "as entered",
+                **({"lognormal range": f"{self.inputs.lognormal_range:.0%} between Low and "
+                                       "High"}
+                   if any(e.distribution["type"] == "lognormal" for e in m.elements) else {}),
                 "p80 settled": "yes" if self.sim.is_converged else
                                "no: run more iterations before quoting the P80"}
 
@@ -633,7 +695,10 @@ INSTRUCTIONS = [
      "with no uncertainty (it is carried at its point estimate)."),
     ("Distribution", "Optional. triangular (the default) spreads the chance evenly along "
      "the three points; pert bunches it toward the most likely; uniform treats every value "
-     "between Low and High alike and ignores the most likely."),
+     "between Low and High alike and ignores the most likely. lognormal takes Low and High "
+     "as the ends of an 80% range (Lognormal Range on the Settings sheet changes it) and "
+     "ignores the most likely: the usual shape for an estimate from a CER, and ce-core cer "
+     "writes the rows to copy here."),
     ("Risks sheet", "Things that may or may not happen. Probability is the chance it does "
      "(0.3 or 30%). Low, Most Likely and High are what it costs if it does. Element is "
      "optional and only labels the report. Delete the rows if there are no risks."),

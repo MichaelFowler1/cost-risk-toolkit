@@ -230,6 +230,173 @@ def dcma(result, schedule) -> List[str]:
     return out
 
 
+#: A driver whose p-value is above this is called out in :func:`cer`.
+P_FLAG_TEXT = 0.10
+
+
+def _money3(v: float, units: str = "") -> str:
+    """Like :func:`_money`, but three significant figures below 1,000, so a
+    CER's $27.2M doesn't read as $27M."""
+    units = (units or "").strip()
+    text = f"{abs(v):,.0f}" if abs(v) >= 1000 else f"{abs(v):,.3g}"
+    sign = "-" if v < 0 and text.strip("0.,") else ""
+    if units in ("", "as entered", "file currency"):
+        return f"{sign}{text}"
+    if units.startswith("$"):
+        return f"{sign}${text}{units[1:]}"
+    return f"{sign}{text} {units}"
+
+
+def cer(study, units: str = "") -> List[str]:
+    """A cost estimating relationship and what it prices."""
+    c, i = study.cer, study.inputs
+    if c.cv < 1e-9:
+        return [f"{c.equation()} fits all {c.result.n_obs} programs exactly. Real cost data "
+                "never do: check the cost column isn't computed from the drivers (a "
+                "formula in the workbook, say). The intervals are zero-width and the "
+                "t-statistics are rounding error."]
+    out = [f"{c.equation()} fits {c.result.n_obs} programs by {c.method.upper()}, with a "
+           f"typical miss of {c.cv:.0%} (a standard error of "
+           f"{_money3(c.standard_error, units)})."]
+    coef = study.coefficients()
+    drivers = coef[coef["parameter"].str.startswith("b_")]
+    if c.form.value == "log_log" and len(drivers):
+        out.append("Doubling " + "; doubling ".join(
+            f"{p[2:]} multiplies the cost by {2.0 ** b:,.2f}"
+            for p, b in zip(drivers["parameter"], drivers["estimate"])) + ".")
+    weak = drivers[drivers["p_value"] > P_FLAG_TEXT]
+    for p, pv in zip(weak["parameter"], weak["p_value"]):
+        out.append(f"{p[2:]}'s effect can't be told apart from zero (p = {pv:.2f}): the "
+                   "data don't show it matters once the other drivers are in. Drop it, or "
+                   "keep it for a reason you can state.")
+    if c.df < 3 or c.obs_per_param < 3:
+        out.append(f"{c.result.n_obs} programs for {c.result.n_params} parameters is thin "
+                   f"({c.obs_per_param:.1f} per parameter, {c.df} degrees of freedom): the "
+                   "interval is honest about it, but the coefficients aren't well pinned "
+                   "down.")
+    diag = c.diagnostics()
+    if diag.influential:
+        out.append(f"{', '.join(diag.influential)} "
+                   f"{'pulls' if len(diag.influential) == 1 else 'pull'} the fit more than "
+                   "the others (Cook's distance above 4/n): check "
+                   f"{'its' if len(diag.influential) == 1 else 'their'} data before relying "
+                   "on the CER.")
+    est = study.estimates
+    for r in est.head(4).itertuples(index=False):
+        line = (f"For {r.name!r} it gives {_money3(r.estimate, units)}; "
+                f"{r.level:.0%} of programs like it would land between "
+                f"{_money3(r.lower, units)} and {_money3(r.upper, units)}.")
+        if r.outside_data == "yes":
+            line += (f" That's outside the data ({r.extrapolation_note}), where the CER has "
+                     "no evidence and the range understates the risk.")
+        out.append(line)
+    if len(est) > 4:
+        out.append(f"{len(est) - 4} more estimates are in the Estimates table.")
+    if len(est):
+        out.append("To carry these into a cost risk analysis, copy the For cost risk rows "
+                   "onto a cost-risk Elements sheet: each comes in as a lognormal with this "
+                   "interval as its range.")
+    bias = study.bias()
+    if bias is not None and bias.percent_understated >= 0.5:
+        if c.method == "ols":
+            out.append(f"OLS in log space estimates the median program, not the mean: the "
+                       f"mean is about {bias.percent_understated:.0f}% higher. MUPE fits "
+                       "the mean directly.")
+        else:
+            out.append(f"{c.method.upper()} fits the mean; OLS in log space would sit about "
+                       f"{bias.percent_understated:.0f}% lower, at the median program.")
+    if len(i.excluded):
+        out.append(f"{len(i.excluded)} row{'s' if len(i.excluded) > 1 else ''} of the data "
+                   f"{'are' if len(i.excluded) > 1 else 'is'} left out of the fit (the Data "
+                   "table says which and why).")
+    return out
+
+
+def phase(result, units: str = "") -> List[str]:
+    """An estimate phased into fiscal years."""
+    i = result.inputs
+    tot = result.totals()
+    first, last = int(result.long["fiscal_year"].min()), int(result.long["fiscal_year"].max())
+    if result.has_then_year:
+        extra = tot["then_year"] - tot["base_year"]
+        share = f" ({extra / tot['base_year']:.1%})" if tot["base_year"] else ""
+        out = [f"The {_money3(tot['base_year'], units)} estimate in BY{i.base_year} dollars "
+               f"is {_money3(tot['then_year'], units)} in then-year dollars, spent from "
+               f"FY{first} to FY{last}: inflation adds {_money3(extra, units)}{share}."]
+    else:
+        out = [f"The {_money3(tot['base_year'], units)} estimate is spread from FY{first} to "
+               f"FY{last}, in BY{i.base_year} dollars only: no inflation index was given."]
+    year, amount = result.peak()
+    per = result.long.groupby("fiscal_year")[
+        "then_year" if result.has_then_year else "base_year"].sum()
+    if amount == 0:
+        pass
+    elif len(per) > 1 and per.max() - per.min() <= 1e-9 * max(abs(per.max()), 1.0):
+        out.append(f"Spending is level at {_money3(amount, units)} a year.")
+    elif amount > 0:
+        out.append(f"Spending peaks in FY{year} at {_money3(amount, units)}.")
+    col = "then_year" if result.has_then_year else "base_year"
+    groups = result.long.groupby("appropriation", sort=False)
+    if groups.ngroups > 1:
+        out.append("By appropriation: " + "; ".join(
+            f"{name} {_money3(g[col].sum(), units)} (FY{g['fiscal_year'].min()} to "
+            f"FY{g['fiscal_year'].max()})" for name, g in groups) + ".")
+    names = sorted({ln.index for ln in i.lines if ln.index})
+    if any("illustrative" in n.lower() for n in names):
+        out.append("The index is the invented illustrative one from the template: replace "
+                   "it with the published index before these numbers go anywhere.")
+    elif names:
+        out.append(f"Then-year dollars use {', '.join(map(repr, names))} from "
+                   f"{i.index_source}; check each is the published index for its "
+                   "appropriation.")
+    return out
+
+
+def _blank_number(v) -> bool:
+    return v is None or (isinstance(v, float) and np.isnan(v))
+
+
+def economic(econ, units: str = "") -> List[str]:
+    """Each alternative against the status quo, best net savings first."""
+    s = econ.summary[econ.summary["status_quo"] != "yes"]
+    if s.empty:
+        return []
+    out = []
+    rate = econ.discount_rate
+    for r in s.sort_values("net_savings_pv", ascending=False).head(3).itertuples():
+        if r.investment_pv > 1e-9:
+            line = (f"{r.alternative!r} costs {_money3(r.investment_pv, units)} more up front "
+                    f"than the status quo and saves {_money3(r.savings_pv, units)} in "
+                    f"operating cost (present values at {rate:.1%}): ")
+            if r.sir >= 1.0:
+                line += (f"it pays for itself {r.sir:.2f} times over, net savings "
+                         f"{_money3(r.net_savings_pv, units)}")
+                if not _blank_number(r.payback_year):
+                    line += f", paid back by FY{int(r.payback_year)}"
+            else:
+                line += (f"a savings-to-investment ratio of {r.sir:.2f}, so it doesn't pay "
+                         f"for itself (a net cost of {_money3(-r.net_savings_pv, units)})")
+            if not _blank_number(r.irr):
+                line += (f"; the real return on the extra investment is {r.irr:.1%}, "
+                         f"{'above' if r.irr > rate else 'below'} the {rate:.1%} discount rate")
+            out.append(line + ".")
+        elif r.net_savings_pv > 0:
+            out.append(f"{r.alternative!r} needs no more investment than the status quo and "
+                       f"saves {_money3(r.net_savings_pv, units)} in present value.")
+        else:
+            out.append(f"{r.alternative!r} needs no more investment than the status quo but "
+                       f"costs {_money3(-r.net_savings_pv, units)} more to run.")
+    whole = econ.summary
+    if whole["last_year"].nunique() > 1:
+        cheapest = whole.sort_values("uniform_annual_cost").iloc[0]
+        out.append(f"The service lives differ (they end between FY{whole['last_year'].min()} "
+                   f"and FY{whole['last_year'].max()}), which the totals above don't allow "
+                   f"for. Spread over its own years, {cheapest.alternative!r} is cheapest at "
+                   f"{_money3(cheapest.uniform_annual_cost, units)} a year in present-value "
+                   "terms.")
+    return out
+
+
 def aoa(result, units: str = "") -> List[str]:
     """An analysis of alternatives."""
     s = result.summary.sort_values("p50")
@@ -241,6 +408,9 @@ def aoa(result, units: str = "") -> List[str]:
         second = s.iloc[1]
         out.append(f"Next is {second.alternative!r} at {_money(second.p50, units)}, "
                    f"{second.p50 / best.p50 - 1:.0%} more.")
+    econ = result.economic() if hasattr(result, "economic") else None
+    if econ is not None:
+        out.extend(economic(econ, units))
     dom = s[s["dominated_by"].notna()] if "dominated_by" in s else s.iloc[0:0]
     by_name = s.set_index("alternative")
     for r in dom.itertuples():
@@ -366,6 +536,10 @@ def menu() -> str:
               ce-core jcl --spec my_jcl.xlsx
           Cost risk on an estimate: S-curve, confidence, drivers
               ce-core cost-risk --data my_estimate.xlsx
+          Fit a CER from past programs and price new ones
+              ce-core cer --data my_cer.xlsx
+          Phase an estimate into a then-year budget by fiscal year
+              ce-core phase --data my_phase.xlsx
           Compare alternatives on life-cycle cost (AoA)
               ce-core aoa --spec my_aoa.xlsx
           Choose which programs to fund within a budget

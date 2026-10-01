@@ -445,6 +445,128 @@ def run_cost_risk(args) -> None:
           f"{', ' + ', '.join(charts) if charts else ''} to {out}")
 
 
+def run_cer(args) -> None:
+    """Fit a cost estimating relationship from Excel and price new programs."""
+    import json
+    import warnings
+    from pathlib import Path
+
+    from cost_core import plain
+    from cost_core.cer.study import CerError, analyse, read_workbook
+
+    need_file(args.data, "the CER data", "cer")
+    try:
+        inputs = read_workbook(args.data, cost=args.cost,
+                               drivers=args.drivers.split(";") if args.drivers else None)
+        units = args.units
+        if units is None and "units" not in inputs.stated:
+            units = toml_defaults(label_units=False).get("units")
+        study = analyse(inputs, form=args.form, method=args.method, level=args.confidence,
+                        units=units)
+    except (CerError, OSError) as e:
+        abort(f"CER failed: {e}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    study.comparison().to_csv(out / "methods.csv", index=False)
+    study.coefficients().to_csv(out / "coefficients.csv", index=False)
+    study.estimates.to_csv(out / "estimates.csv", index=False)
+    if len(study.estimates):
+        study.cost_risk_rows().to_csv(out / "cost_risk_rows.csv", index=False)
+    study.diagnostics().to_csv(out / "diagnostics.csv", index=False)
+    study.data_table().to_csv(out / "data.csv", index=False)
+    (out / "assumptions.json").write_text(json.dumps(
+        {**study.assumptions, "equation": study.cer.equation(), "notes": study.notes},
+        indent=1, default=str), encoding="utf-8")
+    written = ["report.xlsx", "methods.csv", "coefficients.csv", "estimates.csv",
+               *(["cost_risk_rows.csv"] if len(study.estimates) else []),
+               "diagnostics.csv", "data.csv", "assumptions.json"]
+    try:
+        from cost_core.reporting.charts import plot_cer_diagnostics
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            plot_cer_diagnostics(study.cer, out / "cer_fit.png",
+                                 title="CER fit and diagnostics",
+                                 level=study.inputs.level, units=study.units)
+        written.append("cer_fit.png")
+    except ImportError:
+        pass
+    from cost_core.reporting.excel_report import cer_workbook
+    cer_workbook(study, out / "report.xlsx")
+    label = plain.units_label(study.units)
+    c = study.cer
+    print(f"\n{c.equation()}\n  {c.form.value.replace('_', '-')}, {c.method.upper()}, "
+          f"{c.result.n_obs} programs, {_costs_in(label)}\n")
+    shown = study.comparison()[["chosen", "method", "std_error", "cv", "df", "r_squared"]]
+    print(shown.to_string(index=False, float_format=lambda v: f"{v:,.3f}"))
+    print()
+    coef = study.coefficients()[["parameter", "estimate", "std_error", "t_stat", "p_value"]]
+    print(coef.to_string(index=False, float_format=lambda v: f"{v:,.4f}"))
+    if len(study.estimates):
+        print(f"\nEstimates ({study.inputs.level:.0%} prediction interval):")
+        for r in study.estimates.itertuples(index=False):
+            flag = "  outside the data" if r.outside_data == "yes" else ""
+            print(f"  {r.name:24} {r.estimate:14,.2f}   {r.lower:,.2f} to {r.upper:,.2f}{flag}")
+    for note in study.notes:
+        print(f"  note: {note}")
+    print(plain.show(plain.cer(study, label)))
+    from cost_core.reporting.brief import cer_brief
+    written[1:1] = [w for w in [write_brief(cer_brief, study, out)] if w]
+    print(f"Wrote {', '.join(written)} to {out}")
+
+
+def run_phase(args) -> None:
+    """Spread an estimate over fiscal years and inflate it to then-year dollars."""
+    import json
+    from pathlib import Path
+
+    from cost_core import plain
+    from cost_core.phasing import PhaseError, phase, read_workbook
+
+    need_file(args.data, "the phasing workbook", "phase")
+    try:
+        inputs = read_workbook(args.data, index_path=args.index, index_name=args.index_name,
+                               base_year=args.base_year)
+        units = args.units
+        if units is None and "units" not in inputs.stated:
+            units = toml_defaults(label_units=False).get("units")
+        result = phase(inputs, units=units)
+    except (PhaseError, OSError) as e:
+        abort(f"Phasing failed: {e}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    result.long.to_csv(out / "phasing_long.csv", index=False)
+    result.wide("by").to_csv(out / "base_year.csv", index=False)
+    written = ["report.xlsx", "phasing_long.csv", "base_year.csv"]
+    if result.has_then_year:
+        result.wide("ty").to_csv(out / "then_year.csv", index=False)
+        written.append("then_year.csv")
+    result.by_appropriation().to_csv(out / "by_appropriation.csv", index=False)
+    (out / "assumptions.json").write_text(json.dumps(
+        {**result.assumptions, "notes": inputs.notes}, indent=1, default=str),
+        encoding="utf-8")
+    written += ["by_appropriation.csv", "assumptions.json"]
+    try:
+        from cost_core.reporting.charts import plot_phasing
+        plot_phasing(result, out / "phasing.png", units=result.units)
+        written.append("phasing.png")
+    except ImportError:
+        pass
+    from cost_core.reporting.excel_report import phase_workbook
+    phase_workbook(result, out / "report.xlsx")
+    label = plain.units_label(result.units)
+    basis = "then-year" if result.has_then_year else f"BY{inputs.base_year}"
+    print(f"\n{len(inputs.lines)} lines in BY{inputs.base_year} dollars, phased; {basis}, "
+          f"{_costs_in(label)}:\n")
+    shown = result.wide("ty" if result.has_then_year else "by")
+    print(shown.to_string(index=False, float_format=lambda v: f"{v:,.1f}"))
+    for note in inputs.notes:
+        print(f"  note: {note}")
+    print(plain.show(plain.phase(result, label)))
+    from cost_core.reporting.brief import phase_brief
+    written[1:1] = [w for w in [write_brief(phase_brief, result, out)] if w]
+    print(f"Wrote {', '.join(written)} to {out}")
+
+
 def run_aoa(args) -> None:
     """Evaluate an AoA spec file and write the comparison."""
     import json
@@ -456,6 +578,14 @@ def run_aoa(args) -> None:
     need_file(args.spec, "the AoA spec", "aoa")
     try:
         result = run_spec(args.spec, defaults=toml_defaults())
+        if args.status_quo:
+            names = [a.name for a in result.alternatives]
+            if args.status_quo not in names:
+                raise AoAError(f"--status-quo {args.status_quo!r} isn't one of the "
+                               f"alternatives ({', '.join(names)}).")
+            result.status_quo = args.status_quo
+            result.assumptions["status_quo"] = args.status_quo
+        econ = result.economic()
     except (AoAError, OSError, KeyError, ValueError) as e:
         abort(f"AoA failed: {e}")
     out = Path(args.out)
@@ -463,6 +593,9 @@ def run_aoa(args) -> None:
     result.summary.to_csv(out / "summary.csv", index=False)
     result.lines.to_csv(out / "lines.csv", index=False)
     result.s_curves().to_csv(out / "s_curves.csv")
+    if econ is not None:
+        econ.summary.to_csv(out / "economic.csv", index=False)
+        econ.by_year.to_csv(out / "savings_by_year.csv", index=False)
     (out / "assumptions.json").write_text(json.dumps(result.assumptions, indent=1, default=str),
                                           encoding="utf-8")
     try:
@@ -479,13 +612,28 @@ def run_aoa(args) -> None:
                         "effectiveness", "cost_per_effectiveness", "dominated_by")
             if c in result.summary]
     print(result.summary[cols].to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.2f}"))
+    if econ is not None:
+        print(f"\nAgainst the status quo, {econ.status_quo!r} (present value at "
+              f"{econ.discount_rate:.1%}, base-year dollars):\n")
+        shown = econ.summary[[c for c in ("alternative", "investment_pv", "savings_pv",
+                                          "net_savings_pv", "sir", "payback_year", "irr",
+                                          "uniform_annual_cost") if c in econ.summary]].copy()
+        if "irr" in shown:
+            shown["irr"] = [f"{v:.1%}" if v is not None and v == v else ""
+                            for v in shown["irr"]]
+        if "payback_year" in shown:
+            shown["payback_year"] = [f"FY{v}" if v is not pd.NA and v == v else ""
+                                     for v in shown["payback_year"]]
+        print(shown.to_string(na_rep="", index=False, float_format=lambda v: f"{v:,.2f}"))
+        for note in econ.notes:
+            print(f"  note: {note}")
     from cost_core import plain
     print(plain.show(plain.aoa(result, str(result.assumptions.get("units") or ""))))
     from cost_core.reporting.brief import aoa_brief
     brief = write_brief(aoa_brief, result, out)
     print(f"Wrote report.xlsx, {brief + ', ' if brief else ''}summary.csv, lines.csv, "
-          f"s_curves.csv, assumptions.json"
-          f"{', ' + chart if chart else ''} to {out}")
+          f"s_curves.csv, {'economic.csv, savings_by_year.csv, ' if econ is not None else ''}"
+          f"assumptions.json{', ' + chart if chart else ''} to {out}")
 
 
 def run_portfolio(args) -> None:
@@ -873,6 +1021,8 @@ def run_schedule_check(args) -> None:
 DEMOS = {
     "evm": ["evm", "--data", "{path}", "--units", "thousands", "--out", "{out}"],
     "cost-risk": ["cost-risk", "--data", "{path}", "--out", "{out}"],
+    "cer": ["cer", "--data", "{path}", "--out", "{out}"],
+    "phase": ["phase", "--data", "{path}", "--out", "{out}"],
     "schedule": ["schedule-check", "--mspdi", "{path}", "--out", "{out}"],
     "inflate": ["inflate", "--index", "{index}", "--data", "{path}",
                 "--from", "by2026", "--to", "ty", "--out", "{out}"],
@@ -884,7 +1034,7 @@ DEMOS = {
 
 #: The commands that write report.xlsx and brief.pptx, and so take
 #: --marking and --template.
-REPORT_COMMANDS = ("cost-risk", "evm", "schedule-check", "jcl", "aoa", "portfolio", "demo",
+REPORT_COMMANDS = ("cost-risk", "cer", "phase", "evm", "schedule-check", "jcl", "aoa", "portfolio", "demo",
                    "open")
 
 #: ce-core.toml settings and the option each fills in.
@@ -1103,6 +1253,8 @@ def run_demo(args) -> None:
     main(argv)
     mine = {"evm": "ce-core evm --data my_evm.xlsx",
             "cost-risk": "ce-core cost-risk --data my_estimate.xlsx",
+            "cer": "ce-core cer --data my_cer.xlsx",
+            "phase": "ce-core phase --data my_phase.xlsx",
             "inflate": "ce-core inflate --index my_index.csv --data my_phasing.csv "
                        "--from by2026 --to ty",
             "schedule": "ce-core schedule-check --mspdi my_schedule.xml",
@@ -1119,6 +1271,7 @@ def _quote(arg: str) -> str:
 
 
 TEMPLATE_FILES = {"evm": "my_evm.xlsx", "cost-risk": "my_estimate.xlsx",
+                  "cer": "my_cer.xlsx", "phase": "my_phase.xlsx",
                   "inflate": "my_index.csv",
                   "jcl": "my_jcl.xlsx", "aoa": "my_aoa.xlsx",
                   "portfolio": "my_portfolio.xlsx", "lots": "my_lots.csv"}
@@ -1322,6 +1475,56 @@ def main(argv=None) -> None:
                       help="Money label: dollars, thousands, millions or any word "
                            "(default: the workbook's Settings)")
 
+    # Subcommand: cer
+    p_cer = sub.add_parser(
+        "cer",
+        help="Fit a cost estimating relationship from Excel and price new programs",
+    )
+    p_cer.add_argument("--data", required=True,
+                       help="Excel workbook with a Data sheet (and optionally Estimate and "
+                            "Settings), or a CSV of the data; ce-core template cer writes one")
+    p_cer.add_argument("--out", default="cer",
+                       help="Directory for the tables, chart, report.xlsx and brief.pptx")
+    p_cer.add_argument("--cost", default=None, metavar="COLUMN",
+                       help="The cost column's heading (default: the Settings sheet, else "
+                            "a column headed Cost)")
+    p_cer.add_argument("--drivers", default=None, metavar="COLUMNS",
+                       help="Driver headings separated by ; (default: the Settings sheet, "
+                            "else every other column of numbers)")
+    p_cer.add_argument("--form", default=None, choices=["log-log", "linear"],
+                       help="log-log (cost = a * driver^b) or linear (default: the "
+                            "Settings sheet, else log-log)")
+    p_cer.add_argument("--method", default=None, choices=["ols", "mupe", "zmpe"],
+                       help="The fit used for the estimates; all three are compared "
+                            "(default: the Settings sheet, else MUPE)")
+    p_cer.add_argument("--confidence", default=None, type=float,
+                       help="Prediction interval, e.g. 0.8 (default: the Settings sheet, "
+                            "else 0.8)")
+    p_cer.add_argument("--units", default=None,
+                       help="Money label: dollars, thousands, millions or any word "
+                            "(default: the workbook's Settings)")
+
+    # Subcommand: phase
+    p_ph = sub.add_parser(
+        "phase",
+        help="Spread an estimate over fiscal years, in then-year dollars, by appropriation",
+    )
+    p_ph.add_argument("--data", required=True,
+                      help="Excel workbook with a Phasing sheet (and optionally Settings and "
+                           "Index); ce-core template phase writes one")
+    p_ph.add_argument("--out", default="phase",
+                      help="Directory for the tables, chart, report.xlsx and brief.pptx")
+    p_ph.add_argument("--index", default=None, metavar="FILE",
+                      help="Inflation index table (CSV or Excel: index_name, fiscal_year, "
+                           "index_value) in place of the workbook's Index sheet")
+    p_ph.add_argument("--index-name", default=None, metavar="NAME",
+                      help="The index to use for lines that don't name one")
+    p_ph.add_argument("--base-year", default=None, type=int,
+                      help="The dollar year of the amounts (default: the Settings sheet)")
+    p_ph.add_argument("--units", default=None,
+                      help="Money label: dollars, thousands, millions or any word "
+                           "(default: the workbook's Settings)")
+
     # Subcommand: aoa
     p_aoa = sub.add_parser(
         "aoa",
@@ -1332,6 +1535,9 @@ def main(argv=None) -> None:
                             "(ce-core template aoa writes one)")
     p_aoa.add_argument("--out", default="aoa",
                        help="Directory for the tables, assumptions and chart")
+    p_aoa.add_argument("--status-quo", default=None, metavar="NAME",
+                       help="The alternative the others are measured against: investment, "
+                            "savings, SIR, payback and IRR (default: the spec's Status Quo)")
 
     # Subcommand: portfolio
     p_port = sub.add_parser(
@@ -1435,7 +1641,8 @@ def main(argv=None) -> None:
     p_tmpl = sub.add_parser(
         "template", help="Write a file to fill in with your own data")
     p_tmpl.add_argument("topic", choices=sorted(list(TEMPLATE_FILES) + ["schedule"]),
-                        help="Which one: cost-risk, evm, jcl, aoa, portfolio, inflate, lots or schedule")
+                        help="Which one: cost-risk, cer, phase, evm, jcl, aoa, portfolio, "
+                             "inflate, lots or schedule")
     p_tmpl.add_argument("--out", default=None,
                         help="File to write (default: my_<topic> in this folder)")
     p_tmpl.add_argument("--force", action="store_true", help="Replace the file if it exists")
@@ -1520,6 +1727,8 @@ def main(argv=None) -> None:
         "evm": run_evm,
         "aoa": run_aoa,
         "cost-risk": run_cost_risk,
+        "cer": run_cer,
+        "phase": run_phase,
         "portfolio": run_portfolio,
         "jcl": run_jcl,
         "demo": run_demo,

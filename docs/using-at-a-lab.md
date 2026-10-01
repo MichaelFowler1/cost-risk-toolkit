@@ -190,9 +190,10 @@ The same inputs and seed give the same numbers:
   the `ASSUMPTIONS.md` it writes;
 * the test suite pins the engine's numbers against recorded goldens, and
   holds the frozen random draws to a hash;
-* `numpy` and `scipy` carry upper bounds (`<2.5`, `<1.18`) because newer
-  releases move numbers in the last few digits. The bounds, and what moves
-  above them, are in `pyproject.toml` and `CHANGELOG.md`.
+* `numpy` and `scipy` have no upper bound, so cost-core installs beside the
+  versions your environment already has. Different versions move results in
+  about the eighth digit; the stack the reference results are exact on is
+  pinned in `requirements.txt`, and `CHANGELOG.md` (2.7.0) says what moves.
 
 To check the numbers on your own machine, run the test suite from the
 source release, which carries the tests and the goldens:

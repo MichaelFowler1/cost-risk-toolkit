@@ -234,6 +234,17 @@ class AoAResult:
     assumptions: Dict[str, Any] = field(default_factory=dict)
     alternatives: Sequence[Alternative] = field(default_factory=list)
     inflation: Optional[InflationTable] = None
+    status_quo: Optional[str] = None
+
+    def economic(self):
+        """Each alternative against the status quo, or None without one.
+
+        See :mod:`cost_core.aoa.economic`.
+        """
+        if self.status_quo is None:
+            return None
+        from cost_core.aoa.economic import economic_analysis
+        return economic_analysis(self, self.status_quo)
 
     def s_curves(self, points: Iterable[float] = range(5, 100, 5)) -> pd.DataFrame:
         """Percentiles of each alternative's simulated cost, one column each."""
@@ -272,6 +283,7 @@ def evaluate(
     n_iter: int = 20_000,
     seed: Optional[int] = 0,
     units: str = "as entered",
+    status_quo: Optional[str] = None,
 ) -> AoAResult:
     """Cost the alternatives and compare them under uncertainty.
 
@@ -292,6 +304,8 @@ def evaluate(
         units: What the cost lines are stated in, e.g. ``"$M"``. Nothing is
             converted; it is recorded and printed on the chart, so a table in
             millions is never read as thousands.
+        status_quo: The alternative the others are measured against in the
+            economic analysis (:meth:`AoAResult.economic`), if any.
 
     Raises:
         AoAError: On fewer than two alternatives, duplicate names, a negative
@@ -302,6 +316,9 @@ def evaluate(
     names = [a.name for a in alternatives]
     if len(set(names)) != len(names):
         raise AoAError(f"Alternative names must be unique; got {names}.")
+    if status_quo is not None and status_quo not in names:
+        raise AoAError(f"The status quo {status_quo!r} isn't one of the alternatives "
+                       f"({', '.join(names)}).")
     if not 0 <= discount_rate < 0.2:
         raise AoAError(f"discount_rate {discount_rate} should be a real rate as a fraction, "
                        f"e.g. 0.02 for 2%.")
@@ -368,11 +385,12 @@ def evaluate(
 
     return AoAResult(
         lines=lines, summary=summary, draws=draws, alternatives=list(alternatives),
-        inflation=inflation,
+        inflation=inflation, status_quo=status_quo,
         assumptions={"base_year": base_year, "pv_year": pv_year,
                      "discount_rate": discount_rate, "basis": basis,
                      "inflation_index": index, "inflation_source": inflation.source,
                      "n_iter": n_iter, "seed": seed, "units": units,
                      "correlation": {a.name: a.correlation for a in alternatives},
-                     "dominance_on": "simulated mean cost"},
+                     "dominance_on": "simulated mean cost",
+                     **({"status_quo": status_quo} if status_quo else {})},
     )

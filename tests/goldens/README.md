@@ -195,8 +195,9 @@ integer that has become a float is tolerated, because pandas 2.3.3 and pandas
 
 ## 1e-9 is tight enough to be stack-dependent
 
-Which is why `pyproject.toml` caps numpy below 2.5 and scipy below 1.18. Both
-versions land the unbiased MUPE and ZMPE refits in a slightly different place --
+Which is why, until 2.7.0, `pyproject.toml` capped numpy below 2.5 and scipy
+below 1.18. Both versions land the unbiased MUPE and ZMPE refits in a slightly
+different place --
 on `scatter_0.3` the MUPE iteration takes 13 steps instead of 11 under numpy
 2.5.3, and `lots_cost_core` T1 moves 2,712.4962079 -> 2,712.4962290 there and ->
 2,712.4963311 under scipy 1.18.1, 8e-9 and 4.5e-8 relative. Forty-two leaves
@@ -208,10 +209,24 @@ changes the draws the risk model produces, which the frozen-draw hashes in
 on.
 
 So a golden failure right after a numpy or scipy upgrade is the expected
-behaviour of a 1e-9 pin, not a regression in this repo. Raising a cap belongs in
-the rebaseline process below: measure what moved, write it into
-`COMPARE_POLICY.json`, and say so here. Widening the tolerance instead would
-throw away the thing these files exist to detect.
+behaviour of a 1e-9 pin, not a regression in this repo. Widening the tolerance
+would throw away the thing these files exist to detect; capping numpy and scipy
+forced a downgrade on every user instead. Since 2.7.0 neither: exactness belongs
+to one stack, `COMPARE_POLICY.captured_under` (numpy 2.5.3, scipy 1.18.1,
+pandas 3.0.3, Python 3.14), which `requirements.txt` pins. On the capture
+machine on that stack every leaf is held at 1e-9; on any other stack or machine
+the measured allowance applies, and the frozen-draw hashes are held per scipy
+generation. Moving the capture stack is a rebaseline: measure what moved,
+rewrite those leaves only, record it in `COMPARE_POLICY.json`, here and in
+`CHANGELOG.md`.
+
+The 2026-10-01 rebaseline did exactly that for 2.7.0: of every leaf in every
+golden, the 71 in `lots_cost_core` that numpy 2.5.3 and scipy 1.18.1 move were
+rewritten from the new stack (the MUPE and ZMPE refits of
+`learning_curve_compare_methods` and the two exact-fit Mean bias signs), and
+the four frozen-draw hashes were refrozen for scipy 1.18 beside the old ones.
+The largest move in an estimate is 5.6e-7 relative, on a ZMPE slope exponent of
+-0.012; no other golden moved.
 
 ## And platform-dependent
 
@@ -251,11 +266,9 @@ element draws are held at 1e-12 relative through their means and percentiles
 (`ANALYTIC_ELEMENTS` in `tests/test_monte_carlo.py`).
 
 The
-upgrade check above therefore only works on the capture machine, because off it the
-allowance absorbs the numpy 2.5.3 and scipy 1.18.1 moves in this block. Under
-Linux, with the allowance in place, numpy 2.5.3 and scipy 1.18.1 each pass the
-whole suite, so off Windows nothing sees either of them. Measure a cap raise on
-Windows. The policy entry records the 32 Linux runs it was measured on; the
+upgrade check above therefore only works on the capture machine and stack,
+because off them the allowance absorbs version moves in this block as it does
+machine ones. Measure a move of the capture stack on Windows. The policy entry records the 32 Linux runs it was measured on; the
 maxima the sizes rest on come from the 26 that printed the allowed fields, and
 the iteration counts and `Mean bias` signs from those and the one lane that
 printed only them.
