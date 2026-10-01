@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import queue
 import re
 import subprocess
 import sys
@@ -127,6 +128,9 @@ TASKS: Tuple[Task, ...] = (
 
 #: The units the window offers, as the words the commands take.
 UNITS = ("as entered", "dollars", "thousands", "millions", "billions")
+
+#: The status quo choice that leaves it to the workbook.
+AS_IN_WORKBOOK = "(as in the workbook)"
 
 #: Dollar bases the conversion offers; any BY year can be typed.
 BASES = ("ty", "by2024", "by2025", "by2026", "by2027", "by2028")
@@ -228,25 +232,39 @@ def next_free(out: Path) -> Path:
     return out.parent / f"{out.name} {k}"
 
 
+def fresh_name(path: Path) -> Path:
+    """'my_estimate 2.xlsx', '... 3' and so on: a file name not yet used."""
+    path = Path(path)
+    k = 2
+    while path.with_name(f"{path.stem} {k}{path.suffix}").exists():
+        k += 1
+    return path.with_name(f"{path.stem} {k}{path.suffix}")
+
+
 def locked(out: Path) -> List[str]:
-    """Files in ``out`` that are open in Excel or PowerPoint, which the next
-    run couldn't overwrite. Office leaves a ~$ owner file beside an open file
-    and holds the file itself locked; either is taken as open."""
+    """Files in ``out`` (or one folder in, where ``open`` writes) that are
+    open in Excel or PowerPoint, which the next run couldn't overwrite.
+    Office leaves a ~$ owner file beside an open file and holds the file
+    itself locked; either is taken as open."""
     out = Path(out)
     if not out.is_dir():
         return []
     found = []
-    for f in sorted(out.iterdir()):
+    files = [f for f in out.iterdir() if f.is_file()]
+    for sub in (d for d in out.iterdir() if d.is_dir()):
+        files += [f for f in sub.iterdir() if f.is_file()]
+    for f in sorted(files):
         if f.suffix.lower() not in (".xlsx", ".pptx", ".csv") or f.name.startswith("~$"):
             continue
-        if (out / f"~${f.name}").exists() or (out / f"~${f.name[2:]}").exists():
-            found.append(f.name)
+        name = str(f.relative_to(out))
+        if (f.parent / f"~${f.name}").exists() or (f.parent / f"~${f.name[2:]}").exists():
+            found.append(name)
             continue
         try:
             with open(f, "r+b"):
                 pass
         except PermissionError:
-            found.append(f.name)
+            found.append(name)
         except OSError:
             pass
     return found
@@ -275,6 +293,11 @@ def save_prefs(prefs: Dict, path: Optional[Path] = None) -> None:
         path.write_text(json.dumps(prefs, indent=1), encoding="utf-8")
     except OSError:
         pass
+
+
+def recent(prefs: Dict, key: str) -> List[str]:
+    """The task's recent files that are still there."""
+    return [p for p in prefs.get("recent", {}).get(key, []) if Path(p).exists()]
 
 
 def add_recent(prefs: Dict, key: str, path: str, keep: int = 6) -> List[str]:
@@ -327,19 +350,27 @@ def demo_argv(t: Task, marking: str = "") -> Tuple[List[str], Path]:
     return argv, out
 
 
-def run_cost_core(argv: Sequence[str], timeout: float = 3600) -> Tuple[int, str]:
+def run_cost_core(argv: Sequence[str], timeout: float = 3600,
+                  started=None) -> Tuple[int, str]:
     """Run ``python -m cost_core <argv>`` and return its exit code and
     everything it printed. A separate process, so a run can't leave state
-    behind in the window, and the same code path as the command line."""
+    behind in the window, and the same code path as the command line.
+    ``started`` is handed the process, so the window can stop it on close."""
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     env = dict(os.environ, PYTHONIOENCODING="utf-8", MPLBACKEND="Agg")
+    p = subprocess.Popen([python_for_children(), "-m", "cost_core", *map(str, argv)],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, text=True, encoding="utf-8",
+                         errors="replace", creationflags=flags, env=env)
+    if started is not None:
+        started(p)
     try:
-        p = subprocess.run([python_for_children(), "-m", "cost_core", *map(str, argv)],
-                           capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=timeout, creationflags=flags, env=env)
+        output, _ = p.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        p.kill()
+        p.communicate()
         return 1, f"[ERROR] It ran for over {timeout / 60:.0f} minutes and was stopped."
-    return p.returncode, (p.stdout or "") + (p.stderr or "")
+    return p.returncode, output or ""
 
 
 # -------------------------------------------------------------- reading
@@ -377,8 +408,11 @@ def errors(output: str) -> List[str]:
     """Why a run stopped, as the commands put it, without the log prefix,
     and with the commands' advice put in terms of the window's buttons."""
     if re.search(r"PermissionError|Permission denied", output):
-        return ["A results file is open in Excel or PowerPoint, so it couldn't be "
-                "replaced. Close it and press Run again."]
+        file = re.search(r"Permission denied: '([^']+)'", output)
+        return [f"{'%s c' % Path(file.group(1)).name if file else 'A results file c'}ouldn't "
+                "be saved. It's probably open in Excel or PowerPoint: close it and press "
+                "Run again. If it isn't, the folder may be read-only; move your workbook "
+                "somewhere you can save to."]
     found = []
     for ln in output.splitlines():
         m = re.match(r"\s*\[(ERROR|CRITICAL)\]\s*(.*)", ln)
@@ -388,7 +422,8 @@ def errors(output: str) -> List[str]:
             found[-1] += "\n" + ln.strip()
     if not found:
         tail = [ln for ln in output.splitlines() if ln.strip()]
-        found = tail[-3:]
+        found = tail[-3:] or ["It stopped without saying why. Try 'Check my workbook', "
+                              "or run it again."]
     words = [(r"To see this command work first: ce-core demo [\w-]+",
               "To see it work first, press 'See an example'."),
              (r"For a file to fill in: ce-core template [\w-]+",
@@ -459,18 +494,22 @@ def _money(v: float, units: str) -> str:
     return plain._money3(float(v), plain.units_label(units or ""))
 
 
-def answer(out: Path, units: str = "") -> Tuple[List[Tuple[str, str]], Optional[Path]]:
+def answer(out: Path, units: str = "", kind: Optional[str] = None
+           ) -> Tuple[List[Tuple[str, str]], Optional[Path]]:
     """The key numbers of a result as (label, value) tiles, and its main
     chart. Read from the files the run wrote, so they are the report's own
-    numbers. Anything unreadable gives fewer tiles, never an error."""
+    numbers. ``kind`` is the job that ran, when known: a folder can hold an
+    older run of another job too. Anything unreadable gives fewer tiles,
+    never an error."""
     import pandas as pd
 
     out = Path(out)
-    if not (out / SIGNATURES["cost-risk"][1]).exists() and out.is_dir():
+    if out.is_dir() and not result_kind(out):
         inner = [p for p in out.iterdir() if p.is_dir() and result_kind(p)]
-        if inner and not result_kind(out):
-            out = inner[0]
-    kind = result_kind(out)
+        if inner:
+            out = max(inner, key=lambda p: p.stat().st_mtime)
+    if kind not in SIGNATURES and kind != "inflate":
+        kind = result_kind(out)
     if kind is None:
         return [], None
     try:
@@ -488,7 +527,7 @@ def answer(out: Path, units: str = "") -> Tuple[List[Tuple[str, str]], Optional[
         if kind == "cost-risk":
             s = pd.read_csv(out / "summary.csv").set_index("statistic")["value"]
             tiles = [("Point estimate", m(s["point_estimate"])),
-                     ("Its confidence", f"{s['point_estimate_percentile']:.0f}%"),
+                     ("Chance it's enough", f"{s['point_estimate_percentile']:.0f}%"),
                      ("To be 50% sure", m(s["p50"])), ("To be 80% sure", m(s["p80"]))]
         elif kind == "cer":
             meth = pd.read_csv(out / "methods.csv")
@@ -559,7 +598,7 @@ def answer(out: Path, units: str = "") -> Tuple[List[Tuple[str, str]], Optional[
 
 
 # --------------------------------------------------- finding problems
-_WHERE = re.compile(r"(?P<sheet>[A-Z][\w ]*?) sheet, row (?P<row>\d+)"
+_WHERE = re.compile(r"(?P<sheet>[A-Z][\w&]*(?: [A-Z][\w&]*)*) sheet, row (?P<row>\d+)"
                     r"(?: \((?P<label>[^)]*)\))?:? ?(?P<rest>.*)", re.S)
 
 
@@ -586,10 +625,14 @@ def mark_problem(workbook: Path, message: str) -> Optional[Path]:
         return None
     sheet, row, text = where
     try:
-        wb = load_workbook(workbook)
+        wb = load_workbook(workbook, keep_vba=workbook.suffix.lower() == ".xlsm")
     except Exception:  # noqa: BLE001 - an unreadable workbook just has no marked copy
         return None
-    ws = next((w for w in wb.worksheets if w.title.strip().lower() == sheet.lower()), None)
+    lowered_text = text.lower()
+    named = [w for w in wb.worksheets
+             if re.search(rf"\b{re.escape(w.title.strip().lower())} sheet, row {row}\b",
+                          lowered_text)]
+    ws = max(named, key=lambda w: len(w.title)) if named else None
     if ws is None:
         return None
     headings = [(c.column, str(c.value)) for c in ws[1] if c.value is not None]
@@ -673,6 +716,7 @@ def _scan_tables(kind: str, path: Path) -> List[str]:
 
 def _numberish(text: str) -> bool:
     t = text.strip().replace(",", "").replace("$", "").rstrip("%")
+    t = re.sub(r"^(FY|BY|CY)\s*", "", t, flags=re.I)
     try:
         float(t)
         return True
@@ -880,8 +924,11 @@ class App:
         self.tk, self.ttk, self.root = tk, ttk, root
         self.prefs = load_prefs()
         root.title(f"cost-core {__version__}")
-        root.geometry("1120x760")
-        root.minsize(960, 640)
+        scale = max(root.winfo_fpixels("1i") / 96.0, 1.0)
+        width = min(int(1120 * scale), root.winfo_screenwidth() - 40)
+        height = min(int(760 * scale), root.winfo_screenheight() - 80)
+        root.geometry(f"{width}x{height}")
+        root.minsize(min(int(960 * scale), width), min(int(640 * scale), height))
         style = ttk.Style(root)
         if "vista" in style.theme_names():
             style.theme_use("vista")
@@ -938,11 +985,14 @@ class App:
         step2 = ttk.Frame(right)
         step2.pack(fill="x", pady=3)
         ttk.Label(step2, text="2.", style="Step.TLabel", width=3).pack(side="left")
-        ttk.Label(step2, text="Your file:").pack(side="left")
+        self.file_label = ttk.Label(step2, text="Your file:")
+        self.file_label.pack(side="left")
         self.file_var = tk.StringVar()
         self.file_box = ttk.Combobox(step2, textvariable=self.file_var)
         self.file_box.pack(side="left", fill="x", expand=True, padx=6)
         self.file_box.bind("<<ComboboxSelected>>", lambda _: self.file_changed())
+        self.file_box.bind("<Return>", lambda _: self.file_changed())
+        self.file_box.bind("<FocusOut>", lambda _: self.file_changed())
         ttk.Button(step2, text="Choose...", command=self.browse).pack(side="left")
         self.edit_btn = ttk.Button(step2, text="Open in Excel", command=self.edit_file)
         self.edit_btn.pack(side="left", padx=(6, 0))
@@ -963,10 +1013,11 @@ class App:
                                       width=12, state="readonly")
         self.units_box.pack(side="left", padx=(4, 14))
         Tooltip(self.units_box, "What the money in your workbook is in, for the labels. "
-                                "Nothing is converted. A Units setting in the workbook wins.")
+                                "Nothing is converted. Leave it 'as entered' to use the "
+                                "workbook's own Units setting; a choice here overrides it.")
         ttk.Label(opts, text="Marking (printed on every page):").pack(side="left")
         self.marking_var = tk.StringVar(value=self.prefs.get("marking", ""))
-        mark = ttk.Entry(opts, textvariable=self.marking_var, width=18)
+        mark = self.mark_entry = ttk.Entry(opts, textvariable=self.marking_var, width=18)
         mark.pack(side="left", padx=4)
         Tooltip(mark, "Exactly this text goes at the top and bottom of every slide and "
                       "sheet, e.g. CUI. cost-core doesn't check it.")
@@ -1003,8 +1054,7 @@ class App:
         page = ttk.Frame(self.book)
         self.book.add(page, text="What it means")
         self.tiles = ttk.Frame(page)
-        self.tiles.pack(fill="x", padx=6, pady=(8, 2))
-        box = ttk.Frame(page)
+        box = self.text_box = ttk.Frame(page)
         box.pack(fill="both", expand=True)
         self.text = tk.Text(box, wrap="word", height=14, relief="flat", padx=10, pady=8,
                             font=(base, 10), background="#fafafa")
@@ -1016,19 +1066,36 @@ class App:
         self.text.pack(side="left", fill="both", expand=True)
         scroll.pack(side="left", fill="y")
         self.chart_page = ttk.Frame(self.book)
-        self.chart_label = ttk.Label(self.chart_page, anchor="center")
+        self.chart_label = ttk.Label(self.chart_page, anchor="center", cursor="hand2")
         self.chart_label.pack(fill="both", expand=True)
+        self.chart_label.bind("<Button-1>", lambda _: self.chart_path and open_path(
+            self.chart_path))
+        self.chart_path: Optional[Path] = None
+        Tooltip(self.chart_label, "Click to open the chart full size.")
         self.book.add(self.chart_page, text="Chart")
         self.book.tab(self.chart_page, state="disabled")
 
         self.results: Dict[str, Path] = {}
         self.marked: Optional[Path] = None
+        self.done: "queue.Queue" = queue.Queue()
+        self.proc = None
+        self.root.after(100, self.poll)
         self.chart_image = None
         self.current: Task = TASKS[0]
         self.choose(self.prefs.get("task", TASKS[0].key))
         root.protocol("WM_DELETE_WINDOW", self.close)
 
     # ------------------------------------------------------------- helpers
+    def poll(self) -> None:
+        """Run what the worker threads handed over. Tk may only be touched
+        from the thread running the window, so they never call it."""
+        try:
+            while True:
+                self.done.get_nowait()()
+        except queue.Empty:
+            pass
+        self.root.after(100, self.poll)
+
     def say(self, parts: Sequence[Tuple[str, str]]) -> None:
         self.text.configure(state="normal")
         self.text.delete("1.0", "end")
@@ -1041,22 +1108,31 @@ class App:
         ttk = self.ttk
         for w in self.tiles.winfo_children():
             w.destroy()
+        if tiles:
+            self.tiles.pack(fill="x", padx=6, pady=(8, 2), before=self.text_box)
+        else:
+            self.tiles.pack_forget()
         for label, value in tiles:
             card = ttk.Frame(self.tiles, padding=(10, 6), relief="groove")
             card.pack(side="left", padx=(0, 8), fill="y")
-            ttk.Label(card, text=label, style="TileLabel.TLabel").pack(anchor="w")
-            ttk.Label(card, text=value, style="TileValue.TLabel").pack(anchor="w")
+            ttk.Label(card, text=label, style="TileLabel.TLabel", wraplength=200).pack(
+                anchor="w")
+            ttk.Label(card, text=value, style="TileValue.TLabel", wraplength=230).pack(
+                anchor="w")
 
     def show_chart(self, chart: Optional[Path]) -> None:
         self.chart_image = None
+        self.chart_path = chart
         if chart is None:
             self.chart_label.configure(image="", text="")
             self.book.tab(self.chart_page, state="disabled")
             return
         try:
             image = self.tk.PhotoImage(file=str(chart))
-            room = max(self.book.winfo_width() - 20, 640)
-            factor = max(1, math.ceil(image.width() / room))
+            self.root.update_idletasks()
+            wide = max(self.book.winfo_width() - 20, 640)
+            tall = max(self.book.winfo_height() - 40, 360)
+            factor = max(1, math.ceil(max(image.width() / wide, image.height() / tall)))
             image = image.subsample(factor, factor)
         except Exception:  # noqa: BLE001 - no picture is better than a crash
             self.book.tab(self.chart_page, state="disabled")
@@ -1069,8 +1145,10 @@ class App:
         self.prefs.update(units=self.units_var.get(), marking=self.marking_var.get(),
                           task=self.current.key, index=self.index_var.get(),
                           **{"from": self.from_var.get(), "to": self.to_var.get()})
-        if self.file_var.get().strip():
-            add_recent(self.prefs, self.current.key, self.file_var.get().strip())
+        chosen = self.file_var.get().strip().strip('"')
+        if chosen and Path(chosen).exists():
+            add_recent(self.prefs, self.current.key, chosen)
+            self.file_box.configure(values=recent(self.prefs, self.current.key))
         save_prefs(self.prefs)
 
     def busy(self, on: bool, words: str = "") -> None:
@@ -1134,24 +1212,28 @@ class App:
             row.pack(fill="x", pady=3)
             ttk.Label(row, text="", width=3).pack(side="left")
             ttk.Label(row, text="Status quo:").pack(side="left")
-            self.sq_box = ttk.Combobox(row, textvariable=self.sq_var, width=32)
+            self.sq_box = ttk.Combobox(row, textvariable=self.sq_var, width=32,
+                                       postcommand=self.refresh_alternatives)
             self.sq_box.pack(side="left", padx=6)
-            ttk.Label(row, text="Blank uses the one in the workbook; the others are measured "
-                                "against it.", foreground="#555").pack(side="left")
+            ttk.Label(row, text="The others are measured against it.",
+                      foreground="#555").pack(side="left")
+            self.sq_var.set(AS_IN_WORKBOOK)
             self.refresh_alternatives()
 
     def refresh_alternatives(self) -> None:
         if self.current.key != "aoa" or not hasattr(self, "sq_box"):
             return
-        names = alternatives(Path(self.file_var.get().strip())) \
+        names = alternatives(Path(self.file_var.get().strip().strip('"'))) \
             if self.file_var.get().strip() else []
-        self.sq_box.configure(values=[""] + names)
-        if self.sq_var.get() not in names:
-            self.sq_var.set("")
+        self.sq_box.configure(values=[AS_IN_WORKBOOK] + names)
+        if names and self.sq_var.get() not in names:
+            self.sq_var.set(AS_IN_WORKBOOK)
 
     def extras_values(self) -> Dict[str, str]:
+        status_quo = self.sq_var.get().strip()
         return {"index": self.index_var.get().strip(), "from": self.from_var.get().strip(),
-                "to": self.to_var.get().strip(), "status_quo": self.sq_var.get().strip()}
+                "to": self.to_var.get().strip(),
+                "status_quo": "" if status_quo == AS_IN_WORKBOOK else status_quo}
 
     # ------------------------------------------------------------- actions
     def choose(self, key: str) -> None:
@@ -1169,9 +1251,12 @@ class App:
         self.template_btn.configure(state="normal" if t.template or t.key == "schedule"
                                     else "disabled")
         self.units_box.configure(state="readonly" if t.units else "disabled")
-        recent = self.prefs.get("recent", {}).get(t.key, [])
-        self.file_box.configure(values=recent)
-        self.file_var.set(recent[0] if recent else "")
+        self.mark_entry.configure(state="disabled" if t.key == "inflate" else "normal")
+        self.file_label.configure(text="Amounts:" if t.key == "inflate" else "Your file:")
+        self.status.configure(text="")
+        files = recent(self.prefs, t.key)
+        self.file_box.configure(values=files)
+        self.file_var.set(files[0] if files else "")
         self.build_extras()
         self.marked = None
         self.set_buttons({})
@@ -1229,15 +1314,18 @@ class App:
                       (SCHEDULE_HOWTO, "")])
             return
         path = template_path(t)
-        if path.exists() and not messagebox.askyesno(
+        if path.exists():
+            keep = messagebox.askyesnocancel(
                 "cost-core", f"You already have {path.name} in {path.parent}.\n\n"
-                "Replace it with a fresh template? (No opens the one you have.)"):
-            self.use_template(t, path)
-            open_path(path)
-            return
-        if locked(path.parent) and path.name in locked(path.parent):
-            messagebox.showinfo("cost-core", f"{path.name} is open in Excel. Close it first.")
-            return
+                "Yes: open the one you have.\nNo: start a fresh copy beside it "
+                "(yours is kept).")
+            if keep is None:
+                return
+            if keep:
+                self.use_template(t, path)
+                open_path(path)
+                return
+            path = fresh_name(path)
         try:
             path = make_template(t, path)
         except (OSError, ValueError) as e:
@@ -1263,7 +1351,8 @@ class App:
 
     def example(self) -> None:
         argv, out = demo_argv(self.current, self.marking_var.get())
-        self.start(argv, out, f"Running the example...", problem_file=None)
+        self.start(argv, out, "Running the example...", problem_file=None,
+                   kind=self.current.key)
 
     def ready(self) -> Optional[Path]:
         """The chosen file, if there is one; says what's missing if not."""
@@ -1293,7 +1382,7 @@ class App:
 
         def work():
             found = check_workbook(t, path)
-            self.root.after(0, lambda: self.checked(path, found))
+            self.done.put(lambda: self.checked(path, found))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1309,7 +1398,8 @@ class App:
             parts += [(f"• {p}\n\n", "error") for p in problems[:20]]
             if len(problems) > 20:
                 parts.append((f"... and {len(problems) - 20} more.\n\n", "error"))
-            parts.append(("Fix them in your workbook, save it, and check again.", ""))
+            parts.append((f"Fix {'them' if len(problems) > 1 else 'it'} in your workbook, "
+                          "save it, and check again.", ""))
             self.status.configure(text="Needs fixing")
         else:
             parts = [("Nothing to fix: it's ready to run\n\n", "head")]
@@ -1339,10 +1429,11 @@ class App:
             out = next_free(out)
         argv = run_argv(self.current, path, self.units_var.get(), self.marking_var.get(),
                         out=out, extras=self.extras_values())
-        self.start(argv, out, "Running... this can take a minute.", problem_file=path)
+        self.start(argv, out, "Running... this can take a minute.", problem_file=path,
+                   kind=None if self.current.key == "open" else self.current.key)
 
     def start(self, argv: List[str], out: Path, words: str,
-              problem_file: Optional[Path]) -> None:
+              problem_file: Optional[Path], kind: Optional[str] = None) -> None:
         self.set_buttons({})
         self.show_tiles([])
         self.show_chart(None)
@@ -1350,14 +1441,18 @@ class App:
         self.say([(words + "\n", "head")])
         units = self.units_var.get() if self.current.units else ""
 
+        def keep(p):
+            self.proc = p
+
         def work():
-            code, output = run_cost_core(argv)
-            self.root.after(0, lambda: self.finish(code, output, out, units, problem_file))
+            code, output = run_cost_core(argv, started=keep)
+            self.proc = None
+            self.done.put(lambda: self.finish(code, output, out, units, problem_file, kind))
 
         threading.Thread(target=work, daemon=True).start()
 
     def finish(self, code: int, output: str, out: Path, units: str,
-               problem_file: Optional[Path]) -> None:
+               problem_file: Optional[Path], kind: Optional[str] = None) -> None:
         self.busy(False)
         if code != 0:
             found = errors(output)
@@ -1374,7 +1469,7 @@ class App:
         self.marked = None
         found = written(out)
         self.set_buttons(found)
-        tiles, chart = answer(out, units)
+        tiles, chart = answer(out, units, kind)
         self.show_tiles(tiles)
         self.show_chart(chart)
         lines = summary(output)
@@ -1397,11 +1492,29 @@ class App:
         if key in self.results:
             open_path(self.results[key])
 
+    def child(self, key: str, title: str, width: int, height: int):
+        """A window over the main one, or the one already open, raised."""
+        old = getattr(self, f"_{key}", None)
+        if old is not None and old.winfo_exists():
+            old.deiconify()
+            old.lift()
+            old.focus_force()
+            return None
+        win = self.tk.Toplevel(self.root)
+        setattr(self, f"_{key}", win)
+        win.title(title)
+        win.transient(self.root)
+        scale = max(self.root.winfo_fpixels("1i") / 96.0, 1.0)
+        x = self.root.winfo_rootx() + 60
+        y = self.root.winfo_rooty() + 40
+        win.geometry(f"{int(width * scale)}x{int(height * scale)}+{x}+{y}")
+        return win
+
     def glossary(self) -> None:
         tk, ttk = self.tk, self.ttk
-        win = tk.Toplevel(self.root)
-        win.title("What these words mean")
-        win.geometry("640x620")
+        win = self.child("glossary", "What these words mean", 640, 620)
+        if win is None:
+            return
         text = tk.Text(win, wrap="word", padx=14, pady=10, font=(self.base, 10),
                        relief="flat")
         scroll = ttk.Scrollbar(win, command=text.yview)
@@ -1417,10 +1530,10 @@ class App:
     def settings(self) -> None:
         from tkinter import messagebox
 
-        tk, ttk = self.tk, self.ttk
-        win = tk.Toplevel(self.root)
-        win.title("Settings")
-        win.geometry("560x330")
+        ttk = self.ttk
+        win = self.child("settings", "Settings", 560, 330)
+        if win is None:
+            return
         frame = ttk.Frame(win, padding=16)
         frame.pack(fill="both", expand=True)
 
@@ -1460,6 +1573,13 @@ class App:
                   foreground="#555").pack(anchor="w", pady=(14, 0))
 
     def close(self) -> None:
+        if self.proc is not None and self.proc.poll() is None:
+            from tkinter import messagebox
+
+            if not messagebox.askyesno("cost-core", "A run is still going. Stop it and "
+                                       "close?"):
+                return
+            self.proc.kill()
         self.remember()
         self.root.destroy()
 
@@ -1474,9 +1594,26 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         return
     import tkinter as tk
 
+    sharp()
     root = tk.Tk()
     App(root)
+    root.lift()
+    root.attributes("-topmost", True)
+    root.after(400, lambda: root.attributes("-topmost", False))
+    root.focus_force()
     root.mainloop()
+
+
+def sharp() -> None:
+    """Draw at the screen's real resolution on Windows, not blurred up from
+    96 dpi; Tk then scales its fonts itself."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            pass
 
 
 if __name__ == "__main__":

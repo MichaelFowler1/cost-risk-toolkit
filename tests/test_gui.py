@@ -267,3 +267,71 @@ def test_the_window_lays_out_every_job(tmp_path, ran, monkeypatch):
         root.destroy()
     assert not (tmp_path / "cost-core" / "gui.json").exists() or \
         os.path.getsize(tmp_path / "cost-core" / "gui.json") > 0
+
+
+# ----------------------------------------------- the GUI bug sweep, 2.8.0
+def test_a_fresh_template_never_replaces_yours(tmp_path):
+    mine = tmp_path / "my_estimate.xlsx"
+    mine.write_bytes(b"x")
+    assert gui.fresh_name(mine) == tmp_path / "my_estimate 2.xlsx"
+    (tmp_path / "my_estimate 2.xlsx").write_bytes(b"x")
+    assert gui.fresh_name(mine) == tmp_path / "my_estimate 3.xlsx"
+
+
+def test_open_s_results_one_folder_in_are_checked_for_locks(tmp_path):
+    inner = tmp_path / "est"
+    inner.mkdir()
+    (inner / "report.xlsx").write_bytes(b"x")
+    (inner / "~$report.xlsx").write_bytes(b"x")
+    assert gui.locked(tmp_path) == [str(inner.relative_to(tmp_path) / "report.xlsx")]
+
+
+def test_only_the_sheet_name_is_taken_from_a_sentence():
+    assert gui.problem_location("In the Data sheet, row 4: Cost is blank.")[:2] == ("Data", 4)
+    assert gui.problem_location("Risks sheet, row 2: x")[:2] == ("Risks", 2)
+
+
+def test_fiscal_years_and_dollar_signs_count_as_numbers():
+    for text in ("FY2027", "BY 2026", "$1,200", "2.5%", "  40 "):
+        assert gui._numberish(text), text
+    assert not gui._numberish("about 40")
+
+
+def test_the_job_that_ran_decides_the_tiles(ran, tmp_path):
+    import shutil
+
+    mixed = tmp_path / "mixed"
+    shutil.copytree(ran("cost-risk"), mixed)
+    for f in ran("cer").iterdir():
+        if f.is_file():
+            shutil.copy(f, mixed / f.name)
+    assert gui.answer(mixed, kind="cer")[0][2][0] == "Typical miss"
+    assert gui.answer(mixed, kind="cost-risk")[0][0][0] == "Point estimate"
+
+
+def test_a_silent_failure_still_says_something():
+    assert gui.errors("") and "Check my workbook" in gui.errors("")[0]
+    msg = gui.errors("PermissionError: [Errno 13] Permission denied: 'C:\\x\\report.xlsx'")
+    assert msg[0].startswith("report.xlsx couldn't be saved")
+
+
+def test_a_run_can_be_stopped(tmp_path):
+    seen = []
+    code, output = gui.run_cost_core(["--version"], started=seen.append)
+    assert code == 0 and "cost-core" in output.lower() and seen
+
+
+def test_send_to_made_from_the_window_shows_its_run(tmp_path, monkeypatch):
+    import sys
+
+    from cost_core import opener
+
+    (tmp_path / "Microsoft" / "Windows" / "SendTo").mkdir(parents=True)
+    fake = tmp_path / "py"
+    fake.mkdir()
+    (fake / "python.exe").write_bytes(b"")
+    (fake / "pythonw.exe").write_bytes(b"")
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(sys, "executable", str(fake / "pythonw.exe"))
+    text = opener.install_send_to().read_text(encoding="utf-8")
+    assert "python.exe" in text and "pythonw" not in text

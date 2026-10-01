@@ -204,6 +204,9 @@ def install_send_to() -> Path:
     if not folder.is_dir():
         raise OpenError(f"There's no Send To folder at {folder}.")
     target = folder / SEND_TO_NAME
-    target.write_text(f'@echo off\r\n"{sys.executable}" -m cost_core open %* --pause\r\n',
+    exe = Path(sys.executable)
+    if exe.name.lower() == "pythonw.exe" and exe.with_name("python.exe").exists():
+        exe = exe.with_name("python.exe")   # made from the window: show the run
+    target.write_text(f'@echo off\r\n"{exe}" -m cost_core open %* --pause\r\n',
                       encoding="utf-8")
     return target

@@ -53,6 +53,12 @@ the same examples.
   colour key. Every template still reads back to the same inputs, so the
   results from a fresh template are unchanged.
 
+### Fixed
+- **The Send to entry made from the window runs where you can see it.** It
+  pointed at `pythonw.exe` when made from a windowed Python, so a file sent
+  to it ran with no console: no output, and nothing to say it had finished.
+  It now uses the console `python.exe` beside it.
+
 ## [2.7.0] - 2026-10-01
 
 Four things an estimator does every week that cost-core couldn't: fit a CER
