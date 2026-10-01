@@ -523,6 +523,9 @@ def menu() -> str:
     return textwrap.dedent("""\
         ce-core: cost estimating, EVM and schedule analysis.
 
+        Rather click than type? ce-core gui opens it in a window
+        (ce-core gui --shortcut puts it on your desktop).
+
         What do you want to do?
 
           Just have a file? cost-core works out what it is and reads it

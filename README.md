@@ -46,6 +46,18 @@ own tools are the most useful feedback there is.
 
 ## Start here
 
+**Rather click than type?** cost-core opens in a window: pick a job, press
+**Get the template** (it opens in Excel, with the cells to fill in yellow and
+every heading labelled), save it, press **Run**, and the answer shows in the
+window with the report and slides a click away. On Windows, download
+[Install cost-core.cmd](https://github.com/MichaelFowler1/cost-risk-toolkit/raw/main/install/Install%20cost-core.cmd)
+and double-click it: it installs cost-core for you, with no administrator
+rights, and puts a cost-core shortcut on your desktop. Already installed?
+`ce-core gui` opens the window, and `ce-core gui --shortcut` makes the
+shortcut. More in [getting started](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/getting-started.md#the-window).
+
+Or from a command prompt:
+
 ```bash
 pip install "cost-core[plots]"   # the charts need the [plots] part
 ce-core                          # what it can do, in plain English
@@ -550,9 +562,10 @@ the extra gives you the whole engine, the CERs, the risk simulation and the Exce
 workbooks, and anything that draws a PNG tells you to add `[plots]` when you
 reach it.
 
-numpy and scipy carry upper bounds so the published numbers reproduce exactly;
-[docs/development.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/development.md) explains why, and how to run
-the tests.
+numpy and scipy aren't capped, so cost-core installs beside current releases.
+The reference results reproduce exactly on the pinned test stack in
+`requirements.txt`; [docs/development.md](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/development.md) explains
+how, and how to run the tests.
 
 ## How the numbers are made
 

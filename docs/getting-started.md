@@ -1,9 +1,51 @@
 # Getting started
 
 This page is for someone who knows cost estimating, EVM or scheduling and
-has never used `cost-core`. No Python is needed: everything here is typed
-at a command prompt (Command Prompt or PowerShell on Windows, Terminal on a
-Mac or Linux).
+has never used `cost-core`. No Python is needed. Most people will want
+[the window](#the-window); everything below it is typed at a command prompt
+(Command Prompt or PowerShell on Windows, Terminal on a Mac or Linux) and
+does the same jobs.
+
+
+## The window
+
+On Windows, download [Install cost-core.cmd](https://github.com/MichaelFowler1/cost-risk-toolkit/raw/main/install/Install%20cost-core.cmd)
+and double-click it. It needs Python 3.9 or newer (from python.org or your
+software centre), installs cost-core for you only, with no administrator
+rights, and puts a **cost-core** shortcut on your desktop. With no internet,
+put a `wheels` folder beside it first (the file says how to make one). If
+cost-core is already installed, `ce-core gui` opens the window and
+`ce-core gui --shortcut` makes the shortcut.
+
+On the left is a list of jobs in plain words. Choose one, then:
+
+1. **See an example** runs it on invented numbers, so you can see what comes
+   out before you fill anything in. **Get the template** saves a workbook to
+   `Documents\cost-core` and opens it in Excel. The yellow cells are yours:
+   type over the example and add rows in the yellow space below. Dark blue
+   headings are required and light blue ones are optional; hover over any
+   heading for what goes there, in what units. A small arrow in a cell means
+   a drop-down of the allowed answers. The Instructions sheet has the key.
+2. Save it. **Your file** already points at it; **Choose...** picks another,
+   and the drop-down remembers your recent files for each job.
+3. **Check my workbook** lists blanks, text in number cells and anything the
+   analysis would refuse, in seconds, without running it. **Run** runs it.
+
+The answer shows in the window: the key numbers across the top, what they
+mean in plain sentences, and the main chart on the **Chart** tab. **Open
+report** and **Open slides** open `report.xlsx` and `brief.pptx`, saved in a
+folder named after your workbook, beside it.
+
+If something is wrong, the window says what and where. **Show me where**
+opens a copy of your workbook with the cell outlined in red and the message
+attached to it; your own file isn't changed. **Open my workbook to fix it**
+opens the original. If last run's report is still open in Excel, the window
+offers to save this run to a new folder instead.
+
+**What do these words mean?** explains the terms (P80, MUPE, SIR, TCPI and
+the rest). **Settings** makes the desktop shortcut, adds cost-core to the
+right-click Send to menu, and opens the cost-core folder. Units and the
+marking are remembered between sessions.
 
 
 ## Already have a file?

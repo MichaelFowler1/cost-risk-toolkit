@@ -445,6 +445,24 @@ def run_cost_risk(args) -> None:
           f"{', ' + ', '.join(charts) if charts else ''} to {out}")
 
 
+def run_gui(args) -> None:
+    """Open the window, or make its desktop shortcut."""
+    from cost_core import gui
+
+    if args.shortcut:
+        try:
+            path = gui.make_shortcut()
+        except OSError as e:
+            abort(str(e))
+        print(f"Made {path}. Double-click it to open cost-core.")
+        return
+    try:
+        gui.main([])
+    except ImportError:
+        abort("The window needs Tkinter, which comes with Python from python.org; some "
+              "Linux Pythons leave it out (install python3-tk).")
+
+
 def run_cer(args) -> None:
     """Fit a cost estimating relationship from Excel and price new programs."""
     import json
@@ -1475,6 +1493,12 @@ def main(argv=None) -> None:
                       help="Money label: dollars, thousands, millions or any word "
                            "(default: the workbook's Settings)")
 
+    # Subcommand: gui
+    p_gui = sub.add_parser(
+        "gui", help="Open cost-core in a window: pick a job, fill in the template, Run")
+    p_gui.add_argument("--shortcut", action="store_true",
+                       help="Put a cost-core shortcut on the desktop instead (Windows)")
+
     # Subcommand: cer
     p_cer = sub.add_parser(
         "cer",
@@ -1728,6 +1752,7 @@ def main(argv=None) -> None:
         "aoa": run_aoa,
         "cost-risk": run_cost_risk,
         "cer": run_cer,
+        "gui": run_gui,
         "phase": run_phase,
         "portfolio": run_portfolio,
         "jcl": run_jcl,
