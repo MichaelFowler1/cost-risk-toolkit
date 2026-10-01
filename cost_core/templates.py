@@ -131,6 +131,14 @@ def write_companion(topic: str, written) -> Optional[Path]:
 
 
 def write(topic: str, out) -> Path:
+    """Write the template for ``topic`` to ``out``, its input cells marked
+    (see :mod:`cost_core.template_style`); returns the path."""
+    from cost_core.template_style import style_template
+
+    return style_template(_write(topic, out), topic)
+
+
+def _write(topic: str, out) -> Path:
     """Write the template for ``topic`` to ``out``; returns the path."""
     out = Path(out)
     allowed = SUFFIXES.get(topic)

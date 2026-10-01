@@ -10,6 +10,55 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-10-01
+
+cost-core in a window, for estimators who live in Excel rather than a
+terminal, and templates that show exactly what to fill in. Nothing a command
+computes changes: the window runs the same commands, and the templates hold
+the same examples.
+
+### Added
+- **A window: `ce-core gui`.** Pick a job in plain words, see an example, get
+  the template (it opens in Excel), check it, run it. The key numbers show as
+  tiles, with what they mean in plain sentences and the main chart, and the
+  report, slides and folder open with a click. Every run is the command line
+  in a child process, so every check and refusal is the same. Tkinter ships
+  with Python, so it adds no dependency.
+- **Problems are shown where they are.** **Check my workbook** lists blank
+  required cells, text in number columns and whatever the command's reader
+  refuses, without running the analysis. A run that stops writes
+  `<workbook> - problem marked.xlsx`, a copy with the cell outlined in red and
+  the message attached; the user's file is never changed.
+- **A report left open in Excel** is caught before the run, with the offer
+  of a new results folder, instead of a failure at the end.
+- **Plain-word help**: hover notes on every job and button, and a glossary
+  of 25 terms.
+- **Settings**: a desktop shortcut (`ce-core gui --shortcut` does the same),
+  the right-click Send to entry, and the cost-core folder. Units, marking and
+  each job's recent files are remembered.
+- **Inflation conversion and the AoA status quo** in the window: an index
+  file with From and To, and a status quo chosen from the workbook's own
+  alternatives.
+- **`install/Install cost-core.cmd`**: double-click to install for the
+  current user, no administrator rights, from PyPI or from a `wheels` folder
+  beside it with no network, then make the desktop shortcut and open the
+  window.
+
+### Changed
+- **Templates mark what to fill in.** Input cells are yellow, with 25 blank
+  yellow rows to add to; required headings are dark blue and optional ones
+  light blue, each with a note saying what goes there and in what units;
+  fixed answers (distributions, profiles, units, yes or no, element and
+  alternative names) are drop-downs; the Instructions sheet opens with a
+  colour key. Every template still reads back to the same inputs, so the
+  results from a fresh template are unchanged.
+
+### Fixed
+- **The Send to entry made from the window runs where you can see it.** It
+  pointed at `pythonw.exe` when made from a windowed Python, so a file sent
+  to it ran with no console: no output, and nothing to say it had finished.
+  It now uses the console `python.exe` beside it.
+
 ## [2.7.0] - 2026-10-01
 
 Four things an estimator does every week that cost-core couldn't: fit a CER
@@ -1019,7 +1068,8 @@ keeping stable, and the goldens are what hold it to that.
   along with the test that bounded the fit against the element it summarised.
   There is no longer an approximation there to bound.
 
-[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.7.0...HEAD
+[Unreleased]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.8.0...HEAD
+[2.8.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.7.0...v2.8.0
 [2.7.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.6.0...v2.7.0
 [2.6.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.5.0...v2.6.0
 [2.5.0]: https://github.com/MichaelFowler1/cost-risk-toolkit/compare/v2.4.2...v2.5.0

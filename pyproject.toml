@@ -11,7 +11,7 @@ build-backend = "setuptools.build_meta"
 # normalises "cost-core" and "cost_core" to the same artefact names, so the
 # hyphen is only what people type after `pip install`.
 name = "cost-core"
-version = "2.7.0"
+version = "2.8.0"
 description = "Cost risk, EVM forecasts, DCMA schedule checks, JCL, AoA and portfolio choice for defense and space programs, in one Python package: Excel in, report and briefing out."
 readme = "README.md"
 # 3.9 is the floor because nothing here needs more. Every PEP 604 union in the
@@ -99,6 +99,11 @@ optimize = ["pulp>=2.8", "highspy>=1.7"]
 
 [project.scripts]
 ce-core = "cost_core.cli:main"
+
+# The window, for people who'd rather not use a command line: `cost-core`
+# opens it with no console behind it (ce-core gui does the same).
+[project.gui-scripts]
+cost-core = "cost_core.gui:main"
 
 [tool.setuptools.package-data]
 # The worked examples `ce-core demo` runs and `ce-core template` copies. They
