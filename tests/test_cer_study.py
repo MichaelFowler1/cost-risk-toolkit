@@ -277,10 +277,14 @@ def test_mupe_matches_a_statsmodels_gamma_glm(form):
             sm.families.links.Log()
     else:
         X, link = np.column_stack([np.ones(len(d)), d.W, d.P]), sm.families.links.Identity()
-    glm = sm.GLM(d["Cost"], X, family=sm.families.Gamma(link=link)).fit(scale="X2")
-    assert cer.result.theta == pytest.approx(glm.params.to_numpy(), rel=1e-6, abs=1e-6)
+    glm = sm.GLM(d["Cost"], X, family=sm.families.Gamma(link=link)).fit(
+        scale="X2", tol=1e-14, maxiter=1000)
+    # Both are iterative and agree to MUPE's own stopping rule: 7e-7 relative
+    # on this machine, 1.0e-6 on a GitHub Linux runner. 1e-5 is ten times that,
+    # still five significant figures, and nowhere near a different answer.
+    assert cer.result.theta == pytest.approx(glm.params.to_numpy(), rel=1e-5, abs=1e-6)
     assert np.sqrt(np.diag(cer.result.cov)) == pytest.approx(glm.bse.to_numpy(), rel=1e-5)
-    assert cer.result.sigma == pytest.approx(np.sqrt(glm.scale), rel=1e-6)
+    assert cer.result.sigma == pytest.approx(np.sqrt(glm.scale), rel=1e-5)
 
 
 # ------------------------------------------------- 2.7.0 pre-release sweep
