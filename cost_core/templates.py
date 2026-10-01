@@ -74,6 +74,10 @@ NEXT_STEPS = {
                  "in $M); replace the Elements rows with your estimate, and the Risks and "
                  "Correlation rows with yours or none (the Instructions sheet says what goes "
                  "where). Then run:\n  ce-core cost-risk --data {path}",
+    "cer": "It holds a worked example (twelve invented radars, cost against weight and "
+           "power). Replace the Data rows with your past programs and the Estimate rows "
+           "with the ones to price (the Instructions sheet says what goes where), then "
+           "run:\n  ce-core cer --data {path}",
     "inflate": "It shows the layout with an INVENTED 2% index. Replace the rows with your "
                "agency's published index (index_name, fiscal_year, index_value). "
                "{phasing} holds the amounts to convert, one row each with its fiscal_year "
@@ -99,7 +103,7 @@ _LOTS = pd.DataFrame({"lot": [f"Lot {i}" for i in range(1, 7)],
 
 
 #: The file types each template can be written as.
-SUFFIXES = {"evm": (".xlsx", ".csv"), "cost-risk": (".xlsx",), "inflate": (".csv",),
+SUFFIXES = {"evm": (".xlsx", ".csv"), "cost-risk": (".xlsx",), "cer": (".xlsx",), "inflate": (".csv",),
             "lots": (".csv",), "jcl": (".xlsx", ".json"), "aoa": (".xlsx", ".json"),
             "portfolio": (".xlsx", ".json")}
 
@@ -136,6 +140,9 @@ def write(topic: str, out) -> Path:
         return _evm(out)
     if topic == "cost-risk":
         from cost_core.costrisk import write_workbook
+        return write_workbook(out)
+    if topic == "cer":
+        from cost_core.cer.study import write_workbook
         return write_workbook(out)
     if topic == "inflate":
         from cost_core.inflate import illustrative_index

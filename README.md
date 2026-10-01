@@ -66,6 +66,7 @@ walks through each task from "what do I need" to "what does this tell me".
 | --- | --- | --- |
 | Forecast a program's final cost and finish from EVM | `ce-core demo evm` | `ce-core evm --data my_evm.xlsx` or `--ipmdar delivery.zip` |
 | How sure is my estimate, and what drives it (cost risk) | `ce-core demo cost-risk` | `ce-core cost-risk --data my_estimate.xlsx` |
+| Fit a CER from past programs and price a new one | `ce-core demo cer` | `ce-core cer --data my_cer.xlsx` |
 | Check a schedule's logic (DCMA 14-point) | `ce-core demo schedule` | `ce-core schedule-check --mspdi my_schedule.xml` |
 | Know the chance of meeting a budget *and* a date (JCL) | `ce-core demo jcl` | `ce-core jcl --spec my_jcl.xlsx` |
 | Compare alternatives on life-cycle cost (AoA) | `ce-core demo aoa` | `ce-core aoa --spec my_aoa.xlsx` |
@@ -154,6 +155,31 @@ It also shares the P80 out: how much of the reserve each element and risk
 needs, taken from the simulations whose total lands at the P80, so the shares
 add up to the P80 of the whole. Funding every element at its own P80 instead
 would overfund it, since percentiles don't add; the report shows by how much.
+
+## A CER from past programs
+
+Put the programs you have data for on a Data sheet, one row each with its cost
+and its technical drivers (weight, power, lines of code), and the new programs
+on an Estimate sheet:
+
+```bash
+ce-core demo cer                                         # twelve invented radars
+ce-core template cer                                     # my_cer.xlsx to fill in
+ce-core cer --data my_cer.xlsx --out cer/
+```
+
+It fits the CER by OLS, MUPE and ZMPE side by side (log-log by default, or
+linear), says what each coefficient means in cost ("doubling weight multiplies
+the cost by 1.51"), and prices each new program with a prediction interval:
+where one new program is expected to land, not the narrower interval on the
+line itself. It names a driver whose effect can't be told apart from zero, a
+program that pulls the fit more than the others, too few programs for the
+drivers, and a new program outside the data, including one whose drivers are
+each in range but whose combination isn't. A Use column leaves a program out
+of the fit without deleting it, with a note saying why. `report.xlsx` has the
+estimates, the methods compared, the coefficients with t-statistics and
+p-values, the diagnostics and the data as fitted; `brief.pptx` and the CSVs
+come with it.
 
 ## Earned value: where the program is heading
 

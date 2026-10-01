@@ -230,6 +230,79 @@ def dcma(result, schedule) -> List[str]:
     return out
 
 
+#: A driver whose p-value is above this is called out in :func:`cer`.
+P_FLAG_TEXT = 0.10
+
+
+def _money3(v: float, units: str = "") -> str:
+    """Like :func:`_money`, but three significant figures below 1,000, so a
+    CER's $27.2M doesn't read as $27M."""
+    units = (units or "").strip()
+    text = f"{abs(v):,.0f}" if abs(v) >= 1000 else f"{abs(v):,.3g}"
+    sign = "-" if v < 0 and text.strip("0.,") else ""
+    if units in ("", "as entered", "file currency"):
+        return f"{sign}{text}"
+    if units.startswith("$"):
+        return f"{sign}${text}{units[1:]}"
+    return f"{sign}{text} {units}"
+
+
+def cer(study, units: str = "") -> List[str]:
+    """A cost estimating relationship and what it prices."""
+    c, i = study.cer, study.inputs
+    out = [f"{c.equation()} fits {c.result.n_obs} programs by {c.method.upper()}, with a "
+           f"typical miss of {c.cv:.0%} (a standard error of "
+           f"{_money3(c.standard_error, units)})."]
+    coef = study.coefficients()
+    drivers = coef[coef["parameter"].str.startswith("b_")]
+    if c.form.value == "log_log" and len(drivers):
+        out.append("Doubling " + "; doubling ".join(
+            f"{p[2:]} multiplies the cost by {2.0 ** b:,.2f}"
+            for p, b in zip(drivers["parameter"], drivers["estimate"])) + ".")
+    weak = drivers[drivers["p_value"] > P_FLAG_TEXT]
+    for p, pv in zip(weak["parameter"], weak["p_value"]):
+        out.append(f"{p[2:]}'s effect can't be told apart from zero (p = {pv:.2f}): the "
+                   "data don't show it matters once the other drivers are in. Drop it, or "
+                   "keep it for a reason you can state.")
+    if c.df < 3 or c.obs_per_param < 3:
+        out.append(f"{c.result.n_obs} programs for {c.result.n_params} parameters is thin "
+                   f"({c.obs_per_param:.1f} per parameter, {c.df} degrees of freedom): the "
+                   "interval is honest about it, but the coefficients aren't well pinned "
+                   "down.")
+    diag = c.diagnostics()
+    if diag.influential:
+        out.append(f"{', '.join(diag.influential)} "
+                   f"{'pulls' if len(diag.influential) == 1 else 'pull'} the fit more than "
+                   "the others (Cook's distance above 4/n): check "
+                   f"{'its' if len(diag.influential) == 1 else 'their'} data before relying "
+                   "on the CER.")
+    est = study.estimates
+    for r in est.head(4).itertuples(index=False):
+        line = (f"For {r.name!r} it gives {_money3(r.estimate, units)}; "
+                f"{r.level:.0%} of programs like it would land between "
+                f"{_money3(r.lower, units)} and {_money3(r.upper, units)}.")
+        if r.outside_data == "yes":
+            line += (f" That's outside the data ({r.extrapolation_note}), where the CER has "
+                     "no evidence and the range understates the risk.")
+        out.append(line)
+    if len(est) > 4:
+        out.append(f"{len(est) - 4} more estimates are in the Estimates table.")
+    bias = study.bias()
+    if bias is not None and bias.percent_understated >= 0.5:
+        if c.method == "ols":
+            out.append(f"OLS in log space estimates the median program, not the mean: the "
+                       f"mean is about {bias.percent_understated:.0f}% higher. MUPE fits "
+                       "the mean directly.")
+        else:
+            out.append(f"{c.method.upper()} fits the mean; OLS in log space would sit about "
+                       f"{bias.percent_understated:.0f}% lower, at the median program.")
+    if len(i.excluded):
+        out.append(f"{len(i.excluded)} row{'s' if len(i.excluded) > 1 else ''} of the data "
+                   f"{'are' if len(i.excluded) > 1 else 'is'} left out of the fit (the Data "
+                   "table says which and why).")
+    return out
+
+
 def aoa(result, units: str = "") -> List[str]:
     """An analysis of alternatives."""
     s = result.summary.sort_values("p50")
@@ -366,6 +439,8 @@ def menu() -> str:
               ce-core jcl --spec my_jcl.xlsx
           Cost risk on an estimate: S-curve, confidence, drivers
               ce-core cost-risk --data my_estimate.xlsx
+          Fit a CER from past programs and price new ones
+              ce-core cer --data my_cer.xlsx
           Compare alternatives on life-cycle cost (AoA)
               ce-core aoa --spec my_aoa.xlsx
           Choose which programs to fund within a budget

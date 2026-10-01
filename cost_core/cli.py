@@ -445,6 +445,72 @@ def run_cost_risk(args) -> None:
           f"{', ' + ', '.join(charts) if charts else ''} to {out}")
 
 
+def run_cer(args) -> None:
+    """Fit a cost estimating relationship from Excel and price new programs."""
+    import json
+    import warnings
+    from pathlib import Path
+
+    from cost_core import plain
+    from cost_core.cer.study import CerError, analyse, read_workbook
+
+    need_file(args.data, "the CER data", "cer")
+    try:
+        inputs = read_workbook(args.data, cost=args.cost,
+                               drivers=args.drivers.split(";") if args.drivers else None)
+        units = args.units
+        if units is None and "units" not in inputs.stated:
+            units = toml_defaults(label_units=False).get("units")
+        study = analyse(inputs, form=args.form, method=args.method, level=args.confidence,
+                        units=units)
+    except (CerError, OSError) as e:
+        abort(f"CER failed: {e}")
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    study.comparison().to_csv(out / "methods.csv", index=False)
+    study.coefficients().to_csv(out / "coefficients.csv", index=False)
+    study.estimates.to_csv(out / "estimates.csv", index=False)
+    study.diagnostics().to_csv(out / "diagnostics.csv", index=False)
+    study.data_table().to_csv(out / "data.csv", index=False)
+    (out / "assumptions.json").write_text(json.dumps(
+        {**study.assumptions, "equation": study.cer.equation(), "notes": study.notes},
+        indent=1, default=str), encoding="utf-8")
+    written = ["report.xlsx", "methods.csv", "coefficients.csv", "estimates.csv",
+               "diagnostics.csv", "data.csv", "assumptions.json"]
+    try:
+        from cost_core.reporting.charts import plot_cer_diagnostics
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            plot_cer_diagnostics(study.cer, out / "cer_fit.png",
+                                 title="CER fit and diagnostics",
+                                 level=study.inputs.level, units=study.units)
+        written.append("cer_fit.png")
+    except ImportError:
+        pass
+    from cost_core.reporting.excel_report import cer_workbook
+    cer_workbook(study, out / "report.xlsx")
+    label = plain.units_label(study.units)
+    c = study.cer
+    print(f"\n{c.equation()}\n  {c.form.value.replace('_', '-')}, {c.method.upper()}, "
+          f"{c.result.n_obs} programs, {_costs_in(label)}\n")
+    shown = study.comparison()[["chosen", "method", "std_error", "cv", "df", "r_squared"]]
+    print(shown.to_string(index=False, float_format=lambda v: f"{v:,.3f}"))
+    print()
+    coef = study.coefficients()[["parameter", "estimate", "std_error", "t_stat", "p_value"]]
+    print(coef.to_string(index=False, float_format=lambda v: f"{v:,.4f}"))
+    if len(study.estimates):
+        print(f"\nEstimates ({study.inputs.level:.0%} prediction interval):")
+        for r in study.estimates.itertuples(index=False):
+            flag = "  outside the data" if r.outside_data == "yes" else ""
+            print(f"  {r.name:24} {r.estimate:14,.2f}   {r.lower:,.2f} to {r.upper:,.2f}{flag}")
+    for note in study.notes:
+        print(f"  note: {note}")
+    print(plain.show(plain.cer(study, label)))
+    from cost_core.reporting.brief import cer_brief
+    written[1:1] = [w for w in [write_brief(cer_brief, study, out)] if w]
+    print(f"Wrote {', '.join(written)} to {out}")
+
+
 def run_aoa(args) -> None:
     """Evaluate an AoA spec file and write the comparison."""
     import json
@@ -873,6 +939,7 @@ def run_schedule_check(args) -> None:
 DEMOS = {
     "evm": ["evm", "--data", "{path}", "--units", "thousands", "--out", "{out}"],
     "cost-risk": ["cost-risk", "--data", "{path}", "--out", "{out}"],
+    "cer": ["cer", "--data", "{path}", "--out", "{out}"],
     "schedule": ["schedule-check", "--mspdi", "{path}", "--out", "{out}"],
     "inflate": ["inflate", "--index", "{index}", "--data", "{path}",
                 "--from", "by2026", "--to", "ty", "--out", "{out}"],
@@ -884,7 +951,7 @@ DEMOS = {
 
 #: The commands that write report.xlsx and brief.pptx, and so take
 #: --marking and --template.
-REPORT_COMMANDS = ("cost-risk", "evm", "schedule-check", "jcl", "aoa", "portfolio", "demo",
+REPORT_COMMANDS = ("cost-risk", "cer", "evm", "schedule-check", "jcl", "aoa", "portfolio", "demo",
                    "open")
 
 #: ce-core.toml settings and the option each fills in.
@@ -1103,6 +1170,7 @@ def run_demo(args) -> None:
     main(argv)
     mine = {"evm": "ce-core evm --data my_evm.xlsx",
             "cost-risk": "ce-core cost-risk --data my_estimate.xlsx",
+            "cer": "ce-core cer --data my_cer.xlsx",
             "inflate": "ce-core inflate --index my_index.csv --data my_phasing.csv "
                        "--from by2026 --to ty",
             "schedule": "ce-core schedule-check --mspdi my_schedule.xml",
@@ -1119,6 +1187,7 @@ def _quote(arg: str) -> str:
 
 
 TEMPLATE_FILES = {"evm": "my_evm.xlsx", "cost-risk": "my_estimate.xlsx",
+                  "cer": "my_cer.xlsx",
                   "inflate": "my_index.csv",
                   "jcl": "my_jcl.xlsx", "aoa": "my_aoa.xlsx",
                   "portfolio": "my_portfolio.xlsx", "lots": "my_lots.csv"}
@@ -1322,6 +1391,35 @@ def main(argv=None) -> None:
                       help="Money label: dollars, thousands, millions or any word "
                            "(default: the workbook's Settings)")
 
+    # Subcommand: cer
+    p_cer = sub.add_parser(
+        "cer",
+        help="Fit a cost estimating relationship from Excel and price new programs",
+    )
+    p_cer.add_argument("--data", required=True,
+                       help="Excel workbook with a Data sheet (and optionally Estimate and "
+                            "Settings), or a CSV of the data; ce-core template cer writes one")
+    p_cer.add_argument("--out", default="cer",
+                       help="Directory for the tables, chart, report.xlsx and brief.pptx")
+    p_cer.add_argument("--cost", default=None, metavar="COLUMN",
+                       help="The cost column's heading (default: the Settings sheet, else "
+                            "a column headed Cost)")
+    p_cer.add_argument("--drivers", default=None, metavar="COLUMNS",
+                       help="Driver headings separated by ; (default: the Settings sheet, "
+                            "else every other column of numbers)")
+    p_cer.add_argument("--form", default=None, choices=["log-log", "linear"],
+                       help="log-log (cost = a * driver^b) or linear (default: the "
+                            "Settings sheet, else log-log)")
+    p_cer.add_argument("--method", default=None, choices=["ols", "mupe", "zmpe"],
+                       help="The fit used for the estimates; all three are compared "
+                            "(default: the Settings sheet, else MUPE)")
+    p_cer.add_argument("--confidence", default=None, type=float,
+                       help="Prediction interval, e.g. 0.8 (default: the Settings sheet, "
+                            "else 0.8)")
+    p_cer.add_argument("--units", default=None,
+                       help="Money label: dollars, thousands, millions or any word "
+                            "(default: the workbook's Settings)")
+
     # Subcommand: aoa
     p_aoa = sub.add_parser(
         "aoa",
@@ -1435,7 +1533,8 @@ def main(argv=None) -> None:
     p_tmpl = sub.add_parser(
         "template", help="Write a file to fill in with your own data")
     p_tmpl.add_argument("topic", choices=sorted(list(TEMPLATE_FILES) + ["schedule"]),
-                        help="Which one: cost-risk, evm, jcl, aoa, portfolio, inflate, lots or schedule")
+                        help="Which one: cost-risk, cer, evm, jcl, aoa, portfolio, inflate, "
+                             "lots or schedule")
     p_tmpl.add_argument("--out", default=None,
                         help="File to write (default: my_<topic> in this folder)")
     p_tmpl.add_argument("--force", action="store_true", help="Replace the file if it exists")
@@ -1520,6 +1619,7 @@ def main(argv=None) -> None:
         "evm": run_evm,
         "aoa": run_aoa,
         "cost-risk": run_cost_risk,
+        "cer": run_cer,
         "portfolio": run_portfolio,
         "jcl": run_jcl,
         "demo": run_demo,

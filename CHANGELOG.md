@@ -10,6 +10,23 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Added
+- **`ce-core cer`: a CER from your own data.** A workbook with a Data sheet
+  (one row per past program: its cost and its drivers), an optional Estimate
+  sheet (the new programs to price) and an optional Settings sheet. The CER is
+  fitted by OLS, MUPE and ZMPE side by side, log-log by default or linear, and
+  each new program is priced with a prediction interval. The summary says
+  what each coefficient means in cost, and names a driver that can't be told
+  apart from zero (p above 0.10), a program that pulls the fit (Cook's
+  distance above 4/n), too few programs for the drivers, a new program outside
+  the data, and how far an OLS fit in log space sits below the mean. A Use
+  column leaves a row out with its reason; a blank cost or driver leaves it
+  out with a note. `report.xlsx`, `brief.pptx`, a four-panel chart and CSVs.
+  `ce-core demo cer`, `ce-core template cer` and `ce-core open` know it, and
+  `ce-core.toml`'s units apply when the workbook gives none.
+- The CER chart takes the interval level and the units, and with several
+  drivers its first panel plots actual against fitted cost.
+
 ## [2.6.0] - 2026-09-30
 
 What a team needs on its first day (markings, its own slide master, settings

@@ -500,3 +500,38 @@ def portfolio_brief(result, portfolio, out_dir, units: str = "", risk=None,
                   + [f"{k}: {v}" for k, v in (settings or {}).items()]
                   + ["The full tables are in report.xlsx beside this briefing."])
     return b.save(Path(out_dir) / "brief.pptx")
+
+
+def cer_brief(study, out_dir) -> Path:
+    from cost_core import plain
+
+    units = plain.units_label(study.units)
+    c = study.cer
+    out_dir = Path(out_dir)
+    b = Brief("Cost estimating relationship",
+              f"{c.result.n_obs} programs, {c.method.upper()}")
+    numbers = [("typical miss (CV)", f"{c.cv:.0%}"), ("programs", str(c.result.n_obs)),
+               ("degrees of freedom", str(c.df))]
+    est = study.estimates
+    if len(est):
+        first = est.iloc[0]
+        numbers.insert(0, (str(first["name"]), plain._money3(first["estimate"], units)))
+    b.bottom_line(plain.cer(study, units), numbers)
+    b.image("The fit and its diagnostics", out_dir / "cer_fit.png",
+            caption=c.equation())
+    if len(est):
+        b.table("Estimates", pd.DataFrame({
+            "Program": est["name"],
+            "Estimate": est["estimate"].map(lambda v: plain._money3(v, units)),
+            f"{study.inputs.level:.0%} range": [
+                f"{plain._money3(lo, units)} to {plain._money3(hi, units)}"
+                for lo, hi in zip(est["lower"], est["upper"])],
+            "Outside the data": est["outside_data"]}))
+    comp = study.comparison()
+    b.table("OLS, MUPE and ZMPE compared", pd.DataFrame({
+        "Method": comp["method"], "Chosen": comp["chosen"], "Equation": comp["equation"],
+        "Typical miss": comp["cv"].map(lambda v: f"{v:.0%}"),
+        "R-squared": comp["r_squared"].map(lambda v: f"{v:.2f}")}))
+    b.assumptions([f"{k}: {v}" for k, v in study.assumptions.items()]
+                  + ["The full tables are in report.xlsx beside this briefing."])
+    return b.save(out_dir / "brief.pptx")

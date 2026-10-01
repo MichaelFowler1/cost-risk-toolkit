@@ -26,6 +26,9 @@ EXAMPLES = {
     "cost-risk": ("cost_risk_example.xlsx",
                   "A ground station upgrade estimated in $M: eight WBS elements with "
                   "ranges, three risks and the correlations between elements."),
+    "cer": ("cer_example.xlsx",
+            "Twelve invented radar programs, cost in BY2026 $M against weight and power, "
+            "and two new radars to price (one outside the data)."),
     "inflate": ("inflate_example.csv",
                 "An invented estimate in BY2026 $M, phased by fiscal year, converted to "
                 "then-year dollars with an illustrative 2% index (inflate_index.csv)."),

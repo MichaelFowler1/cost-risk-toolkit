@@ -145,6 +145,22 @@ ce-core portfolio --spec my_portfolio.xlsx
 year's budget, what an extra dollar in each year would buy, and the chance
 each year goes over once costs grow.
 
+### Fit a CER from past programs and price a new one
+
+```bash
+ce-core demo cer
+ce-core template cer                  # writes my_cer.xlsx
+ce-core cer --data my_cer.xlsx
+```
+
+**What you need:** one row per past program with its cost and its drivers, all
+in one dollar year, and one row per new program with the same drivers.
+
+**What you get:** the CER fitted by OLS, MUPE and ZMPE, what each coefficient
+means in cost, each new program's estimate with a prediction interval, and a
+plain warning for a weak driver, an influential program, thin data or a new
+program outside the data.
+
 ### Fit a learning curve to production lots
 
 ```bash
