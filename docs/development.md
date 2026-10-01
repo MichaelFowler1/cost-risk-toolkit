@@ -2,20 +2,19 @@
 
 *Part of the [cost-core README](https://github.com/MichaelFowler1/cost-risk-toolkit#readme).*
 
-## Reproducing the numbers: the numpy and scipy bounds
+## Reproducing the numbers: the capture stack
 
-numpy and scipy also carry an upper bound, `numpy<2.5` and `scipy<1.18`. That is
-about reproducing numbers, not about running: above those versions the library
-imports and works, but it stops reproducing the figures this release pins. Both
-land the unbiased MUPE and ZMPE refits in a slightly different place, which moves
-golden leaves by up to 8e-9 and 4.5e-8 relative against a 1e-9 tolerance, and
-scipy 1.18 also changes the simulated draws, which the frozen-draw tests hash.
-Both are seen on Windows, where the goldens were captured. Elsewhere those refit
-leaves carry a measured allowance for the machine's own last bits and the hashes
-are not checked, so a bound has to be measured on Windows. Raising a bound means
-rebaselining the goldens and the frozen draws against the new stack and writing
-down what moved, the same process every other rebaseline here went through.
-`CHANGELOG.md` carries the measurements.
+cost-core installs with any numpy and scipy from its floors up. Reproducing the
+goldens to 1e-9 is a property of one stack, the one they were captured under:
+numpy 2.5.3, scipy 1.18.1, pandas 3.0.3 on Python 3.14, which
+`requirements.txt` pins and `tests/goldens/COMPARE_POLICY.json` records. On the
+Windows machine that captured them, on that stack, every leaf is held at 1e-9.
+Anywhere else the last digits of the MUPE and ZMPE refits move a little, by
+machine and by version, so those leaves take a measured allowance, and the
+frozen random draws are hashed per scipy generation (scipy 1.18 changed them).
+Moving the capture stack means rebaselining the goldens and the frozen draws
+and writing down what moved; `CHANGELOG.md` carries the measurements (2.7.0 for
+the latest).
 
 ## Project structure
 

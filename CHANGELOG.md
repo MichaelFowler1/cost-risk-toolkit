@@ -16,11 +16,29 @@ Four things an estimator does every week that cost-core couldn't: fit a CER
 from your own data and price new programs with it, carry that CER's
 uncertainty into the cost risk analysis, phase an estimate into a then-year
 budget by fiscal year and appropriation, and ask whether an AoA alternative
-pays for itself against the status quo. The AoA example's numbers move,
-because it now pays to keep the current system running until each
-replacement arrives; nothing else from a valid input does.
+pays for itself against the status quo. And numpy and scipy are no longer
+capped, so cost-core installs beside current releases instead of downgrading
+them. The AoA example's numbers move, because it now pays to keep the current
+system running until each replacement arrives, and on scipy 1.18 or later a
+seeded simulation draws slightly different numbers; nothing else from a valid
+input moves.
 
 ### Changed
+- **numpy and scipy are no longer capped.** cost-core required `numpy<2.5` and
+  `scipy<1.18`, so installing it beside current releases downgraded both, or
+  failed when another package needed the newer ones. The caps only kept the
+  reference results reproducing to 1e-9, so that job moves to the test
+  environment: `requirements.txt` pins the capture stack, now numpy 2.5.3 and
+  scipy 1.18.1, exact comparison needs that stack on the capture machine, and
+  every other stack takes the measured allowance. Rebaselined on the new stack:
+  71 leaves of `lots_cost_core`, all in the MUPE and ZMPE refits of the
+  learning-curve method comparison plus two Mean bias cells printed as zero,
+  the largest move in an estimate 5.6e-7 relative (a ZMPE slope exponent of
+  -0.012); no other golden moved. On scipy 1.18 or later a seeded simulation
+  draws slightly different random numbers than on earlier scipy, so seeded
+  results agree to sampling noise rather than to the last digit; the
+  percentiles the tests hold did not move. Every test passes on both the old
+  and the new stack.
 - The AoA example gains a status quo, "Keep current system", and each
   replacement now pays to keep the current system running until it arrives,
   as an AoA should. Its numbers move accordingly: Upgrade in place's present

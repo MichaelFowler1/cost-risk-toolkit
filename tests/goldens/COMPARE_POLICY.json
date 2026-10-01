@@ -2,9 +2,10 @@
  "_purpose": "what the step-2 regression test (new engine vs these goldens) compares and at what tolerance",
  "captured_under": {
   "python": "3.14.5",
-  "numpy": "2.4.4",
+  "numpy": "2.5.3",
+  "scipy": "1.18.1",
   "pandas": "3.0.3",
-  "note": "manifest.json carries the full interpreter string, openpyxl and scipy versions and the git revisions of both repos; goldens are LF-terminated JSON"
+  "note": "manifest.json carries the full interpreter string, openpyxl and scipy versions and the git revisions of both repos; goldens are LF-terminated JSON; rebaselined 2026-10-01 for 2.7.0, which lifted the numpy and scipy caps: lots_cost_core's 71 leaves that numpy 2.5.3 and scipy 1.18.1 move (the learning_curve_compare_methods MUPE and ZMPE refits and two printed Mean bias signs) were rewritten from this stack, and nothing else; exact comparison now needs this numpy and scipy as well as the capture machine"
  },
  "tolerance": {
   "rtol": 1e-09,

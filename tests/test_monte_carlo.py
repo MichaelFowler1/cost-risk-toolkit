@@ -362,12 +362,13 @@ ANALYTIC_PERCENTILES = {
     "iman_conover|20000|3": (713376830.190798, 800133746.5882429, 848639407.2056745),
 }
 
-#: And the bytes, on Windows, where they were frozen. There they are identical
-#: on both supported lanes (numpy 2.0.2 / Python 3.9 and numpy 2.4 / Python
-#: 3.14), and they see what the percentiles cannot: scipy 1.18.1 changes the
-#: draws enough to fail these hashes, which is how the scipy cap in
-#: pyproject.toml was found, and leaves all four sets of percentiles exactly
-#: where they were, which was measured under Linux. The platform is read from
+#: And the bytes, on Windows, where they were frozen. scipy 1.18 changed the
+#: draws enough to change these hashes while leaving all four sets of
+#: percentiles exactly where they were, so the bytes are held for each scipy
+#: generation separately: ANALYTIC_BYTES_BEFORE_SCIPY_1_18 as frozen on numpy
+#: 2.0.2 / Python 3.9 and numpy 2.4 / Python 3.14 (identical on both), and
+#: ANALYTIC_BYTES as refrozen on 2026-10-01 under numpy 2.5.3, scipy 1.18.1,
+#: Python 3.14 when 2.7.0 lifted the numpy and scipy caps. The platform is read from
 #: COMPARE_POLICY, which names it for the whole suite, and anywhere else the
 #: byte test reports itself skipped rather than passed. The totals' bytes hold
 #: on any Windows machine tried, CI runners included; the element draws' bytes
@@ -377,6 +378,24 @@ ANALYTIC_BYTES_PLATFORM = json.loads(
     (Path(__file__).resolve().parent / "goldens" / "COMPARE_POLICY.json").read_text(encoding="utf-8")
 )["expected_to_move_across_platforms"]["captured_on_platform"]
 ANALYTIC_BYTES = {
+    "gaussian_copula|8000|11": (
+        "91571ac7cc5474d6f65fdb34cd702f78bff78f25c54ab644c0ede475d66a2945",
+        "403d395e8ab036156da2b5d07e117bedd37192a70fdb30d54bdac4ac369fec5d",
+    ),
+    "gaussian_copula|20000|3": (
+        "8e17cb934f70b6cf04796bce94e68eff70cf139cb7454eb92891c6065a63b348",
+        "ab7e2c87d87bc4aa73a8d6b23d52c860c0c9b2956709a4eecfd4fdcc045c64a8",
+    ),
+    "iman_conover|8000|11": (
+        "389824e895fad5f14212ac0cf7d8405270291e54d1755e6141c0103109e1f0e1",
+        "204263b81a8681db483025f20dc834212c70bb08ef79e3779850e82f5d6541ad",
+    ),
+    "iman_conover|20000|3": (
+        "85b16bd25a8a81c2f09d865aef31c41c28d97175bb68f96de5371e8f006204d4",
+        "313263c5ab8cb67cb03bf83bc174288d8c2e4e2694bc9daa4adcaf252c3eea4e",
+    ),
+}
+ANALYTIC_BYTES_BEFORE_SCIPY_1_18 = {
     "gaussian_copula|8000|11": (
         "a98b9aed7fdec825a732570f6e664ac02196b0f2a448a833409665cea96b3628",
         "77a5e0627efa2aca7455730dfba2991c0d186a014f65b891795bac61d8e74c92",
@@ -394,6 +413,15 @@ ANALYTIC_BYTES = {
         "0de07890abfa1273b0acac9484397eabc0537aa9a6c070b13a1642f44787da9e",
     ),
 }
+
+
+def _frozen_bytes(key):
+    """The hashes for the scipy generation this run is on."""
+    import scipy
+
+    major, minor = (int(x) for x in scipy.__version__.split(".")[:2])
+    return (ANALYTIC_BYTES if (major, minor) >= (1, 18)
+            else ANALYTIC_BYTES_BEFORE_SCIPY_1_18)[key]
 
 
 #: Each element's mean, P50 and P90 in the same four simulations, held at
@@ -509,10 +537,10 @@ def test_an_analytic_model_still_reproduces_its_frozen_draws(key):
 
     result = _analytic_result(key)
     totals = hashlib.sha256(result.totals.tobytes()).hexdigest()
-    assert totals == ANALYTIC_BYTES[key][0], _analytic_moved(key)
+    assert totals == _frozen_bytes(key)[0], _analytic_moved(key)
     if _on_capture_machine():
         elements = hashlib.sha256(result.element_samples.tobytes()).hexdigest()
-        assert elements == ANALYTIC_BYTES[key][1], _analytic_moved(key)
+        assert elements == _frozen_bytes(key)[1], _analytic_moved(key)
 
 
 #: The same guard for the mixed model, held at the percentiles rather than at

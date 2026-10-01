@@ -386,7 +386,8 @@ def test_the_platform_allowance_reaches_mupe_and_zmpe_and_nothing_else():
     assert home == "win32"
     # The capture machine: its platform, and not a CI runner, whose CPU (and
     # so numpy's last bits) differs from run to run.
-    assert GS.ON_CAPTURE_PLATFORM == (sys.platform == "win32" and not os.environ.get("CI"))
+    assert GS.ON_CAPTURE_PLATFORM == (sys.platform == "win32" and not os.environ.get("CI")
+                                      and GS._on_capture_stack())
     assert GS._build_platform_overrides(platform=home) == {}
     assert GS._build_platform_exclusions(platform=home) == []
     globs = GS._build_platform_overrides(platform="linux")
@@ -564,7 +565,13 @@ def test_a_ci_runner_is_never_taken_for_the_capture_machine(monkeypatch):
     entry = GS._platform_carve_out()
     monkeypatch.setattr(GS.sys, "platform", "win32")
     monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setattr(GS, "_on_capture_stack", lambda path=None: True)
     assert GS._on_capture(entry)
+    # The capture machine on another numpy or scipy is not the capture
+    # stack, so it takes the allowance like any other machine (2.7.0).
+    monkeypatch.setattr(GS, "_on_capture_stack", lambda path=None: False)
+    assert not GS._on_capture(entry)
+    monkeypatch.setattr(GS, "_on_capture_stack", lambda path=None: True)
     monkeypatch.setenv("CI", "true")
     assert not GS._on_capture(entry)
     monkeypatch.setattr(GS.sys, "platform", "linux")
