@@ -17,6 +17,8 @@ put a `wheels` folder beside it first (the file says how to make one). If
 cost-core is already installed, `ce-core gui` opens the window and
 `ce-core gui --shortcut` makes the shortcut.
 
+![The cost-core window after a cost risk run: the jobs on the left, the key numbers as tiles, and what they mean in plain sentences](gui-answer.png)
+
 On the left is a list of jobs in plain words. Choose one, then:
 
 1. **See an example** runs it on invented numbers, so you can see what comes
@@ -36,11 +38,15 @@ mean in plain sentences, and the main chart on the **Chart** tab. **Open
 report** and **Open slides** open `report.xlsx` and `brief.pptx`, saved in a
 folder named after your workbook, beside it.
 
+![The Chart tab after an analysis of alternatives: each alternative's life-cycle cost as an S-curve](gui-chart.png)
+
 If something is wrong, the window says what and where. **Show me where**
 opens a copy of your workbook with the cell outlined in red and the message
 attached to it; your own file isn't changed. **Open my workbook to fix it**
 opens the original. If last run's report is still open in Excel, the window
 offers to save this run to a new folder instead.
+
+![Check my workbook finding text typed in a number column, with the sheet and row, and buttons to show where and to open the workbook](gui-check.png)
 
 **What do these words mean?** explains the terms (P80, MUPE, SIR, TCPI and
 the rest). **Settings** makes the desktop shortcut, adds cost-core to the

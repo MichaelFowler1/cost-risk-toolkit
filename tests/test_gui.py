@@ -335,3 +335,30 @@ def test_send_to_made_from_the_window_shows_its_run(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "executable", str(fake / "pythonw.exe"))
     text = opener.install_send_to().read_text(encoding="utf-8")
     assert "python.exe" in text and "pythonw" not in text
+
+
+def test_tiles_carry_the_units_even_without_assumptions_json(ran):
+    out = ran("cost-risk")
+    assert not (out / "assumptions.json").exists()
+    assert gui.recorded_units(out) == "millions"
+    assert gui.answer(out)[0][0] == ("Point estimate", "$156M")
+    assert gui.recorded_units(ran("evm")) == "$K"
+
+
+def test_a_job_without_extra_choices_leaves_no_gap(tmp_path, monkeypatch):
+    tk = pytest.importorskip("tkinter")
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        pytest.skip("no display")
+    try:
+        app = gui.App(root)
+        app.choose("aoa")
+        root.update()
+        assert app.extras.winfo_ismapped()
+        app.choose("cost-risk")
+        root.update()
+        assert not app.extras.winfo_ismapped()
+    finally:
+        root.destroy()
