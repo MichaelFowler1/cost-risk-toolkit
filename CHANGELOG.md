@@ -10,6 +10,18 @@ housekeeping detail here, because someone may have put the old one in a budget.
 
 ## [Unreleased]
 
+### Fixed
+- **The window's tiles show the money units for cost risk.** Cost risk
+  writes no `assumptions.json`, so its tiles read "156" while the sentences
+  below said "$156M"; the units now come from the report's Assumptions sheet
+  when there's no JSON.
+- **No empty gap in the window** after moving from a job with extra choices
+  (AoA, inflation) to one without.
+
+### Added
+- **Pictures of the window** in the README and getting started, made by
+  `tools/make_gui_screenshots.py` from a real run on the bundled examples.
+
 ## [2.8.0] - 2026-10-01
 
 cost-core in a window, for estimators who live in Excel rather than a

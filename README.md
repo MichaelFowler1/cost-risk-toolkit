@@ -56,6 +56,8 @@ rights, and puts a cost-core shortcut on your desktop. Already installed?
 `ce-core gui` opens the window, and `ce-core gui --shortcut` makes the
 shortcut. More in [getting started](https://github.com/MichaelFowler1/cost-risk-toolkit/blob/main/docs/getting-started.md#the-window).
 
+![The cost-core window after a cost risk run: the jobs on the left, the key numbers as tiles, and what they mean in plain sentences](https://raw.githubusercontent.com/MichaelFowler1/cost-risk-toolkit/main/docs/gui-answer.png)
+
 Or from a command prompt:
 
 ```bash

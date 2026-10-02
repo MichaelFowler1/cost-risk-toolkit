@@ -497,6 +497,34 @@ def _money(v: float, units: str) -> str:
     return plain._money3(float(v), plain.units_label(units or ""))
 
 
+def recorded_units(out: Path) -> str:
+    """The units a run recorded: in assumptions.json, or else on the
+    report's Assumptions sheet (cost risk writes no JSON). Empty if neither
+    says."""
+    out = Path(out)
+    try:
+        units = json.loads((out / "assumptions.json").read_text(encoding="utf-8")).get("units")
+        if units:
+            return str(units)
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(out / "report.xlsx", read_only=True)
+        try:
+            sheet = next((wb[n] for n in wb.sheetnames if n.strip().lower() == "assumptions"),
+                         None)
+            for row in (sheet.iter_rows(values_only=True) if sheet is not None else ()):
+                if row and str(row[0]).strip().lower() == "units" and len(row) > 1 and row[1]:
+                    return str(row[1])
+        finally:
+            wb.close()
+    except Exception:  # noqa: BLE001 - no report, no units: the tiles go unlabelled
+        pass
+    return ""
+
+
 def answer(out: Path, units: str = "", kind: Optional[str] = None
            ) -> Tuple[List[Tuple[str, str]], Optional[Path]]:
     """The key numbers of a result as (label, value) tiles, and its main
@@ -515,11 +543,7 @@ def answer(out: Path, units: str = "", kind: Optional[str] = None
         kind = result_kind(out)
     if kind is None:
         return [], None
-    try:
-        recorded = json.loads((out / "assumptions.json").read_text(encoding="utf-8"))
-        units = recorded.get("units") or units
-    except (OSError, ValueError):
-        pass
+    units = recorded_units(out) or units
     if units in ("as entered", None):
         units = ""
     m = lambda v: _money(v, units)  # noqa: E731
@@ -1000,14 +1024,13 @@ class App:
         self.edit_btn = ttk.Button(step2, text="Open in Excel", command=self.edit_file)
         self.edit_btn.pack(side="left", padx=(6, 0))
 
-        self.extras = ttk.Frame(right)
-        self.extras.pack(fill="x")
+        self.extras = ttk.Frame(right)   # packed only when a job has extra choices
         self.index_var = tk.StringVar(value=self.prefs.get("index", ""))
         self.from_var = tk.StringVar(value=self.prefs.get("from", "by2026"))
         self.to_var = tk.StringVar(value=self.prefs.get("to", "ty"))
         self.sq_var = tk.StringVar()
 
-        opts = ttk.Frame(right)
+        opts = self.opts = ttk.Frame(right)
         opts.pack(fill="x", pady=3)
         ttk.Label(opts, text="", width=3).pack(side="left")
         ttk.Label(opts, text="Units:").pack(side="left")
@@ -1190,7 +1213,12 @@ class App:
         ttk = self.ttk
         for w in self.extras.winfo_children():
             w.destroy()
+        # an emptied frame keeps its old height in Tk, so take it out and put
+        # it back only when there is something to show
+        self.extras.pack_forget()
         t = self.current
+        if t.key in ("inflate", "aoa"):
+            self.extras.pack(fill="x", before=self.opts)
         if t.key == "inflate":
             row = ttk.Frame(self.extras)
             row.pack(fill="x", pady=3)
